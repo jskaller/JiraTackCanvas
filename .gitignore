@@ -1,0 +1,38 @@
+# Dependencies
+node_modules/
+
+# Forge
+.forge/
+*.forge.log
+
+# Vite build output
+dist/
+dist-*/
+build/
+
+# Environment
+.env
+.env.*
+!.env.example
+
+# Logs
+*.log
+npm-debug.log*
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editors
+.vscode/*
+!.vscode/settings.json.example
+!.vscode/extensions.json
+.idea/
+
+# Test output
+coverage/
+
+# Temp
+*.swp
+*.swo
+*~
