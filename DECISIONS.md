@@ -15,6 +15,53 @@ Single decision log for JiraTack. Every open and resolved decision appears exact
 **Rejected alternatives:** Popup-based re-auth every session; opaque session tokens requiring KVS lookup per call.
 **Applies to:** SPEC §5, ARCHITECTURE §3, CONTRACTS §2, CONTRACTS §3.
 
+### D9 — Pin visibility and canvas permission model
+
+**Status:** Resolved (2026-10-23)
+**Resolution:** Three-part solution.
+
+1. **Permission list embedded in JWT.** At token issuance, the resolver queries the viewer's browse-accessible projects via `asUser().requestJira('/rest/api/3/project/search?action=browse&maxResults=100')`. The list (or `"*"` if the viewer has 100+ projects) is embedded in the JWT as `permittedProjects`. At request time, `getPinsForCanvasAndUrl` filters pins by comparing each pin's project against `permittedProjects`. No permission check at webtrigger time — the check happened once at issuance.
+
+2. **Global admin setting `viewPermissionMode`** controls behavior: `per_user_projects` (default) uses the permission-list mechanism above; `open` sets `permittedProjects: "*"` for all viewers, so anyone with a bookmarklet sees all pins in the canvas regardless of project access. `open` is for the rare case where a canvas must be reviewable by someone without Jira project access (external stakeholder, agency, etc.).
+
+3. **Hybrid pin storage with recovery.** The four custom fields (`JiraTack Canvas`, `Page URL`, `Pin Position`, `Pinned Selector`) remain the primary query index — the overlay, dashboard, and all JQL queries read from them. Additionally, every ticket's description receives an ADF marker paragraph containing a JSON blob with the same four values. If a project move drops the custom fields (team-managed targets, or company-managed targets with unmapped screens), the description marker survives. The admin can run `recoverPinsFromDescriptions` on demand to repopulate the fields from the marker.
+
+**Moved-ticket behavior (restricted mode, `per_user_projects`):** A ticket moved from Project A to Project B stays in the canvas. Viewers with BROWSE on B (regardless of A) continue to see the pin. Viewers without BROWSE on B stop seeing it. No phantom canvases, no re-pinning, no orphaned pins — unless the fields were dropped by Jira on move, in which case the description marker preserves the data until recovery runs.
+
+**Documented limitations:**
+
+- Issue-level security (specific issues hidden within an accessible project) is not filterable at webtrigger time. Pins for such issues are visible to viewers with project access. Rare; documented.
+- If the viewer gains project access mid-session (JWT ≤ 8h), their `permittedProjects` claim is stale until JWT refresh.
+- If a user edits or deletes the description marker, recovery cannot repopulate that ticket's fields.
+
+**Rejected alternatives:** Per-request KVS permission lookup (contradicts D11, adds latency); single-project canvas binding with moved pins leaving the canvas (breaks continuity); auto-creating canvases on move (produces phantom clutter, no clear audience for the new canvas's permissions).
+
+**Applies to:** SPEC §18, CONTRACTS §1.2, §2.2, §3.2, §3.3, §4.1, §4.6, §8.4, §10.1, BUILD_PLAN §4, §5, §6, §9.
+
+### D11 — Revocation lag on `createIssue`
+
+**Status:** Resolved (2026-10-23)
+**Resolution:** Accept 8-hour lag. `createIssue` and other write actions validate the JWT scope and signature but do not re-check the canvas-token record. Revocation is effective within one JWT lifetime (≤8h). "Regenerate bookmarklet" revokes the old token for new exchanges but does not invalidate live JWTs.
+**Mitigation:** Admin UI documents the lag. v1.1 can add per-call KVS check on write actions if customer demand requires.
+**Rejected alternative:** Per-call KVS read. Requires KVS schema change to expose token ID in JWT, adds cost and latency.
+**Applies to:** SPEC §18, CONTRACTS §3.3.
+
+### D13 — SDK version source
+
+**Status:** Resolved (2026-10-23)
+**Resolution:** Content hash. `scripts/embed-sdk.js` computes SHA-256 of the minified SDK bundle and truncates to 12 hex characters. Exported from `src/lib/version.js` as `SDK_VERSION`. Embedded in every bookmarklet URL as `?v=<SDK_VERSION>` for cache-busting.
+**Implementation:** `npm run build` must regenerate `src/lib/version.js`. Verify in Sprint 1 whether Forge CLI supports pre-deploy build hooks; if not, commit `src/lib/version.js` and `src/lib/sdk-bundle.js`.
+**Rejected alternatives:** Git commit hash (imprecise); manual version bumps (discipline-dependent); timestamp (non-deterministic).
+**Applies to:** BUILD_PLAN §8.3, CONTRACTS §4.1 and §10.2.
+
+### D14 — Retirement config source in multi-project canvases
+
+**Status:** Resolved (2026-10-23)
+**Resolution:** Use the project of the canvas's **first (oldest) ticket** to determine `retirementDays`. Cache the canvas→project mapping in KVS (`canvasProjectCache:<canvasName>` → `{ projectKey, cachedAt }`) with TTL 300s. If the canvas has no tickets, treat as `retirementDays: 0` (default).
+**Documented limitation:** If a canvas spans two projects and the oldest ticket is deleted, retirement behavior may change. Rare; acceptable for v1.
+**Rejected alternatives:** Per-page first-ticket (inconsistent); max across projects (expensive); installation-level config (schema change; defer).
+**Applies to:** CONTRACTS §7.2, BUILD_PLAN §10.2.
+
 ---
 
 ## Open — blocking Sprint 1
@@ -31,58 +78,10 @@ Single decision log for JiraTack. Every open and resolved decision appears exact
 
 **Status:** Open — resolve during Sprint 1 deploy
 **Question:** Forge runtime `nodejs22.x` (default in our docs) or `nodejs24.x` (proven working on prior build)?
-**Recommendation:** `nodejs22.x` for v1. `jsonwebtoken` and `@forge/kvs` are known-compatible on 22.
-**Alternative:** `nodejs24.x` if 22 fails to deploy or any dependency requires 24. Prior build deployed successfully on 24.
+**Recommendation:** `nodejs22.x` for v1.
+**Alternative:** `nodejs24.x` if 22 fails to deploy.
 **Decision needed from:** Sprint 1 deploy result.
 **Applies to:** CONTRACTS §10.1, BUILD_PLAN §4.2.
-
----
-
-## Open — blocking Sprint 2
-
-### D9 — View-token access delegation
-
-**Status:** Open
-**Question:** Because webtriggers cannot act as a user (`asUser()` unavailable in that context), `getPinsForCanvasAndUrl` under a view-scoped JWT returns pin metadata for all tickets in the canvas, regardless of the viewer's Jira project permissions. Access is delegated: the licensed user who generated the view token vouches that these tickets are safe to expose to the intended audience.
-**Recommendation:** Accept. Document in the marketplace listing. Show confirmation on "Copy review bookmarklet" action ("Anyone with this bookmarklet can see all pins and summaries in this canvas").
-**Alternative:** Ship `create`-scope only in v1. Defer view tokens to v2 with a full OAuth flow that preserves user identity in webtriggers.
-**Decision needed from:** Product owner before Sprint 2 starts.
-**Applies to:** SPEC §18, CONTRACTS §3.2 and §5.2, BUILD_PLAN §5.
-
-### D11 — Revocation lag on `createIssue`
-
-**Status:** Open
-**Question:** Should `createIssue` re-check the canvas-token record on every call, or accept the JWT as proof (max 8-hour lag between admin revocation and create failing)?
-**Recommendation:** Accept the lag. JWT lifecycle is the enforcement mechanism. Revocation is effective within one session token lifetime.
-**Alternative:** Add per-call KVS read. Adds ~20ms latency and a KVS read cost per ticket creation.
-**Decision needed from:** Product owner before Sprint 2 starts.
-**Applies to:** SPEC §18, CONTRACTS §3.3.
-
----
-
-## Open — blocking Sprint 5
-
-### D13 — SDK version source
-
-**Status:** Open
-**Question:** Where does the `sdkVersion` string come from — the cache-busting value embedded in bookmarklets and used to serve `<wt>/bookmarklet.js?v=<version>`?
-**Recommendation:** Build hash, generated by `scripts/embed-sdk.js` at build time, exported from `src/lib/version.js`.
-**Alternative:** Package version from `package.json` (simpler, less precise — requires manual version bumps per SDK change).
-**Decision needed from:** Product owner before Sprint 5 starts.
-**Applies to:** BUILD_PLAN §8.3.
-
----
-
-## Open — blocking Sprint 7
-
-### D14 — Retirement config source in multi-project canvases
-
-**Status:** Open
-**Question:** When a canvas spans multiple projects with different `retirementDays` configs, whose config governs the overlay query?
-**Recommendation:** Use the config of the project containing the first ticket in the query. Document limitation: multi-project canvases may show inconsistent Done-pin visibility. Most canvases are single-project in practice.
-**Alternative:** Take the maximum `retirementDays` across all projects represented in the canvas's tickets. Cache the canvas-to-project mapping for 60 seconds.
-**Decision needed from:** Product owner before Sprint 7 starts.
-**Applies to:** BUILD_PLAN §10.2.
 
 ---
 
@@ -92,13 +91,13 @@ When a decision is resolved:
 
 1. Move it under `## Resolved` (keep its ID).
 2. Change `**Status:** Open` to `**Status:** Resolved (YYYY-MM-DD)`.
-3. Add `**Resolution:**` stating the chosen option in one sentence.
-4. Add `**Rejected alternatives:**` (optional but recommended for audit trail).
+3. Add `**Resolution:**` stating the chosen option.
+4. Add `**Rejected alternatives:**`.
 5. Commit as: `docs: resolve decision D<N>`.
-6. Update the downstream document(s) listed under `**Applies to:**` in a separate commit.
+6. Update the downstream document(s) in a separate commit.
 
 When a new decision is identified:
 
-1. Add it under the appropriate `## Open — blocking Sprint N` section (or `## Resolved` if resolved at identification time).
+1. Add it under the appropriate `## Open — blocking Sprint N` section.
 2. Assign the next unused ID.
 3. Commit as: `docs: add decision D<N>`.
