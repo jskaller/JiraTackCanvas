@@ -2,14 +2,30 @@
 
 A Forge app for dropping visual pins on web pages and turning them into Jira tickets.
 
-- **Product spec:** [SPEC.md](./SPEC.md) — source of truth for behavior
-- **Architecture:** [ARCHITECTURE.md](./ARCHITECTURE.md) — data flow, token model, surfaces
-- **Contracts:** [CONTRACTS.md](./CONTRACTS.md) — function signatures, API shapes, error codes
-
 ## Status
 
-Pre-build. Design baseline committed. Build and test plans pending. Implementation begins with Sprint 1 (Forge scaffolding).
+Pre-build. Design baseline committed. Sprint 1 begins after `TEST_PLAN.md` is written and decisions D9–D14 are resolved.
+
+## Documentation — read in this order
+
+| Document                                         | Purpose                                                                                     | Stability                              |
+| ------------------------------------------------ | ------------------------------------------------------------------------------------------- | -------------------------------------- |
+| [SPEC.md](./SPEC.md)                             | Product specification. Source of truth for behavior.                                        | Stable                                 |
+| [ARCHITECTURE.md](./ARCHITECTURE.md)             | System architecture, data flow, token model, runtime constraints.                           | Stable                                 |
+| [CONTRACTS.md](./CONTRACTS.md)                   | Wire-level contracts: function signatures, API shapes, error codes, manifest, package.json. | Updated per Forge platform corrections |
+| [BUILD_PLAN.md](./BUILD_PLAN.md)                 | Seven sprints, file lists, acceptance criteria, sprint dependencies.                        | Updated per Forge platform corrections |
+| [DECISIONS.md](./DECISIONS.md)                   | Consolidated decision log. Open and resolved, in one place.                                 | Single source of truth for decisions   |
+| [PRIOR_BUILD_TRIAGE.md](./PRIOR_BUILD_TRIAGE.md) | What was reviewed from JiraTack2 and JiraTack3, what ports, what doesn't.                   | Reference only                         |
+
+## Precedence rules
+
+1. **CONTRACTS.md wins** on wire-level details (shapes, signatures, error codes, manifest, package.json).
+2. **SPEC.md wins** on product behavior.
+3. **DECISIONS.md wins** on open/closed questions — every decision has exactly one entry there, and any other document that mentions it defers to DECISIONS.md.
+4. Where a document contradicts these rules, the rules win. Propose an amendment as a separate commit.
 
 ## Runtime
 
-Atlassian Forge, Node.js 22.x, JavaScript (no TypeScript).
+Atlassian Forge, Node.js 22.x (see DECISIONS.md D12 for the open 22 vs 24 question). All JavaScript. No TypeScript. No Python.
+
+## Repository layout
