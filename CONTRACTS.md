@@ -42,6 +42,7 @@
   "updatedAt": 1234567890,
   "schemaVersion": 1
 }
+```
 
 `viewPermissionMode` is installation-level. Values: `"per_user_projects"` (default) | `"open"`. Per D9.
 
@@ -49,9 +50,9 @@
 
 ### 1.3 `provisionFields` — resolver contract
 
-text
-
+```text
 provisionFields(context) → { ok, fieldIds: { canvasField, urlField, pinField, selectorField }, warnings: [string] }
+```
 
 Behavior:
 
@@ -79,15 +80,14 @@ Warnings if: (a) field exists with incompatible type, (b) screen manipulation fa
 
 - Write call:
 
-javascript
-
+```javascript
 await storage.set(`canvasTokens:${token}`, record, { ttl: 2592000 });
 // 2592000 seconds = 30 days
+```
 
 - Record:
 
-json
-
+```json
 {
   "canvasName": "string, 1..255 chars",
   "userId": "string, Atlassian accountId of issuing user",
@@ -97,6 +97,7 @@ json
   "expiresAt": 1234567890000,
   "revoked": false
 }
+```
 
 ### 2.2 Session JWT
 
@@ -106,8 +107,7 @@ json
 
 - Claims:
 
-json
-
+```json
 {
   "iss": "jiratack",
   "sub": "accountId of issuing user",
@@ -119,6 +119,7 @@ json
   "iat": 1234567890,
   "exp": 1234596690
 }
+```
 
 **`permittedProjects` semantics (per D9):**
 
@@ -136,20 +137,20 @@ json
 
 **Response envelope:**
 
-json
-
+```json
 { "ok": true, "data": { ... } }
 { "ok": false, "error": { "code": "...", "message": "...", "details": ... } }
+```
 
 **HTTP status codes:** 200 for `ok: true`; 400 `BAD_REQUEST`; 401 `TOKEN_INVALID` / `TOKEN_EXPIRED`; 403 `INSUFFICIENT_SCOPE` / `LICENSE_INACTIVE`; 404 `NOT_FOUND`; 422 `VALIDATION_ERROR`; 500 `INTERNAL`.
 
 ### 3.1 `exchangeToken`
 
-text
-
+```text
 Request:  { action: "exchangeToken", payload: { canvasToken: string } }
 Auth:     none
 Success:  { sessionJwt, expiresAt, canvasId, canvasName, scope, permittedProjects, apiBase, configVersion }
+```
 
 Errors: `TOKEN_INVALID`, `TOKEN_EXPIRED`, `LICENSE_INACTIVE`.
 
@@ -157,11 +158,11 @@ Errors: `TOKEN_INVALID`, `TOKEN_EXPIRED`, `LICENSE_INACTIVE`.
 
 ### 3.2 `getPinsForCanvasAndUrl`
 
-text
-
+```text
 Request:  { action: "getPinsForCanvasAndUrl", payload: { canvasId, url } }
 Auth:     Bearer, scope create or view
 Success:  { pins: [PinRecord], canvasName, configVersion }
+```
 
 Server behavior:
 
@@ -181,8 +182,7 @@ Filtering happens server-side; hidden pins never reach the client. The client ca
 
 `PinRecord` (same shape regardless of mode):
 
-json
-
+```json
 {
   "key": "MM-1234",
   "summary": "...",
@@ -195,13 +195,13 @@ json
   "issueType": { "name": "Bug" },
   "createdAt": "2026-01-15T10:30:00.000Z"
 }
+```
 
 `priority`, `assignee`, `reporter`, `selector` may be `null`. JQL: Part 7.1.
 
 ### 3.3 `createIssue`
 
-text
-
+```text
 Request: {
   action: "createIssue",
   payload: {
@@ -222,6 +222,7 @@ Request: {
 }
 Auth:     Bearer, scope create only
 Success:  { key, id, configVersion }
+```
 
 Server behavior:
 
@@ -271,16 +272,15 @@ Server behavior:
 
 ### 3.4 `getTransitions`
 
-text
-
+```text
 Request:  { action: "getTransitions", payload: { issueKey } }
 Auth:     Bearer, scope create or view
 Success:  { transitions: [{ id, name, to: { id, name, statusCategory: { key } } }] }
+```
 
 ### 3.5 `updateIssue`
 
-text
-
+```text
 Request: {
   action: "updateIssue",
   payload: {
@@ -294,6 +294,7 @@ Request: {
 }
 Auth:     Bearer, scope create only
 Success:  { configVersion }
+```
 
 Behavior:
 
@@ -305,11 +306,11 @@ Behavior:
 
 ### 3.6 `searchUsers`
 
-text
-
+```text
 Request:  { action: "searchUsers", payload: { projectKey, query } }
 Auth:     Bearer, scope create only
 Success:  { users: [{ accountId, displayName, avatarUrl }] }
+```
 
 Proxies `GET /rest/api/3/user/assignable/search?project={projectKey}&query={query}&maxResults=10`. Handle both plain array and `{ values: [] }` response shapes.
 
@@ -319,10 +320,10 @@ Proxies `GET /rest/api/3/user/assignable/search?project={projectKey}&query={quer
 
 ### 4.1 `generateCanvasToken`
 
-text
-
+```text
 generateCanvasToken(context, payload) → { ok, data: { token, apiBase, sdkVersion, scope, permittedProjects } } | { ok: false, error }
 Payload: { canvasName: string, scope: "create" | "view" }
+```
 
 Behavior:
 
@@ -334,8 +335,7 @@ Behavior:
 
 2. **Compute `permittedProjects`** (per D9):
    
-   javascript
-   
+   ```javascript
    const mode = installationConfig.viewPermissionMode; // "per_user_projects" | "open"
    let permittedProjects;
    if (mode === "open") {
@@ -347,11 +347,11 @@ Behavior:
       ? "*"                       // treat as admin-level
       : values.map(p => p.key);
    }
+   ```
 
 3. **View-scope access check:** If `scope === "view"` and `permittedProjects !== "*"`, verify at least one pin in the canvas is in a permitted project:
    
-   javascript
-   
+   ```javascript
    const pins = await asUser().requestJira('/rest/api/3/search/jql', {
     method: 'POST',
     body: JSON.stringify({
@@ -365,6 +365,7 @@ Behavior:
    if (pinProjectKeys.length > 0 && intersection.length === 0) {
     return { ok: false, error: { code: 'NO_CANVAS_ACCESS', ... } };
    }
+   ```
    
    If canvas has no tickets yet, issue token anyway (viewer will see empty overlay; correct behavior).
 
@@ -372,10 +373,10 @@ Behavior:
 
 ### 4.2 `dashboardAggregate`
 
-text
-
+```text
 dashboardAggregate(context) → { ok, data: { canvases: [CanvasSummary], configVersion } }
 CanvasSummary: { canvasName, ticketCount, openCount, urlCount, lastUpdated, projectKeys: [string], participants: [{ accountId, displayName, avatarUrl }] }
+```
 
 JQL: `<canvasField> is not EMPTY ORDER BY created DESC`. Fetch `<canvasField>,status,updated,assignee,reporter,project`. Paginate up to 2000 tickets. Group by `canvasField`. `projectKeys` = distinct project keys across the canvas's tickets (used by admin UI to show "this canvas spans N projects" warning in restricted mode).
 
@@ -383,11 +384,11 @@ Dashboard does **not** filter by `permittedProjects` — it shows all tickets th
 
 ### 4.3 `epicPanelData`
 
-text
-
+```text
 epicPanelData(context, payload) → { ok, data: { canvases: [EpicCanvasSummary] } }
 Payload: { epicKey: string }
 EpicCanvasSummary: { canvasName, epicTicketCount, totalTicketCount, urlCount }
+```
 
 Dual-query, merge results:
 
@@ -399,18 +400,18 @@ Group by `canvasField`. For each canvas, one additional count query. Runs in res
 
 ### 4.4 `issuePanelData`
 
-text
-
+```text
 issuePanelData(context, payload) → { ok, data: { canvasName, url, relatedTickets, deepLink } }
 Payload: { issueKey: string }
+```
 
 Reads current issue via `asApp().requestJira('/rest/api/3/issue/{key}?fields=<canvasField>,<urlField>')`. If canvas empty → `{ ok: true, data: { isJiraTack: false } }`. Else run related query via `asUser()` so project permissions apply.
 
 ### 4.5 `fieldMappingAudit`
 
-text
-
+```text
 fieldMappingAudit(context) → { ok, data: { projects: [{ key, name, missingFields: [string], fixUrl: string }] } }
+```
 
 Behavior:
 
@@ -424,11 +425,11 @@ Behavior:
 
 ### 4.6 `recoverPinsFromDescriptions`
 
-text
-
+```text
 recoverPinsFromDescriptions(context, payload) → { ok, data: { recovered: number, skipped: number, errors: [string] } }
 Payload: { dryRun: boolean }
 Auth:     Admin only (context.userAccess.isAdmin === true)
+```
 
 Behavior (per D9 part 3):
 
@@ -450,17 +451,16 @@ Called from admin page as an on-demand action. Not scheduled. Not automatic.
 
 ### 5.1 Init contract
 
-javascript
-
+```javascript
 window.__jiratackInit(config)
 // config: { token, apiBase, canvasId, canvasName, sdkVersion }
+```
 
 Called by bookmarklet bootstrap after SDK script loads. If `window.__jiratackActiveCanvas === config.canvasId`, calls `__jiratackClose()` and returns.
 
 ### 5.2 Overlay DOM contract
 
-text
-
+```text
 #jiratack-overlay            position: fixed; inset: 0; pointer-events: none; z-index: 2147483647
   #jiratack-pins             position: absolute; inset: 0; pointer-events: none
     .jiratack-pin[data-key]  position: absolute; pointer-events: auto
@@ -469,6 +469,7 @@ text
     .jiratack-ticket-list
     .jiratack-new-ticket-form
   #jiratack-toast-container  position: fixed; bottom: 16px; right: 16px
+```
 
 All classes prefixed `jiratack-`. All overlay elements removed on `__jiratackClose()`.
 
@@ -500,8 +501,7 @@ Single module `src/shared/urlNormalize.js` bundled into both.
 
 ### 6.1 Algorithm
 
-javascript
-
+```javascript
 function normalizeUrl(input) {
   if (!input) return '';
   let u;
@@ -523,6 +523,7 @@ function normalizeUrl(input) {
     : '';
   return u.toString();
 }
+```
 
 - Do not coerce http → https.
 
@@ -551,12 +552,12 @@ function normalizeUrl(input) {
 
 ### 7.1 Overlay query (`getPinsForCanvasAndUrl`)
 
-text
-
+```text
 "<canvasFieldName>" = "<canvasName>"
 AND "<urlFieldName>" = "<normalizedUrl>"
 AND statusCategory != Done
 ORDER BY created ASC
+```
 
 Fields param: `summary,status,priority,assignee,reporter,issuetype,created,project,<canvasFieldId>,<urlFieldId>,<pinFieldId>,<selectorFieldId>`
 
@@ -576,40 +577,40 @@ Note: `project` is included in the fields param even though not returned to clie
 
 When `> 0`:
 
-text
-
+```text
 "<canvas>" = "<name>" AND "<url>" = "<url>"
 AND (statusCategory != Done
      OR (statusCategory = Done AND statusCategoryChangedDate >= -<N>d))
 ORDER BY created ASC
+```
 
 When `=== 0`: overlay query is §7.1.
 
 ### 7.3 Dashboard
 
-text
-
+```text
 "<canvasFieldName>" is not EMPTY ORDER BY created DESC
+```
 
 ### 7.4 Epic panel (merge two queries)
 
-text
-
+```text
 Company-managed: "Epic Link" = <epicKey> AND "<canvasFieldName>" is not EMPTY
 Team-managed:    parent = <epicKey> AND "<canvasFieldName>" is not EMPTY
+```
 
 ### 7.5 Issue panel related
 
-text
-
+```text
 "<canvasFieldName>" = "<canvas>" AND "<urlFieldName>" = "<url>" AND key != <thisKey>
 ORDER BY created ASC
+```
 
 ### 7.6 Recovery candidates (`recoverPinsFromDescriptions`)
 
-text
-
+```text
 "<canvasFieldName>" is EMPTY AND text ~ "JiraTack pin:" ORDER BY created ASC
+```
 
 Cap at 500 results per run; if 500 hit, return `truncated: true`.
 
@@ -642,19 +643,19 @@ If empty: `descriptionAdf = null`. Server omits client description but still app
 
 If `consoleLog` non-null and non-empty:
 
-json
-
+```json
 [
   { "type": "paragraph", "content": [{ "type": "text", "text": "Console output:" }] },
   { "type": "codeBlock", "attrs": {}, "content": [{ "type": "text", "text": consoleLog }] }
 ]
+```
 
 Client formats `consoleLog` as:
 
-text
-
+```text
 [error] TypeError: Cannot read property 'x' of undefined (at main.js:142)
 [warn] Deprecated API usage: getElementByClass (at app.js:89)
+```
 
 Per entry: `[level] message (source)` when source non-null, `[level] message` when null. Level lowercase.
 
@@ -662,8 +663,7 @@ Per entry: `[level] message (source)` when source non-null, `[level] message` wh
 
 Every created ticket receives a pin marker paragraph appended at the very end of the description ADF (after client content and after console log block). This is the recovery backup for the custom fields.
 
-json
-
+```json
 {
   "type": "paragraph",
   "content": [
@@ -673,6 +673,7 @@ json
     }
   ]
 }
+```
 
 Rules:
 
@@ -709,24 +710,23 @@ Recovery parse (Part 4.6): find paragraph, strip prefix `📌 JiraTack pin:`, `J
 
 ### 10.1 `manifest.yml`
 
-yaml
-
+```yaml
 app:
-  id: ari:cloud:ecosystem::app/<uuid>
+  id: ari:cloud:ecosystem::app/47873476-1bf1-4291-9178-a65ef01abd46
   runtime:
     name: nodejs24.x
   licensing:
     enabled: true
-  permissions:
-    scopes:
-      - read:jira-work
-      - write:jira-work
-      - read:jira-user
-      - manage:jira-project
-    external:
-      fetch:
-        backend:
-          - "*.atlassian.net"
+permissions:
+  scopes:
+    - read:jira-work
+    - write:jira-work
+    - read:jira-user
+    - manage:jira-project
+  external:
+    fetch:
+      backend:
+        - address: "*.atlassian.net"
 modules:
   jira:globalPage:
     - key: jiratack-dashboard
@@ -755,36 +755,38 @@ modules:
         function: resolver
       render: native
       title: JiraTack Canvases
+      icon: https://developer.atlassian.com/platform/forge/images/icons/issue-panel-icon.svg
     - key: jiratack-issue-panel
       resource: issue-panel-ui
       resolver:
         function: resolver
       render: native
       title: JiraTack
+      icon: https://developer.atlassian.com/platform/forge/images/icons/issue-panel-icon.svg
   function:
     - key: resolver
-      handler: src/resolvers/index.handler
+      handler: resolvers/index.handler
     - key: webtrigger-api
-      handler: src/webtrigger/api.handler
+      handler: webtrigger/api.handler
     - key: webtrigger-sdk
-      handler: src/webtrigger/sdk.handler
+      handler: webtrigger/sdk.handler
   webtrigger:
     - key: jiratack-api
       function: webtrigger-api
     - key: jiratack-sdk
       function: webtrigger-sdk
 resources:
-
-- key: dashboard-ui
-  path: dist/dashboard
-- key: epic-panel-ui
-  path: src/ui-kit/epic-panel
-- key: issue-panel-ui
-  path: src/ui-kit/issue-panel
-- key: project-config-ui
-  path: src/ui-kit/project-config
-- key: admin-ui
-  path: src/ui-kit/admin
+  - key: dashboard-ui
+    path: dist/dashboard
+  - key: epic-panel-ui
+    path: src/ui-kit/epic-panel/index.jsx
+  - key: issue-panel-ui
+    path: src/ui-kit/issue-panel/index.jsx
+  - key: project-config-ui
+    path: src/ui-kit/project-config/index.jsx
+  - key: admin-ui
+    path: src/ui-kit/admin/index.jsx
+```
 
 Key points:
 
@@ -796,10 +798,19 @@ Key points:
 
 - UI Kit panels use `@forge/react`.
 
+- `permissions` is a top-level key; it must not be nested under `app`.
+
+- `external.fetch.backend` uses object syntax: `- address: "*.atlassian.net"`.
+
+- `function.handler` paths are relative to `src/` and omit the `src/` prefix (e.g., `resolvers/index.handler`).
+
+- UI Kit `resources.path` includes the entry filename (e.g., `src/ui-kit/epic-panel/index.jsx`). The Custom UI dashboard resource remains a directory (`dist/dashboard`).
+
+- `jira:issuePanel` modules require an `icon` (standard Atlassian SVG).
+
 ### 10.2 `package.json`
 
-json
-
+```json
 {
   "name": "jiratack",
   "version": "0.1.0",
@@ -828,6 +839,7 @@ json
     "vite": "^5"
   }
 }
+```
 
 Sprint 4 adds `@tiptap/react`, `@tiptap/pm`, `@tiptap/starter-kit` at `^2.11.5`.
 
