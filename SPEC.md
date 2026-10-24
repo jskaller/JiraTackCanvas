@@ -2,7 +2,7 @@
 
 **Status:** Complete rewrite, incorporating two-scope token model. Supersedes SPEC.md v1.1 and v2.2 in full. This is the source of truth. For any conflict between this document and `CONTRACTS.md`, `CONTRACTS.md` wins on wire-level details (shapes, signatures, error codes); this document wins on product behavior.
 
-**Runtime:** Forge app on Node.js 22.x. All JavaScript. No TypeScript, no Python, no external services.
+**Runtime:** Forge app on Node.js 24.x. All JavaScript. No TypeScript, no Python, no external services.
 
 ---
 
@@ -38,7 +38,7 @@ JiraTack is a single-part product: an Atlassian Forge app, Marketplace listed, i
 
 **Forge App:**
 
-- Atlassian Forge, Node.js 22.x runtime (Node 18 is EOL and not supported)
+- Atlassian Forge, Node.js 24.x runtime (24 is active LTS; 22 is maintenance LTS and EOL April 2027)
 
 - All JavaScript (no TypeScript)
 
@@ -79,7 +79,7 @@ JiraTack is a single-part product: an Atlassian Forge app, Marketplace listed, i
 text
 
 ┌──────────────────────────────────────────────────────────────┐
-│  FORGE APP (single deployable, Node.js 22)                   │
+│  FORGE APP (single deployable, Node.js 24)                   │
 │                                                              │
 │  Surfaces:                                                   │
 │   • jira:globalPage          → Canvas Dashboard (Custom UI)  │

@@ -121,7 +121,7 @@ Stakeholder opens page, clicks bookmarklet
 
 ## 6. Runtime environment
 
-- **Node.js 22.x** (Forge-supported). Not 18 (EOL). Not Python (unsupported).
+- **Node.js 24.x** (Forge-supported, active LTS). Not 18 (EOL). Not 22 (maintenance LTS, EOL April 2027). Not Python (unsupported).
 
 - **JavaScript** (not TypeScript) throughout, per approved stack decision.
 

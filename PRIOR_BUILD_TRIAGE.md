@@ -31,7 +31,7 @@ Reference document. Records what was reviewed from prior builds and what does no
   
   ### 2.1 Manifest shape (applied to CONTRACTS §10.1)
 - `render: native` is required for all UI Kit modules (admin, project-settings, epic, issue). Without it, Forge expects `index.html` and panels fail to render.
-- Runtime can be `nodejs24.x` (prior deploy successful). Default remains `nodejs22.x` (see DECISIONS.md D12).
+- Runtime is `nodejs24.x` — prior deploy succeeded on 24, and D12 resolved to 24.
   
   ### 2.2 UI Kit 2 packages (applied to CONTRACTS §10.2)
 - Prior build uses `@forge/react` (UI Kit 2), not legacy `@forge/ui`.
@@ -167,7 +167,7 @@ None require a CONTRACTS amendment.
 | `render: native` on UI Kit modules               | CONTRACTS §10.1, BUILD_PLAN §4.2 |
 | `@forge/react` + `@forge/bridge` in package.json | CONTRACTS §10.2                  |
 | KVS TTL call shape documented                    | CONTRACTS §2.1                   |
-| Runtime 22.x vs 24.x flagged                     | DECISIONS.md D12                 |
+| Runtime resolved to 24.x                      | DECISIONS.md D12 (resolved), CONTRACTS §10.1, BUILD_PLAN §4.2 |
 | Tiptap version pinned to `^2.11.5`               | BUILD_PLAN §7.1                  |
 | Pin color constants noted                        | BUILD_PLAN §6.1                  |
 

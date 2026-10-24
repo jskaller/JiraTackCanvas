@@ -51,7 +51,7 @@ text
 
 | Item                 | Check                                                                                |
 | -------------------- | ------------------------------------------------------------------------------------ |
-| Node.js 22.x         | `node --version` shows v22.x                                                         |
+| Node.js 24.x         | `node --version` shows v24.x                                                         |
 | Forge CLI            | `forge --version` works                                                              |
 | Forge logged in      | `forge login` completed                                                              |
 | Dev Jira site ready  | `https://<site>.atlassian.net` accessible, you are admin                             |
@@ -80,7 +80,7 @@ text
   
   ### 4.2 `manifest.yml`
   
-  Copy from CONTRACTS.md §10.1 **exactly**. Runtime `nodejs22.x` (D12 — Sprint 1 verifies deploy; switch to 24.x only if 22 fails).
+  Copy from CONTRACTS.md §10.1 **exactly**. Runtime `nodejs24.x` (D12 resolved: active LTS, EOL Oct 2027).
   
   ### 4.3 `provisionFields` — behavior
   
@@ -116,7 +116,6 @@ text
 3. **`provisionFields` permissions.** Admin only via `asUser()`.
 4. **KVS cold start.** `getInstallationConfig()` returns default `{ schemaVersion: 1, fieldRegistry: {}, projects: {}, viewPermissionMode: 'per_user_projects' }` on first read.
 5. **Webtrigger URL discovery (D10).** Test `@forge/api` exposure. If not exposed, admin records `webtriggerUrls` in KVS during provisioning.
-6. **Runtime version (D12).** If 22 fails, try 24. Record in DECISIONS.md.
    
    ### 4.7 What NOT to do in Sprint 1
 - Do not implement `generateCanvasToken` (S2)
@@ -606,6 +605,6 @@ A sprint is done when:
 
 ## 12. Open decisions
 
-- D10, D12 — blocking Sprint 1
+- D10 (webtrigger URL discovery) — blocking Sprint 1; resolves during Sprint 1 execution.
 
 - All others resolved (see DECISIONS.md)

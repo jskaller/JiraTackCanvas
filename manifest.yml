@@ -1,0 +1,6 @@
+app:
+  id: ari:cloud:ecosystem::app/00000000-0000-0000-0000-000000000000
+  runtime:
+    name: nodejs24.x
+  licensing:
+    enabled: true

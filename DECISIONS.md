@@ -62,6 +62,14 @@ Single decision log for JiraTack. Every open and resolved decision appears exact
 **Rejected alternatives:** Per-page first-ticket (inconsistent); max across projects (expensive); installation-level config (schema change; defer).
 **Applies to:** CONTRACTS §7.2, BUILD_PLAN §10.2.
 
+### D12 — Runtime version
+
+**Status:** Resolved (2026-10-23)
+**Resolution:** `nodejs24.x`. Node 24 is the active LTS (EOL October 2027), is the Forge-recommended runtime for new apps, and was proven working on the prior JiraTack3 build. Node 22 is maintenance LTS (EOL April 2027) — unsuitable for a greenfield product.
+**Caveat:** Local Node 24.17.0 and Node 22.23.0 had a transient `forge build`/`lint` undici bug (ECO-1586). Pin local Node to a version before 24.17.0 if it appears; the Forge runtime itself is unaffected.
+**Rejected alternative:** `nodejs22.x` — no compatibility advantage, six months shorter support.
+**Applies to:** CONTRACTS §10.1, BUILD_PLAN §4.2.
+
 ---
 
 ## Open — blocking Sprint 1
@@ -73,15 +81,6 @@ Single decision log for JiraTack. Every open and resolved decision appears exact
 **Resolution mechanism:** Sprint 1 build tests both paths. If `@forge/api` exposes webtrigger URLs to a resolver, use that. If not, admin page performs one-time discovery on first provisioning, writes to KVS `webtriggerUrls`.
 **Decision needed from:** Sprint 1 build result.
 **Applies to:** CONTRACTS §2.1, BUILD_PLAN §4.5.
-
-### D12 — Runtime version
-
-**Status:** Open — resolve during Sprint 1 deploy
-**Question:** Forge runtime `nodejs22.x` (default in our docs) or `nodejs24.x` (proven working on prior build)?
-**Recommendation:** `nodejs22.x` for v1.
-**Alternative:** `nodejs24.x` if 22 fails to deploy.
-**Decision needed from:** Sprint 1 deploy result.
-**Applies to:** CONTRACTS §10.1, BUILD_PLAN §4.2.
 
 ---
 

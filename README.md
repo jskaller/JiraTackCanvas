@@ -26,6 +26,6 @@ Pre-build. Design baseline committed. Sprint 1 begins after `TEST_PLAN.md` is wr
 
 ## Runtime
 
-Atlassian Forge, Node.js 22.x (see DECISIONS.md D12 for the open 22 vs 24 question). All JavaScript. No TypeScript. No Python.
+Atlassian Forge, Node.js 24.x. All JavaScript. No TypeScript. No Python.
 
 ## Repository layout

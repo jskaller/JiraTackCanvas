@@ -714,7 +714,7 @@ yaml
 app:
   id: ari:cloud:ecosystem::app/<uuid>
   runtime:
-    name: nodejs22.x
+    name: nodejs24.x
   licensing:
     enabled: true
   permissions:
@@ -792,7 +792,7 @@ Key points:
 
 - No `render: native` on `jira:globalPage` (dashboard is Custom UI).
 
-- Runtime `nodejs22.x` (D12).
+- Runtime `nodejs24.x` (D12 resolved: active LTS, EOL Oct 2027).
 
 - UI Kit panels use `@forge/react`.
 
@@ -838,5 +838,3 @@ Sprint 4 adds `@tiptap/react`, `@tiptap/pm`, `@tiptap/starter-kit` at `^2.11.5`.
 All open decisions tracked in `DECISIONS.md`. Remaining open at contract level:
 
 - D10 (webtrigger URL discovery) — affects §2.1 and §4.1
-
-- D12 (runtime version) — affects §10.1
