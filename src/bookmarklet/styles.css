@@ -1,0 +1,202 @@
+:root {
+  --jiratack-pin-default: #ff6b6b;
+  --jiratack-pin-selected: #e63946;
+  --jiratack-pin-done: #2ecc71;
+  --jiratack-pin-move: #f4c542;
+}
+
+#jiratack-overlay {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 2147483647;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  font-size: 13px;
+  color: #172b4d;
+}
+
+#jiratack-pins {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.jiratack-pin {
+  position: absolute;
+  width: 18px;
+  height: 18px;
+  margin-left: -9px;
+  margin-top: -9px;
+  border-radius: 50%;
+  background: var(--jiratack-pin-default);
+  border: 2px solid #ffffff;
+  box-shadow: 0 1px 4px rgba(9, 30, 66, 0.5);
+  pointer-events: auto;
+  cursor: pointer;
+  box-sizing: border-box;
+}
+
+.jiratack-pin:hover {
+  transform: scale(1.15);
+}
+
+.jiratack-pin-selected {
+  background: var(--jiratack-pin-selected);
+}
+
+.jiratack-detached-cluster {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  display: none;
+  flex-direction: column;
+  gap: 6px;
+  pointer-events: auto;
+}
+
+.jiratack-detached-cluster .jiratack-pin {
+  position: static;
+  margin: 0;
+}
+
+#jiratack-sidebar {
+  position: fixed;
+  right: 0;
+  top: 0;
+  width: 360px;
+  height: 100vh;
+  pointer-events: auto;
+  background: #ffffff;
+  box-shadow: -2px 0 8px rgba(9, 30, 66, 0.25);
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+}
+
+.jiratack-sidebar-header {
+  padding: 16px;
+  border-bottom: 1px solid #dfe1e6;
+}
+
+.jiratack-sidebar-title {
+  font-size: 16px;
+  font-weight: 600;
+  margin-bottom: 8px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.jiratack-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.jiratack-badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 3px;
+  background: #deebff;
+  color: #0747a6;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+
+.jiratack-badge-view {
+  background: #eae6ff;
+  color: #5243aa;
+}
+
+.jiratack-ticket-list {
+  flex: 1 1 auto;
+  overflow-y: auto;
+  padding: 8px;
+}
+
+.jiratack-ticket-card {
+  padding: 10px 12px;
+  margin-bottom: 8px;
+  border: 1px solid #dfe1e6;
+  border-radius: 4px;
+  background: #ffffff;
+  cursor: pointer;
+}
+
+.jiratack-ticket-card:hover {
+  border-color: #4c9aff;
+}
+
+.jiratack-ticket-selected {
+  border-color: #0052cc;
+  box-shadow: 0 0 0 2px rgba(0, 82, 204, 0.2);
+}
+
+.jiratack-ticket-key {
+  font-size: 11px;
+  font-weight: 600;
+  color: #5e6c84;
+  margin-bottom: 2px;
+}
+
+.jiratack-ticket-summary {
+  font-size: 13px;
+  line-height: 1.35;
+  margin-bottom: 6px;
+}
+
+.jiratack-ticket-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-bottom: 6px;
+}
+
+.jiratack-chip {
+  padding: 1px 6px;
+  border-radius: 3px;
+  background: #f4f5f7;
+  color: #42526e;
+  font-size: 11px;
+}
+
+.jiratack-ticket-people {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.jiratack-person {
+  font-size: 11px;
+  color: #6b778c;
+}
+
+.jiratack-empty {
+  padding: 16px;
+  color: #6b778c;
+  text-align: center;
+}
+
+.jiratack-new-ticket-form {
+  border-top: 1px solid #dfe1e6;
+}
+
+#jiratack-toast-container {
+  position: fixed;
+  bottom: 16px;
+  right: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  pointer-events: auto;
+}
+
+.jiratack-toast {
+  padding: 10px 12px;
+  border-radius: 4px;
+  background: #172b4d;
+  color: #ffffff;
+  box-shadow: 0 2px 8px rgba(9, 30, 66, 0.4);
+}

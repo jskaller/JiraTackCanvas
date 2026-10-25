@@ -149,12 +149,14 @@ await storage.set(`canvasTokens:${token}`, record, { ttl: 2592000 });
 ```text
 Request:  { action: "exchangeToken", payload: { canvasToken: string } }
 Auth:     none
-Success:  { sessionJwt, expiresAt, canvasId, canvasName, scope, permittedProjects, apiUrl, sdkUrl, configVersion }
+Success:  { sessionJwt, expiresAt, canvasId, canvasName, scope, permittedProjects, apiUrl, sdkUrl, jiraBaseUrl, configVersion }
 ```
 
 Errors: `TOKEN_INVALID`, `TOKEN_EXPIRED`, `LICENSE_INACTIVE`.
 
 **`permittedProjects` is returned so the client can display it** (e.g. a small "Viewing N projects" badge in the sidebar). Client must not use it as an access check — the server filters pins before returning them.
+
+**`jiraBaseUrl`:** server should fetch `/rest/api/3/serverInfo` to return `jiraBaseUrl` so the client can build absolute links (e.g. `"https://<site>.atlassian.net"`).
 
 ### 3.2 `getPinsForCanvasAndUrl`
 
