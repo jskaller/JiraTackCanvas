@@ -1,1 +1,2 @@
-export const sdkSource = '/* JiraTack SDK bundle not built yet (Sprint 3) */\n';
+export const sdkSource = `(function(){"use strict";const c="[JiraTack]";function i(){window.__jiratackActiveCanvas=null,console.log(\`\${c} Close called\`)}function t(a){const n=a&&a.canvasId||null,s=a&&(a.canvasName||a.canvasId)||"unknown";if(n&&window.__jiratackActiveCanvas===n){window.__jiratackClose();return}window.__jiratackActiveCanvas=n,console.log(\`\${c} Init called with canvas: \${s}\`)}window.__jiratackInit=t,window.__jiratackClose=i})();
+`;
