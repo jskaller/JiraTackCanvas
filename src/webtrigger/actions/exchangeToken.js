@@ -41,7 +41,16 @@ export async function exchangeToken(payload) {
     return errorResult('TOKEN_EXPIRED', 'Canvas token has expired.');
   }
 
-  const permittedProjects = record.permittedProjects === undefined ? [] : record.permittedProjects;
+  let permittedProjects;
+  if (typeof record.permittedProjectsJson === 'string') {
+    try {
+      permittedProjects = JSON.parse(record.permittedProjectsJson);
+    } catch (e) {
+      permittedProjects = [];
+    }
+  } else {
+    permittedProjects = record.permittedProjects === undefined ? [] : record.permittedProjects;
+  }
   const iat = Math.floor(now / 1000);
   const exp = iat + SESSION_TTL_SECONDS;
 

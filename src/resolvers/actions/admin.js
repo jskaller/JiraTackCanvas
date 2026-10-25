@@ -88,7 +88,7 @@ export async function generateCanvasToken(context, payload) {
   } catch (e) {
     return errorResult('INTERNAL', e && e.message ? e.message : String(e));
   }
-  if (!permitted.ok) return permitted.error;
+  if (!permitted.ok) return permitted;
 
   const permittedProjects = permitted.permittedProjects;
   const userId = (context && (context.accountId || context.userId)) || '';
@@ -99,18 +99,19 @@ export async function generateCanvasToken(context, payload) {
   const expiresAt = issuedAt + CANVAS_TOKEN_TTL_SECONDS * 1000;
 
   const record = {
-    canvasName,
-    userId,
-    installationId,
-    scope,
+    canvasName: String(canvasName),
+    userId: String(userId),
+    installationId: String(installationId),
+    scope: String(scope),
     issuedAt,
     expiresAt,
     revoked: false,
-    permittedProjects,
+    permittedProjectsJson: JSON.stringify(permittedProjects),
   };
 
   try {
-    await kvsSet(`canvasTokens:${token}`, record, { ttl: CANVAS_TOKEN_TTL_SECONDS });
+    console.log('[JiraTack] Saving token record:', record);
+    await kvsSet(`canvasTokens:${token}`, record, { ttl: { value: 30, unit: 'DAYS' } });
   } catch (e) {
     return errorResult('INTERNAL', `Failed to persist canvas token: ${e && e.message ? e.message : e}`);
   }
@@ -145,6 +146,8 @@ export async function generateCanvasToken(context, payload) {
       apiUrl,
       sdkUrl,
       sdkVersion: SDK_VERSION,
+      canvasId: canvasName,
+      canvasName,
       scope,
       permittedProjects,
     },

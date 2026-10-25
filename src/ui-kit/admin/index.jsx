@@ -15,12 +15,14 @@ const toText = (value, fallback = 'Unknown error') => {
 const inputValue = (event) => (event && event.target ? event.target.value : event);
 
 const buildBookmarklet = (data) => {
+  const resolvedCanvasName = data.canvasName || data.canvasId || 'Test Canvas';
+  const resolvedCanvasId = data.canvasId || resolvedCanvasName;
   const config = {
     token: data.token,
     apiUrl: data.apiUrl,
     sdkUrl: data.sdkUrl,
-    canvasId: data.canvasName,
-    canvasName: data.canvasName,
+    canvasId: resolvedCanvasId,
+    canvasName: resolvedCanvasName,
     sdkVersion: data.sdkVersion,
   };
   const code = `(function(){var c=${JSON.stringify(config)};if(window.__jiratackActiveCanvas===c.canvasId){window.__jiratackClose();return;}var s=document.createElement('script');s.src=c.sdkUrl+'?v='+c.sdkVersion;s.onload=function(){window.__jiratackInit(c);};document.head.appendChild(s);})();`;
