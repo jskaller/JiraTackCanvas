@@ -70,17 +70,12 @@ Single decision log for JiraTack. Every open and resolved decision appears exact
 **Rejected alternative:** `nodejs22.x` — no compatibility advantage, six months shorter support.
 **Applies to:** CONTRACTS §10.1, BUILD_PLAN §4.2.
 
----
-
-## Open — blocking Sprint 1
-
 ### D10 — Webtrigger URL discovery
 
-**Status:** Open — resolve during Sprint 1
-**Question:** The bookmarklet must embed installation-specific webtrigger URLs (`<wt>/api` and `<wt>/bookmarklet.js`). Can a resolver discover these via `@forge/api`, or must the admin page perform one-time discovery and cache them?
-**Resolution mechanism:** Sprint 1 build tests both paths. If `@forge/api` exposes webtrigger URLs to a resolver, use that. If not, admin page performs one-time discovery on first provisioning, writes to KVS `webtriggerUrls`.
-**Decision needed from:** Sprint 1 build result.
-**Applies to:** CONTRACTS §2.1, BUILD_PLAN §4.5.
+**Status:** Resolved (2026-10-25)
+**Resolution:** `webTrigger.getUrl('moduleKey')` works from resolvers, so no admin-side discovery or KVS caching is needed. `generateCanvasToken` resolves and returns both `apiUrl` (`jiratack-api`) and `sdkUrl` (`jiratack-sdk`) explicitly; the bookmarklet must not derive one from the other.
+**Rejected alternative:** Admin page performs one-time discovery and caches `webtriggerUrls` in KVS.
+**Applies to:** CONTRACTS §3.1, §4.1, BUILD_PLAN §8.3.
 
 ---
 

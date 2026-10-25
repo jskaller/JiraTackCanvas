@@ -149,7 +149,7 @@ await storage.set(`canvasTokens:${token}`, record, { ttl: 2592000 });
 ```text
 Request:  { action: "exchangeToken", payload: { canvasToken: string } }
 Auth:     none
-Success:  { sessionJwt, expiresAt, canvasId, canvasName, scope, permittedProjects, apiBase, configVersion }
+Success:  { sessionJwt, expiresAt, canvasId, canvasName, scope, permittedProjects, apiUrl, sdkUrl, configVersion }
 ```
 
 Errors: `TOKEN_INVALID`, `TOKEN_EXPIRED`, `LICENSE_INACTIVE`.
@@ -321,7 +321,7 @@ Proxies `GET /rest/api/3/user/assignable/search?project={projectKey}&query={quer
 ### 4.1 `generateCanvasToken`
 
 ```text
-generateCanvasToken(context, payload) → { ok, data: { token, apiBase, sdkVersion, scope, permittedProjects } } | { ok: false, error }
+generateCanvasToken(context, payload) → { ok, data: { token, apiUrl, sdkUrl, sdkVersion, scope, permittedProjects } } | { ok: false, error }
 Payload: { canvasName: string, scope: "create" | "view" }
 ```
 
@@ -369,7 +369,7 @@ Behavior:
    
    If canvas has no tickets yet, issue token anyway (viewer will see empty overlay; correct behavior).
 
-4. **Mint token:** Write KVS record (Part 2.1), sign JWT with `permittedProjects` (Part 2.2), return with `apiBase` and `sdkVersion` (D13).
+4. **Mint token:** Write KVS record (Part 2.1), sign JWT with `permittedProjects` (Part 2.2), return with `apiUrl`, `sdkUrl`, and `sdkVersion` (D10, D13).
 
 ### 4.2 `dashboardAggregate`
 
@@ -453,7 +453,7 @@ Called from admin page as an on-demand action. Not scheduled. Not automatic.
 
 ```javascript
 window.__jiratackInit(config)
-// config: { token, apiBase, canvasId, canvasName, sdkVersion }
+// config: { token, apiUrl, sdkUrl, canvasId, canvasName, sdkVersion }
 ```
 
 Called by bookmarklet bootstrap after SDK script loads. If `window.__jiratackActiveCanvas === config.canvasId`, calls `__jiratackClose()` and returns.

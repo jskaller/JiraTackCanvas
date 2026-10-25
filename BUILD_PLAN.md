@@ -349,15 +349,15 @@ Client reads `scope` and `permittedProjects` from JWT response at exchange time.
 javascript
 
 javascript:(function(){
-  var c={token:"...",apiBase:"...",canvasId:"...",canvasName:"...",sdkVersion:"..."};
+  var c={token:"...",apiUrl:"...",sdkUrl:"...",canvasId:"...",canvasName:"...",sdkVersion:"..."};
   if(window.__jiratackActiveCanvas===c.canvasId){window.__jiratackClose();return;}
   var s=document.createElement('script');
-  s.src=c.apiBase.replace('/api','/bookmarklet.js')+'?v='+c.sdkVersion;
+  s.src=c.sdkUrl+'?v='+c.sdkVersion;
   s.onload=function(){window.__jiratackInit(c);};
   document.head.appendChild(s);
 })();
 
-`apiBase` and `sdkVersion` injected server-side at token generation.
+`apiUrl`, `sdkUrl`, and `sdkVersion` injected server-side at token generation.
 
 **D13 — sdkVersion:** build hash from `scripts/embed-sdk.js`, exported from `src/lib/version.js`.
 
