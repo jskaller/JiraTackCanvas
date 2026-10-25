@@ -129,6 +129,8 @@ forge install -e development
 
 Browser console for each surface: **no red errors**. Warnings are acceptable if from Jira itself.
 
+After updating manifest scopes, run `forge install --upgrade -e development` to authorize them.
+
 ### 1.3 Field provisioning
 
 1. Open admin page.

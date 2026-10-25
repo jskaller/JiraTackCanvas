@@ -4,3 +4,74 @@ app:
     name: nodejs24.x
   licensing:
     enabled: true
+permissions:
+  scopes:
+    - storage:app
+    - read:jira-work
+    - write:jira-work
+    - read:jira-user
+    - manage:jira-project
+    - manage:jira-configuration
+  external:
+    fetch:
+      backend:
+        - address: "*.atlassian.net"
+modules:
+  jira:globalPage:
+    - key: jiratack-dashboard
+      resource: dashboard-ui
+      resolver:
+        function: resolver
+      title: JiraTack Canvases
+  jira:adminPage:
+    - key: jiratack-admin
+      resource: admin-ui
+      resolver:
+        function: resolver
+      render: native
+      title: JiraTack
+  jira:projectSettingsPage:
+    - key: jiratack-project-config
+      resource: project-config-ui
+      resolver:
+        function: resolver
+      render: native
+      title: JiraTack
+  jira:issuePanel:
+    - key: jiratack-epic-panel
+      resource: epic-panel-ui
+      resolver:
+        function: resolver
+      render: native
+      title: JiraTack Canvases
+      icon: https://developer.atlassian.com/platform/forge/images/icons/issue-panel-icon.svg
+    - key: jiratack-issue-panel
+      resource: issue-panel-ui
+      resolver:
+        function: resolver
+      render: native
+      title: JiraTack
+      icon: https://developer.atlassian.com/platform/forge/images/icons/issue-panel-icon.svg
+  function:
+    - key: resolver
+      handler: resolvers/index.handler
+    - key: webtrigger-api
+      handler: webtrigger/api.handler
+    - key: webtrigger-sdk
+      handler: webtrigger/sdk.handler
+  webtrigger:
+    - key: jiratack-api
+      function: webtrigger-api
+    - key: jiratack-sdk
+      function: webtrigger-sdk
+resources:
+  - key: dashboard-ui
+    path: dist/dashboard
+  - key: epic-panel-ui
+    path: src/ui-kit/epic-panel/index.jsx
+  - key: issue-panel-ui
+    path: src/ui-kit/issue-panel/index.jsx
+  - key: project-config-ui
+    path: src/ui-kit/project-config/index.jsx
+  - key: admin-ui
+    path: src/ui-kit/admin/index.jsx

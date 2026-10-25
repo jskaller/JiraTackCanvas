@@ -1,0 +1,28 @@
+{
+  "name": "jiratack",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "build:bookmarklet": "vite build --config vite.bookmarklet.config.js",
+    "build:dashboard": "vite build --config vite.dashboard.config.js",
+    "build": "npm run build:bookmarklet && npm run build:dashboard && node scripts/embed-sdk.js",
+    "deploy": "forge deploy -e development",
+    "tunnel": "forge tunnel"
+  },
+  "dependencies": {
+    "@forge/api": "^4",
+    "@forge/bridge": "^5",
+    "@forge/kvs": "^1",
+    "@forge/react": "^11",
+    "@forge/resolver": "^1",
+    "html2canvas": "^1.4",
+    "jsonwebtoken": "^9"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^4",
+    "forge-cli": "latest",
+    "react": "^18",
+    "react-dom": "^18",
+    "vite": "^5"
+  }
+}

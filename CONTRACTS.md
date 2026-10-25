@@ -719,10 +719,12 @@ app:
     enabled: true
 permissions:
   scopes:
+    - storage:app
     - read:jira-work
     - write:jira-work
     - read:jira-user
     - manage:jira-project
+    - manage:jira-configuration
   external:
     fetch:
       backend:

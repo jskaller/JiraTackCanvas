@@ -116,6 +116,7 @@ text
 3. **`provisionFields` permissions.** Admin only via `asUser()`.
 4. **KVS cold start.** `getInstallationConfig()` returns default `{ schemaVersion: 1, fieldRegistry: {}, projects: {}, viewPermissionMode: 'per_user_projects' }` on first read.
 5. **Webtrigger URL discovery (D10).** Test `@forge/api` exposure. If not exposed, admin records `webtriggerUrls` in KVS during provisioning.
+6. **Manifest scopes.** Creating custom fields requires the `manage:jira-configuration` scope, and KVS requires `storage:app`. Ensure these are in the manifest and run `forge install --upgrade` before testing.
    
    ### 4.7 What NOT to do in Sprint 1
 - Do not implement `generateCanvasToken` (S2)
