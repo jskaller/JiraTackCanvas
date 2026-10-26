@@ -1,4 +1,4 @@
-import { createIssue, getIssueTypes } from './api.js';
+import { createIssue, getIssueTypes, getPriorities, searchUsers } from './api.js';
 import { serializeToAdf } from '../shared/adfSerializer.js';
 import { formatConsoleLog } from './consoleProxy.js';
 
@@ -21,7 +21,7 @@ function descriptionToAdf(text) {
 }
 
 export function renderTicketForm(container, options) {
-  const { config, session, capture, onCancel, onCreated } = options;
+  const { config, session, capture, onCancel, onCreated, defaultProject, defaultAssignee } = options;
   let screenshotDataUrl = options.screenshotDataUrl || null;
   let submitting = false;
 
@@ -29,10 +29,10 @@ export function renderTicketForm(container, options) {
 
   const form = el('form', 'jiratack-form');
 
-  function field(labelText, input) {
-    const wrap = el('label', 'jiratack-field');
+  function field(labelText, control) {
+    const wrap = el('div', 'jiratack-field');
     wrap.appendChild(el('span', 'jiratack-field-label', labelText));
-    wrap.appendChild(input);
+    wrap.appendChild(control);
     return wrap;
   }
 
@@ -45,26 +45,75 @@ export function renderTicketForm(container, options) {
   }
 
   const permitted = Array.isArray(session.permittedProjects) ? session.permittedProjects : [];
-  const defaultProject = permitted.length === 1 ? permitted[0] : '';
+  const openMode = session.permittedProjects === '*';
 
-  const projectInput = textInput('e.g. MM', defaultProject);
+  let projectSelect = null;
+  let projectInput = null;
+
+  if (!openMode && permitted.length > 0) {
+    projectSelect = el('select', 'jiratack-input jiratack-select');
+    const placeholder = el('option', null, 'Select project');
+    placeholder.value = '';
+    projectSelect.appendChild(placeholder);
+    permitted.forEach((key) => {
+      const option = el('option', null, key);
+      option.value = key;
+      projectSelect.appendChild(option);
+    });
+
+    const preferredProject = defaultProject && permitted.includes(defaultProject)
+      ? defaultProject
+      : (permitted.length === 1 ? permitted[0] : '');
+    if (preferredProject) projectSelect.value = preferredProject;
+  } else {
+    projectInput = textInput('e.g. MM', defaultProject || '');
+  }
+
+  function getProjectKey() {
+    if (projectSelect) return projectSelect.value.trim().toUpperCase();
+    return projectInput ? projectInput.value.trim().toUpperCase() : '';
+  }
+
   const issueTypeSelect = el('select', 'jiratack-input jiratack-select');
   issueTypeSelect.disabled = true;
-  const initialTypeOption = el('option', null, 'Enter a project key first');
+  const initialTypeOption = el('option', null, 'Select a project first');
   initialTypeOption.value = '';
   issueTypeSelect.appendChild(initialTypeOption);
+
   const summaryInput = textInput('Short summary', '');
   summaryInput.maxLength = 215;
+
   const descriptionInput = el('textarea', 'jiratack-textarea');
   descriptionInput.rows = 5;
   descriptionInput.placeholder = 'Describe the issue…';
-  const parentInput = textInput('e.g. MM-123', '');
 
-  form.appendChild(field('Project key', projectInput));
+  form.appendChild(field('Project', projectSelect || projectInput));
   form.appendChild(field('Issue type', issueTypeSelect));
   form.appendChild(field('Summary', summaryInput));
   form.appendChild(field('Description', descriptionInput));
-  form.appendChild(field('Parent key (optional)', parentInput));
+
+  const additional = el('details', 'jiratack-additional');
+  additional.appendChild(el('summary', 'jiratack-additional-summary', 'Additional Fields'));
+
+  const prioritySelect = el('select', 'jiratack-input jiratack-select');
+  const noPriority = el('option', null, 'No priority');
+  noPriority.value = '';
+  prioritySelect.appendChild(noPriority);
+  additional.appendChild(field('Priority', prioritySelect));
+
+  const assigneeWrap = el('div', 'jiratack-field');
+  assigneeWrap.appendChild(el('span', 'jiratack-field-label', 'Assignee'));
+  const typeahead = el('div', 'jiratack-typeahead');
+  const assigneeInput = textInput('Search by name', '');
+  const typeaheadResults = el('div', 'jiratack-typeahead-results');
+  typeaheadResults.style.display = 'none';
+  typeahead.appendChild(assigneeInput);
+  typeahead.appendChild(typeaheadResults);
+  assigneeWrap.appendChild(typeahead);
+  additional.appendChild(assigneeWrap);
+
+  const parentInput = textInput('e.g. MM-123', '');
+  additional.appendChild(field('Parent key (optional)', parentInput));
 
   let consoleCheckbox = null;
   const consoleSnapshot = capture && capture.consoleSnapshot ? capture.consoleSnapshot : [];
@@ -74,8 +123,10 @@ export function renderTicketForm(container, options) {
     consoleCheckbox.type = 'checkbox';
     wrap.appendChild(consoleCheckbox);
     wrap.appendChild(el('span', 'jiratack-field-label', `Include console output (${consoleSnapshot.length} entries)`));
-    form.appendChild(wrap);
+    additional.appendChild(wrap);
   }
+
+  form.appendChild(additional);
 
   const preview = el('div', 'jiratack-screenshot');
 
@@ -140,7 +191,7 @@ export function renderTicketForm(container, options) {
     const normalizedProject = String(projectKey || '').trim().toUpperCase();
 
     issueTypeSelect.innerHTML = '';
-    const placeholder = el('option', null, normalizedProject ? 'Loading issue types…' : 'Enter a project key first');
+    const placeholder = el('option', null, normalizedProject ? 'Loading issue types…' : 'Select a project first');
     placeholder.value = '';
     issueTypeSelect.appendChild(placeholder);
     issueTypeSelect.disabled = true;
@@ -167,8 +218,7 @@ export function renderTicketForm(container, options) {
         issueTypeSelect.appendChild(option);
       });
 
-      const preferred = issueTypes[0];
-      issueTypeSelect.value = String(preferred.id);
+      issueTypeSelect.value = String(issueTypes[0].id);
       issueTypeSelect.disabled = false;
     } catch (e) {
       if (requestId !== issueTypesRequestId) return;
@@ -182,22 +232,138 @@ export function renderTicketForm(container, options) {
     }
   }
 
+  (async () => {
+    try {
+      const result = await getPriorities(config, session);
+      const priorities = (result && result.priorities) || [];
+      priorities.forEach((priority) => {
+        const option = el('option', null, priority.name);
+        option.value = String(priority.id);
+        prioritySelect.appendChild(option);
+      });
+    } catch (e) {
+      // Priority is optional; leave only "No priority"
+    }
+  })();
+
+  let assigneeAccountId = defaultAssignee && defaultAssignee.accountId
+    ? String(defaultAssignee.accountId)
+    : null;
+  if (defaultAssignee) {
+    assigneeInput.value = defaultAssignee.displayName || defaultAssignee.accountId || '';
+  }
+
+  let assigneeDebounce = null;
+  let assigneeRequestId = 0;
+
+  function hideTypeahead() {
+    typeaheadResults.innerHTML = '';
+    typeaheadResults.style.display = 'none';
+  }
+
+  function renderTypeahead(users) {
+    typeaheadResults.innerHTML = '';
+    if (!users || users.length === 0) {
+      hideTypeahead();
+      return;
+    }
+    typeaheadResults.style.display = 'block';
+    users.forEach((user) => {
+      const item = el('div', 'jiratack-typeahead-item', user.displayName || user.accountId);
+      item.addEventListener('mousedown', (event) => {
+        event.preventDefault();
+        assigneeAccountId = user.accountId;
+        assigneeInput.value = user.displayName || user.accountId;
+        hideTypeahead();
+      });
+      typeaheadResults.appendChild(item);
+    });
+  }
+
+  assigneeInput.addEventListener('input', () => {
+    assigneeAccountId = null;
+    if (assigneeDebounce) {
+      window.clearTimeout(assigneeDebounce);
+      assigneeDebounce = null;
+    }
+
+    const query = assigneeInput.value.trim();
+    if (query.length === 0) {
+      hideTypeahead();
+      return;
+    }
+
+    assigneeDebounce = window.setTimeout(async () => {
+      assigneeDebounce = null;
+      const projectKey = getProjectKey();
+      if (!projectKey) {
+        hideTypeahead();
+        return;
+      }
+      assigneeRequestId += 1;
+      const requestId = assigneeRequestId;
+      try {
+        const result = await searchUsers(config, session, projectKey, query);
+        if (requestId !== assigneeRequestId) return;
+        renderTypeahead((result && result.users) || []);
+      } catch (e) {
+        hideTypeahead();
+      }
+    }, 300);
+  });
+
+  assigneeInput.addEventListener('blur', () => {
+    window.setTimeout(hideTypeahead, 150);
+  });
+
+  function onProjectChanged() {
+    const key = getProjectKey();
+    if (projectInput && key) projectInput.value = key;
+    hideTypeahead();
+    loadIssueTypes(key);
+  }
+
+  if (projectSelect) {
+    projectSelect.addEventListener('change', onProjectChanged);
+  } else if (projectInput) {
+    let projectDebounce = null;
+    projectInput.addEventListener('input', () => {
+      if (projectDebounce) window.clearTimeout(projectDebounce);
+      projectDebounce = window.setTimeout(() => {
+        projectDebounce = null;
+        loadIssueTypes(getProjectKey());
+      }, 400);
+    });
+    projectInput.addEventListener('blur', () => {
+      if (projectDebounce) {
+        window.clearTimeout(projectDebounce);
+        projectDebounce = null;
+      }
+      onProjectChanged();
+    });
+  }
+
+  const initialProject = getProjectKey();
+  if (initialProject) {
+    loadIssueTypes(initialProject);
+  }
+
   async function handleSubmit(event) {
     event.preventDefault();
     if (submitting) return;
     clearError();
 
     const summary = summaryInput.value.trim();
-    const projectKey = projectInput.value.trim();
+    const projectKey = getProjectKey();
     const issueTypeId = issueTypeSelect.value.trim();
     const parentKey = parentInput.value.trim();
 
-    if (summary.length < 3) {
-      showError('Summary must be at least 3 characters.');
+    if (!projectKey) {
+      showError('Select a project.');
       return;
     }
-    if (!projectKey) {
-      showError('Project key is required.');
+    if (summary.length < 3) {
+      showError('Summary must be at least 3 characters.');
       return;
     }
     if (!issueTypeId) {
@@ -229,8 +395,8 @@ export function renderTicketForm(container, options) {
         consoleLog,
         issueTypeId,
         projectKey,
-        priorityId: null,
-        assigneeAccountId: null,
+        priorityId: prioritySelect.value || null,
+        assigneeAccountId: assigneeAccountId || null,
         parentKey: parentKey || null,
       });
 
@@ -255,38 +421,13 @@ export function renderTicketForm(container, options) {
 
   form.addEventListener('submit', handleSubmit);
 
-  let issueTypeDebounce = null;
-  function scheduleIssueTypes() {
-    if (issueTypeDebounce) {
-      window.clearTimeout(issueTypeDebounce);
-    }
-    issueTypeDebounce = window.setTimeout(() => {
-      issueTypeDebounce = null;
-      loadIssueTypes(projectInput.value.trim());
-    }, 400);
-  }
-
-  projectInput.addEventListener('input', scheduleIssueTypes);
-  projectInput.addEventListener('blur', () => {
-    if (issueTypeDebounce) {
-      window.clearTimeout(issueTypeDebounce);
-      issueTypeDebounce = null;
-    }
-    const upper = projectInput.value.trim().toUpperCase();
-    if (upper) projectInput.value = upper;
-    loadIssueTypes(upper);
-  });
-
-  if (defaultProject) {
-    loadIssueTypes(defaultProject);
-  }
-
   function destroy() {
-    if (issueTypeDebounce) {
-      window.clearTimeout(issueTypeDebounce);
-      issueTypeDebounce = null;
+    if (assigneeDebounce) {
+      window.clearTimeout(assigneeDebounce);
+      assigneeDebounce = null;
     }
     issueTypesRequestId += 1;
+    assigneeRequestId += 1;
     container.innerHTML = '';
   }
 

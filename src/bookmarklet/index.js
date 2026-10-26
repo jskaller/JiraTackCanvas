@@ -90,11 +90,17 @@ async function handleCapture(capture) {
 
   if (!current || window.__jiratackActiveCanvas !== canvasIdAtStart) return;
 
+  const firstPin = current.pins && current.pins.length > 0 ? current.pins[0] : null;
+  const defaultProject = firstPin && firstPin.projectKey ? firstPin.projectKey : undefined;
+  const defaultAssignee = firstPin && firstPin.assignee ? { ...firstPin.assignee } : undefined;
+
   renderTicketForm(overlay.formEl, {
     config,
     session,
     capture,
     screenshotDataUrl,
+    defaultProject,
+    defaultAssignee,
     onCancel: () => {
       if (current && current.overlay) current.overlay.formEl.innerHTML = '';
     },

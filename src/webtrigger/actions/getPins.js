@@ -21,6 +21,7 @@ function mapPin(issue, fieldRegistry) {
   return {
     key: issue.key,
     summary: fields.summary || '',
+    projectKey: fields.project && fields.project.key ? fields.project.key : null,
     status: {
       name: status.name || '',
       category: category.key || '',

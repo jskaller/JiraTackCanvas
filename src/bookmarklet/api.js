@@ -58,3 +58,7 @@ export async function getPriorities(config, session) {
 export async function getIssueTypes(config, session, projectKey) {
   return postAction(config, session, 'getIssueTypes', { projectKey }, true);
 }
+
+export async function searchUsers(config, session, projectKey, query) {
+  return postAction(config, session, 'searchUsers', { projectKey, query }, true);
+}

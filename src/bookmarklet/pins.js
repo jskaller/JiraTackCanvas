@@ -54,6 +54,17 @@ export function renderPins(container, pins, options = {}) {
     if (pin.status && pin.status.category === 'done') {
       el.classList.add('jiratack-pin-done');
     }
+
+    const hover = document.createElement('div');
+    hover.className = 'jiratack-pin-hover';
+    hover.textContent = `${pin.key}${pin.summary ? `: ${pin.summary}` : ''}`;
+    el.appendChild(hover);
+    el.addEventListener('mouseenter', () => {
+      hover.classList.add('jiratack-pin-hover-visible');
+    });
+    el.addEventListener('mouseleave', () => {
+      hover.classList.remove('jiratack-pin-hover-visible');
+    });
     el.addEventListener('click', (event) => {
       event.stopPropagation();
       select(pin.key);
