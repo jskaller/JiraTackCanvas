@@ -6,6 +6,7 @@ import { createIssue } from './actions/createIssue.js';
 import { getTransitions } from './actions/transitions.js';
 import { updateIssue } from './actions/updateIssue.js';
 import { searchUsers } from './actions/searchUsers.js';
+import { getPriorities } from './actions/priorities.js';
 
 const JSON_HEADERS = { 'Content-Type': ['application/json'] };
 
@@ -85,6 +86,12 @@ export const handler = async (req, context) => {
       const auth = await authenticate(req, context, ['create']);
       if (!auth.ok) return envelope(auth);
       return envelope(await searchUsers(payload, auth.claims));
+    }
+
+    if (action === 'getPriorities') {
+      const auth = await authenticate(req, context, ['create']);
+      if (!auth.ok) return envelope(auth);
+      return envelope(await getPriorities(payload, auth.claims));
     }
 
     return envelope(errorResponse('BAD_REQUEST', `Unknown action: ${action}`));

@@ -25,8 +25,8 @@ export async function updateIssue(payload) {
   }
 
   const updateFields = {};
-  if (input.priorityId) {
-    updateFields.priority = { id: input.priorityId };
+  if (Object.prototype.hasOwnProperty.call(input, 'priorityId')) {
+    updateFields.priority = input.priorityId ? { id: input.priorityId } : null;
   }
   if (Object.prototype.hasOwnProperty.call(input, 'assigneeAccountId')) {
     updateFields.assignee = input.assigneeAccountId ? { accountId: input.assigneeAccountId } : null;

@@ -1,3 +1,5 @@
+import { renderInlineEdit } from './inlineEdit.js';
+
 const SELECTED_CLASS = 'jiratack-ticket-selected';
 
 function make(tag, className, text) {
@@ -23,8 +25,12 @@ function addPerson(container, label, user) {
   container.appendChild(make('span', 'jiratack-person', `${label}: ${name}`));
 }
 
+function isDone(pin) {
+  return Boolean(pin && pin.status && pin.status.category === 'done');
+}
+
 export function renderSidebar(container, options) {
-  const { canvasName, session, pins, config, onSelect } = options;
+  const { canvasName, session, pins, config, onSelect, onToast, onDone } = options;
 
   const header = container.querySelector('.jiratack-sidebar-header');
   const list = container.querySelector('.jiratack-ticket-list');
@@ -48,6 +54,7 @@ export function renderSidebar(container, options) {
   if (badges.childNodes.length > 0) header.appendChild(badges);
 
   const cards = new Map();
+  const controllers = [];
 
   if (!pins || pins.length === 0) {
     list.appendChild(make('div', 'jiratack-empty', 'No pins on this page.'));
@@ -56,36 +63,91 @@ export function renderSidebar(container, options) {
       const card = make('div', 'jiratack-ticket-card');
       card.dataset.key = pin.key;
 
-      card.appendChild(make('div', 'jiratack-ticket-key', pin.key));
-      card.appendChild(make('div', 'jiratack-ticket-summary', pin.summary || ''));
+      const keyEl = make('div', 'jiratack-ticket-key', pin.key);
+      const summaryEl = make('div', 'jiratack-ticket-summary', pin.summary || '');
+      const metaEl = make('div', 'jiratack-ticket-meta');
+      const peopleEl = make('div', 'jiratack-ticket-people');
+      const inlineEl = make('div', 'jiratack-inline-container');
 
-      const meta = make('div', 'jiratack-ticket-meta');
-      if (pin.status && pin.status.name) {
-        meta.appendChild(make('span', 'jiratack-chip jiratack-status', pin.status.name));
-      }
-      if (pin.priority && pin.priority.name) {
-        meta.appendChild(make('span', 'jiratack-chip jiratack-priority', pin.priority.name));
-      }
-      if (pin.issueType && pin.issueType.name) {
-        meta.appendChild(make('span', 'jiratack-chip jiratack-issuetype', pin.issueType.name));
-      }
-      if (meta.childNodes.length > 0) card.appendChild(meta);
+      card.appendChild(keyEl);
+      card.appendChild(summaryEl);
+      card.appendChild(metaEl);
+      card.appendChild(peopleEl);
+      card.appendChild(inlineEl);
 
-      const people = make('div', 'jiratack-ticket-people');
-      addPerson(people, 'Assignee', pin.assignee);
-      addPerson(people, 'Reporter', pin.reporter);
-      card.appendChild(people);
+      let expanded = false;
+      let inlineController = null;
 
-      card.addEventListener('click', () => {
+      function renderDetails(includeDoneState) {
+        metaEl.innerHTML = '';
+        peopleEl.innerHTML = '';
+
+        if (pin.status && pin.status.name) {
+          metaEl.appendChild(make('span', 'jiratack-chip jiratack-status', pin.status.name));
+        }
+        if (pin.priority && pin.priority.name) {
+          metaEl.appendChild(make('span', 'jiratack-chip jiratack-priority', pin.priority.name));
+        }
+        if (pin.issueType && pin.issueType.name) {
+          metaEl.appendChild(make('span', 'jiratack-chip jiratack-issuetype', pin.issueType.name));
+        }
+        if (includeDoneState && isDone(pin)) {
+          metaEl.appendChild(make('span', 'jiratack-chip jiratack-done-badge', 'Done'));
+          card.classList.add('jiratack-ticket-done');
+        }
+
+        addPerson(peopleEl, 'Assignee', pin.assignee);
+        addPerson(peopleEl, 'Reporter', pin.reporter);
+      }
+
+      renderDetails(true);
+
+      function collapse() {
+        expanded = false;
+        if (inlineController) {
+          controllers.push(inlineController);
+          inlineController = null;
+        }
+        inlineEl.innerHTML = '';
+      }
+
+      card.addEventListener('click', (event) => {
+        if (event.target.closest && event.target.closest('.jiratack-inline-edit')) return;
+
         select(pin.key);
+        if (onSelect) onSelect(pin);
+
         if (session && session.scope === 'view') {
           window.open(buildIssueUrl(config, session, pin.key), '_blank', 'noopener');
+          return;
         }
-        if (onSelect) onSelect(pin);
+
+        if (isDone(pin)) return;
+
+        if (expanded) {
+          collapse();
+          return;
+        }
+
+        expanded = true;
+        inlineController = renderInlineEdit(inlineEl, {
+          config,
+          session,
+          pin,
+          refresh: () => renderDetails(false),
+          onToast,
+          onDone: (changedPin) => {
+            if (onDone) onDone({ pin: changedPin, cardEl: card });
+            window.setTimeout(() => {
+              collapse();
+              renderDetails(true);
+            }, 2200);
+          },
+        });
       });
 
-      list.appendChild(card);
       cards.set(pin.key, card);
+      list.appendChild(card);
     });
   }
 
@@ -96,6 +158,13 @@ export function renderSidebar(container, options) {
   }
 
   function destroy() {
+    controllers.forEach((controller) => {
+      try {
+        if (controller && controller.destroy) controller.destroy();
+      } catch (e) {
+        // ignore
+      }
+    });
     cards.clear();
   }
 

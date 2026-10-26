@@ -2,11 +2,8 @@ import api, { route } from '@forge/api';
 import { getInstallationConfig } from '../../lib/config.js';
 import { errorResult } from '../../lib/errors.js';
 import { normalizeUrl } from '../../shared/urlNormalize.js';
+import { getEffectiveRetirementDays, buildOverlayJql } from '../../lib/jql.js';
 import { canAccessProject } from '../middleware/scope.js';
-
-function escapeJql(value) {
-  return String(value).replace(/\\/g, '\\\\').replace(/"/g, '\\"');
-}
 
 function mapUser(user) {
   if (!user) return null;
@@ -56,7 +53,14 @@ export async function getPinsForCanvasAndUrl(payload, claims) {
   }
 
   const normalizedUrl = normalizeUrl(url);
-  const jql = `"${fieldRegistry.canvasField}" = "${escapeJql(canvasName)}" AND "${fieldRegistry.urlField}" = "${escapeJql(normalizedUrl)}" AND statusCategory != Done ORDER BY created ASC`;
+  const retirementDays = await getEffectiveRetirementDays(canvasName, config);
+  const jql = buildOverlayJql({
+    canvasFieldId: fieldRegistry.canvasField,
+    urlFieldId: fieldRegistry.urlField,
+    canvasName,
+    normalizedUrl,
+    retirementDays,
+  });
 
   const fieldsParam = [
     'summary',

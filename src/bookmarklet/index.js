@@ -6,6 +6,7 @@ import { renderSidebar } from './sidebar.js';
 import { installPinMode } from './pinMode.js';
 import { captureScreenshot } from './screenshot.js';
 import { renderTicketForm } from './form.js';
+import { playDoneAnimation } from './done.js';
 import { installConsoleProxy, restoreConsoleProxy, clearConsoleBuffer } from './consoleProxy.js';
 import styles from './styles.css?inline';
 
@@ -37,6 +38,13 @@ function select(key) {
   if (current && current.sidebarController) current.sidebarController.select(key);
 }
 
+function handleDone({ pin, cardEl }) {
+  const pinEl = current && current.pinsController && current.pinsController.elementsByKey
+    ? current.pinsController.elementsByKey.get(pin.key)
+    : null;
+  playDoneAnimation({ pinEl, cardEl });
+}
+
 function renderPinsAndSidebar() {
   if (!current) return;
   const { overlay, config, session } = current;
@@ -60,6 +68,8 @@ function renderPinsAndSidebar() {
     pins: current.pins,
     config,
     onSelect: (pin) => select(pin.key),
+    onToast: showToast,
+    onDone: handleDone,
   });
 
   current.pinModeController = installPinMode({

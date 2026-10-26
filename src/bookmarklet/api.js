@@ -42,3 +42,15 @@ export async function getPins(config, session, canvasId, url) {
 export async function createIssue(config, session, payload) {
   return postAction(config, session, 'createIssue', payload, true);
 }
+
+export async function getTransitions(config, session, issueKey) {
+  return postAction(config, session, 'getTransitions', { issueKey }, true);
+}
+
+export async function updateIssue(config, session, issueKey, fields) {
+  return postAction(config, session, 'updateIssue', { issueKey, fields }, true);
+}
+
+export async function getPriorities(config, session) {
+  return postAction(config, session, 'getPriorities', {}, true);
+}

@@ -51,6 +51,9 @@ export function renderPins(container, pins, options = {}) {
     el.className = 'jiratack-pin';
     el.dataset.key = pin.key;
     el.title = pin.key + (pin.summary ? ` — ${pin.summary}` : '');
+    if (pin.status && pin.status.category === 'done') {
+      el.classList.add('jiratack-pin-done');
+    }
     el.addEventListener('click', (event) => {
       event.stopPropagation();
       select(pin.key);
