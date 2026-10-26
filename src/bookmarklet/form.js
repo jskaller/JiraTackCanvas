@@ -186,7 +186,15 @@ export function renderTicketForm(container, options) {
       submitButton.disabled = false;
       submitButton.textContent = 'Create ticket';
       const code = err && err.code ? `${err.code}: ` : '';
-      showError(`${code}${(err && err.message) || 'Failed to create ticket.'}`);
+      let message = `${code}${(err && err.message) || 'Failed to create ticket.'}`;
+      if (err && err.details) {
+        try {
+          message += ` — ${JSON.stringify(err.details)}`;
+        } catch (e) {
+          message += ` — ${String(err.details)}`;
+        }
+      }
+      showError(message);
     }
   }
 

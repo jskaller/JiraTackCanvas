@@ -57,6 +57,43 @@ async function attachScreenshot(issueKey, screenshotDataUrl) {
   }
 }
 
+async function requestCreateIssue(fields) {
+  const res = await api.asApp().requestJira(route`/rest/api/3/issue`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ fields }),
+  });
+
+  if (res.ok) {
+    return { ok: true, created: await res.json() };
+  }
+
+  let raw = '';
+  try {
+    raw = await res.text();
+  } catch (e) {
+    raw = '';
+  }
+
+  let body = null;
+  try {
+    body = raw ? JSON.parse(raw) : null;
+  } catch (e) {
+    body = null;
+  }
+
+  return {
+    ok: false,
+    status: res.status,
+    details: {
+      status: res.status,
+      errorMessages: (body && body.errorMessages) || [],
+      errors: (body && body.errors) || {},
+      raw: body ? undefined : String(raw).slice(0, 1000),
+    },
+  };
+}
+
 export async function createIssue(payload, claims) {
   const canvasName = payload && payload.canvasId;
   const rawUrl = payload && payload.url;
@@ -130,30 +167,52 @@ export async function createIssue(payload, claims) {
     fields.parent = { key: payload.parentKey };
   }
 
-  const res = await api.asApp().requestJira(route`/rest/api/3/issue`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ fields }),
-  });
+  const customFieldIds = [
+    fieldRegistry.canvasField,
+    fieldRegistry.urlField,
+    fieldRegistry.pinField,
+    fieldRegistry.selectorField,
+  ].filter(Boolean);
 
-  if (!res.ok) {
-    let body = null;
-    try {
-      body = await res.json();
-    } catch (e) {
-      body = null;
+  let created = null;
+  const firstAttempt = await requestCreateIssue(fields);
+
+  if (firstAttempt.ok) {
+    created = firstAttempt.created;
+  } else if (firstAttempt.status === 400 || firstAttempt.status === 422) {
+    const errorFields = Object.keys((firstAttempt.details && firstAttempt.details.errors) || {});
+    const rejectedCustomFields = errorFields.filter((fieldId) => customFieldIds.includes(fieldId));
+
+    if (rejectedCustomFields.length > 0) {
+      console.log('[JiraTack] Jira rejected custom fields. Retrying without them:', rejectedCustomFields);
+
+      const retryFields = { ...fields };
+      rejectedCustomFields.forEach((fieldId) => {
+        delete retryFields[fieldId];
+      });
+
+      const retryAttempt = await requestCreateIssue(retryFields);
+      if (retryAttempt.ok) {
+        created = retryAttempt.created;
+      } else {
+        console.error('[JiraTack] Jira createIssue retry rejected:', retryAttempt.details);
+        if (retryAttempt.status === 400 || retryAttempt.status === 422) {
+          return errorResult('VALIDATION_ERROR', 'Jira rejected the issue payload.', retryAttempt.details);
+        }
+        return errorResult('INTERNAL', `Jira issue creation failed with HTTP ${retryAttempt.status}.`, retryAttempt.details);
+      }
+    } else {
+      console.error('[JiraTack] Jira createIssue rejected:', firstAttempt.details);
+      return errorResult('VALIDATION_ERROR', 'Jira rejected the issue payload.', firstAttempt.details);
     }
-    if (res.status === 400) {
-      return errorResult(
-        'VALIDATION_ERROR',
-        'Jira rejected the issue payload.',
-        { fieldErrors: (body && body.errors) || {} },
-      );
-    }
-    return errorResult('INTERNAL', `Jira issue creation failed with HTTP ${res.status}.`, body);
+  } else {
+    console.error('[JiraTack] Jira createIssue rejected:', firstAttempt.details);
+    return errorResult('INTERNAL', `Jira issue creation failed with HTTP ${firstAttempt.status}.`, firstAttempt.details);
   }
 
-  const created = await res.json();
+  if (!created) {
+    return errorResult('INTERNAL', 'Issue creation failed with an unknown response.');
+  }
 
   if (typeof payload.screenshotDataUrl === 'string' && payload.screenshotDataUrl.length > 0) {
     try {
