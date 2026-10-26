@@ -7,6 +7,7 @@ const DEFAULT_CONFIG = {
   fieldRegistry: {},
   viewPermissionMode: 'per_user_projects',
   projects: {},
+  archivedCanvases: [],
   configVersion: '',
   updatedAt: 0,
   schemaVersion: 1,

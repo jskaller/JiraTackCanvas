@@ -23,7 +23,7 @@ export default function BookmarkletModal({ data, scope, onClose }) {
           {scope === 'create'
             ? 'Write bookmarklet'
             : scope === 'universal'
-              ? 'Universal launcher'
+              ? 'JiraTack bookmarklet'
               : 'Review bookmarklet'}
         </h2>
         <p className="jt-modal-canvas">{canvasName}</p>
@@ -32,8 +32,8 @@ export default function BookmarkletModal({ data, scope, onClose }) {
           <p>Anyone with this bookmarklet can add pins to this canvas. Keep it in your bookmarks bar.</p>
         ) : scope === 'universal' ? (
           <p>
-            This is your personal launcher. Click it on any page, then choose a canvas from the sidebar to view
-            or add pins.
+            This is your personal JiraTack bookmarklet. Click it on any page, then choose a canvas from the
+            sidebar to view or add pins.
           </p>
         ) : (
           <p>Anyone with this bookmarklet can see all pins and summaries in this canvas. Share carefully.</p>

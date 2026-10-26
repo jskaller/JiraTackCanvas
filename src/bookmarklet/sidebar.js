@@ -42,142 +42,180 @@ export function renderSidebar(container, options) {
   list.innerHTML = '';
   form.innerHTML = '';
 
-  if (selectorContainer && options.canvasSelector) {
-    const select = make('select', 'jiratack-canvas-select');
-    const placeholder = make('option', null, 'Select a canvas…');
-    placeholder.value = '';
-    select.appendChild(placeholder);
-    options.canvasSelector.canvases.forEach((canvas) => {
-      const option = make('option', null, canvas.canvasName);
-      option.value = canvas.canvasName;
-      select.appendChild(option);
-    });
-    const createOption = make('option', null, '+ Create new canvas…');
-    createOption.value = '__create__';
-    select.appendChild(createOption);
-    if (options.canvasSelector.selected) {
-      select.value = options.canvasSelector.selected;
-    }
-    select.addEventListener('change', () => {
-      if (select.value === '__create__') {
-        select.value = options.canvasSelector.selected || '';
-        if (options.canvasSelector.onCreate) options.canvasSelector.onCreate();
-        return;
-      }
-      if (options.canvasSelector.onChange) options.canvasSelector.onChange(select.value);
-    });
-    selectorContainer.appendChild(select);
-  }
+  const isUniversal = Boolean(options.canvasSelector);
 
-  header.appendChild(make('div', 'jiratack-sidebar-title', canvasName || 'JiraTack'));
-
-  const badges = make('div', 'jiratack-badges');
-  if (session && session.scope === 'view') {
-    badges.appendChild(make('span', 'jiratack-badge jiratack-badge-view', 'View only'));
-  }
-  if (session && Array.isArray(session.permittedProjects)) {
-    badges.appendChild(
-      make('span', 'jiratack-badge', `Viewing ${session.permittedProjects.length} projects`),
+  if (isUniversal) {
+    const hasSelectedCanvas = Boolean(canvasName && canvasName !== 'JiraTack Launcher');
+    const title = make(
+      'div',
+      'jiratack-sidebar-title',
+      hasSelectedCanvas ? canvasName : 'JiraTack Launcher',
     );
+    header.appendChild(title);
+
+    if (hasSelectedCanvas) {
+      const switchButton = make('button', 'jiratack-switch-canvas', 'Switch Canvas');
+      switchButton.type = 'button';
+      switchButton.addEventListener('click', () => {
+        if (options.canvasSelector && options.canvasSelector.onSwitch) {
+          options.canvasSelector.onSwitch();
+        }
+      });
+      header.appendChild(switchButton);
+    }
+
+    const badges = make('div', 'jiratack-badges');
+    if (session && session.scope === 'view') {
+      badges.appendChild(make('span', 'jiratack-badge jiratack-badge-view', 'View only'));
+    }
+    if (badges.childNodes.length > 0) header.appendChild(badges);
+
+    if (!hasSelectedCanvas) {
+      const canvases = (options.canvasSelector && options.canvasSelector.canvases) || [];
+      if (canvases.length === 0) {
+        const error = make('div', 'jiratack-canvas-error', `No canvases found. API returned: ${canvases.length}`);
+        selectorContainer.appendChild(error);
+      } else {
+        const canvasList = make('div', 'jiratack-canvas-list');
+        canvases.forEach((canvas) => {
+          const button = make('button', 'jiratack-canvas-button', canvas.canvasName);
+          button.type = 'button';
+          button.addEventListener('click', () => {
+            if (options.canvasSelector.onChange) options.canvasSelector.onChange(canvas.canvasName);
+          });
+          canvasList.appendChild(button);
+        });
+        selectorContainer.appendChild(canvasList);
+      }
+
+      const createButton = make('button', 'jiratack-create-canvas', '+ Create new canvas…');
+      createButton.type = 'button';
+      createButton.addEventListener('click', () => {
+        if (options.canvasSelector.onCreate) options.canvasSelector.onCreate();
+      });
+      selectorContainer.appendChild(createButton);
+
+      if (options.emptyMessage) {
+        list.appendChild(make('div', 'jiratack-empty', options.emptyMessage));
+      } else {
+        list.appendChild(make('div', 'jiratack-empty', 'Select a canvas to start.'));
+      }
+    } else {
+      selectorContainer.innerHTML = '';
+    }
+  } else {
+    header.appendChild(make('div', 'jiratack-sidebar-title', canvasName || 'JiraTack'));
+
+    const badges = make('div', 'jiratack-badges');
+    if (session && session.scope === 'view') {
+      badges.appendChild(make('span', 'jiratack-badge jiratack-badge-view', 'View only'));
+    }
+    if (session && Array.isArray(session.permittedProjects)) {
+      badges.appendChild(
+        make('span', 'jiratack-badge', `Viewing ${session.permittedProjects.length} projects`),
+      );
+    }
+    if (badges.childNodes.length > 0) header.appendChild(badges);
   }
-  if (badges.childNodes.length > 0) header.appendChild(badges);
 
   const cards = new Map();
   const controllers = [];
 
-  if (!pins || pins.length === 0) {
-    list.appendChild(make('div', 'jiratack-empty', options.emptyMessage || 'No pins on this page.'));
-  } else {
-    pins.forEach((pin) => {
-      const card = make('div', 'jiratack-ticket-card');
-      card.dataset.key = pin.key;
+  if (!isUniversal || canvasName) {
+    if (!pins || pins.length === 0) {
+      list.appendChild(make('div', 'jiratack-empty', options.emptyMessage || 'No pins on this page.'));
+    } else {
+      pins.forEach((pin) => {
+        const card = make('div', 'jiratack-ticket-card');
+        card.dataset.key = pin.key;
 
-      const keyEl = make('div', 'jiratack-ticket-key', pin.key);
-      const summaryEl = make('div', 'jiratack-ticket-summary', pin.summary || '');
-      const metaEl = make('div', 'jiratack-ticket-meta');
-      const peopleEl = make('div', 'jiratack-ticket-people');
-      const inlineEl = make('div', 'jiratack-inline-container');
+        const keyEl = make('div', 'jiratack-ticket-key', pin.key);
+        const summaryEl = make('div', 'jiratack-ticket-summary', pin.summary || '');
+        const metaEl = make('div', 'jiratack-ticket-meta');
+        const peopleEl = make('div', 'jiratack-ticket-people');
+        const inlineEl = make('div', 'jiratack-inline-container');
 
-      card.appendChild(keyEl);
-      card.appendChild(summaryEl);
-      card.appendChild(metaEl);
-      card.appendChild(peopleEl);
-      card.appendChild(inlineEl);
+        card.appendChild(keyEl);
+        card.appendChild(summaryEl);
+        card.appendChild(metaEl);
+        card.appendChild(peopleEl);
+        card.appendChild(inlineEl);
 
-      let expanded = false;
-      let inlineController = null;
+        let expanded = false;
+        let inlineController = null;
 
-      function renderDetails(includeDoneState) {
-        metaEl.innerHTML = '';
-        peopleEl.innerHTML = '';
+        function renderDetails(includeDoneState) {
+          metaEl.innerHTML = '';
+          peopleEl.innerHTML = '';
 
-        if (pin.status && pin.status.name) {
-          metaEl.appendChild(make('span', 'jiratack-chip jiratack-status', pin.status.name));
-        }
-        if (pin.priority && pin.priority.name) {
-          metaEl.appendChild(make('span', 'jiratack-chip jiratack-priority', pin.priority.name));
-        }
-        if (pin.issueType && pin.issueType.name) {
-          metaEl.appendChild(make('span', 'jiratack-chip jiratack-issuetype', pin.issueType.name));
-        }
-        if (includeDoneState && isDone(pin)) {
-          metaEl.appendChild(make('span', 'jiratack-chip jiratack-done-badge', 'Done'));
-          card.classList.add('jiratack-ticket-done');
-        }
+          if (pin.status && pin.status.name) {
+            metaEl.appendChild(make('span', 'jiratack-chip jiratack-status', pin.status.name));
+          }
+          if (pin.priority && pin.priority.name) {
+            metaEl.appendChild(make('span', 'jiratack-chip jiratack-priority', pin.priority.name));
+          }
+          if (pin.issueType && pin.issueType.name) {
+            metaEl.appendChild(make('span', 'jiratack-chip jiratack-issuetype', pin.issueType.name));
+          }
+          if (includeDoneState && isDone(pin)) {
+            metaEl.appendChild(make('span', 'jiratack-chip jiratack-done-badge', 'Done'));
+            card.classList.add('jiratack-ticket-done');
+          }
 
-        addPerson(peopleEl, 'Assignee', pin.assignee);
-        addPerson(peopleEl, 'Reporter', pin.reporter);
-      }
-
-      renderDetails(true);
-
-      function collapse() {
-        expanded = false;
-        if (inlineController) {
-          controllers.push(inlineController);
-          inlineController = null;
-        }
-        inlineEl.innerHTML = '';
-      }
-
-      card.addEventListener('click', (event) => {
-        if (event.target.closest && event.target.closest('.jiratack-inline-edit')) return;
-
-        select(pin.key);
-        if (onSelect) onSelect(pin);
-
-        if (session && session.scope === 'view') {
-          window.open(buildIssueUrl(config, session, pin.key), '_blank', 'noopener');
-          return;
+          addPerson(peopleEl, 'Assignee', pin.assignee);
+          addPerson(peopleEl, 'Reporter', pin.reporter);
         }
 
-        if (isDone(pin)) return;
+        renderDetails(true);
 
-        if (expanded) {
-          collapse();
-          return;
+        function collapse() {
+          expanded = false;
+          if (inlineController) {
+            controllers.push(inlineController);
+            inlineController = null;
+          }
+          inlineEl.innerHTML = '';
         }
 
-        expanded = true;
-        inlineController = renderInlineEdit(inlineEl, {
-          config,
-          session,
-          pin,
-          refresh: () => renderDetails(false),
-          onToast,
-          onDone: (changedPin) => {
-            if (onDone) onDone({ pin: changedPin, cardEl: card });
-            window.setTimeout(() => {
-              collapse();
-              renderDetails(true);
-            }, 2200);
-          },
+        card.addEventListener('click', (event) => {
+          if (event.target.closest && event.target.closest('.jiratack-inline-edit')) return;
+
+          select(pin.key);
+          if (onSelect) onSelect(pin);
+
+          if (session && session.scope === 'view') {
+            window.open(buildIssueUrl(config, session, pin.key), '_blank', 'noopener');
+            return;
+          }
+
+          if (isDone(pin)) return;
+
+          if (expanded) {
+            collapse();
+            return;
+          }
+
+          expanded = true;
+          inlineController = renderInlineEdit(inlineEl, {
+            config,
+            session,
+            pin,
+            refresh: () => renderDetails(false),
+            onToast,
+            onDone: (changedPin) => {
+              if (onDone) onDone({ pin: changedPin, cardEl: card });
+              window.setTimeout(() => {
+                collapse();
+                renderDetails(true);
+              }, 2200);
+            },
+          });
         });
-      });
 
-      cards.set(pin.key, card);
-      list.appendChild(card);
-    });
+        cards.set(pin.key, card);
+        list.appendChild(card);
+      });
+    }
   }
 
   function select(key) {

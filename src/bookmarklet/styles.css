@@ -546,3 +546,81 @@ body.jiratack-pin-mode * {
   font-family: inherit;
   font-size: 13px;
 }
+
+.jiratack-form-warning {
+  padding: 6px 8px;
+  border-radius: 3px;
+  background: #fffae6;
+  color: #974f0c;
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+.jiratack-canvas-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.jiratack-canvas-button {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 8px 10px;
+  border: 1px solid #dfe1e6;
+  border-radius: 4px;
+  background: #ffffff;
+  color: #172b4d;
+  font-size: 13px;
+  font-weight: 600;
+  text-align: left;
+  cursor: pointer;
+}
+
+.jiratack-canvas-button:hover {
+  background: #deebff;
+  border-color: #4c9aff;
+}
+
+.jiratack-canvas-error {
+  padding: 10px 12px;
+  border-radius: 4px;
+  background: #ffebe6;
+  color: #bf2600;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.jiratack-create-canvas {
+  margin-top: 8px;
+  width: 100%;
+  box-sizing: border-box;
+  padding: 6px 10px;
+  border: 1px dashed #0052cc;
+  border-radius: 4px;
+  background: #ffffff;
+  color: #0052cc;
+  font-size: 12px;
+  font-weight: 600;
+  text-align: left;
+  cursor: pointer;
+}
+
+.jiratack-create-canvas:hover {
+  background: #deebff;
+}
+
+.jiratack-switch-canvas {
+  margin-left: auto;
+  padding: 4px 8px;
+  border: 1px solid #dfe1e6;
+  border-radius: 3px;
+  background: #ffffff;
+  color: #172b4d;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.jiratack-switch-canvas:hover {
+  background: #f4f5f7;
+}

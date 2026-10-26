@@ -21,7 +21,7 @@ function descriptionToAdf(text) {
 }
 
 export function renderTicketForm(container, options) {
-  const { config, session, capture, onCancel, onCreated, defaultProject, defaultAssignee } = options;
+  const { config, session, capture, onCancel, onCreated, defaultProject, defaultAssignee, defaultIssueTypeId, defaultPriorityId, pins } = options;
   let screenshotDataUrl = options.screenshotDataUrl || null;
   let submitting = false;
 
@@ -47,6 +47,21 @@ export function renderTicketForm(container, options) {
   const permitted = Array.isArray(session.permittedProjects) ? session.permittedProjects : [];
   const openMode = session.permittedProjects === '*';
 
+  const existingPins = Array.isArray(options.pins) ? options.pins : [];
+  const newestPin = existingPins.length > 0
+    ? existingPins.reduce((newest, pin) => {
+        if (!newest) return pin;
+        const newestTime = newest.createdAt ? Date.parse(newest.createdAt) : 0;
+        const pinTime = pin.createdAt ? Date.parse(pin.createdAt) : 0;
+        return pinTime > newestTime ? pin : newest;
+      }, null)
+    : null;
+
+  const resolvedDefaultProject = (newestPin && newestPin.projectKey)
+    || (permitted.length > 0 ? permitted[0] : '');
+  const resolvedDefaultIssueTypeId = newestPin && newestPin.issueTypeId ? newestPin.issueTypeId : null;
+  const resolvedDefaultPriorityId = newestPin && newestPin.priorityId ? newestPin.priorityId : null;
+
   let projectSelect = null;
   let projectInput = null;
 
@@ -61,12 +76,12 @@ export function renderTicketForm(container, options) {
       projectSelect.appendChild(option);
     });
 
-    const preferredProject = defaultProject && permitted.includes(defaultProject)
-      ? defaultProject
+    const preferredProject = resolvedDefaultProject && permitted.includes(resolvedDefaultProject)
+      ? resolvedDefaultProject
       : (permitted.length === 1 ? permitted[0] : '');
     if (preferredProject) projectSelect.value = preferredProject;
   } else {
-    projectInput = textInput('e.g. MM', defaultProject || '');
+    projectInput = textInput('e.g. MM', resolvedDefaultProject || '');
   }
 
   function getProjectKey() {
@@ -153,6 +168,16 @@ export function renderTicketForm(container, options) {
   form.appendChild(preview);
   renderPreview();
 
+  if (options.screenshotFailed) {
+    form.appendChild(
+      el(
+        'div',
+        'jiratack-form-warning',
+        'Screenshot could not be captured due to site security. Ticket will be created without an image.',
+      ),
+    );
+  }
+
   const errorBox = el('div', 'jiratack-form-error');
   errorBox.style.display = 'none';
   form.appendChild(errorBox);
@@ -202,7 +227,7 @@ export function renderTicketForm(container, options) {
       const result = await getIssueTypes(config, session, normalizedProject);
       if (requestId !== issueTypesRequestId) return;
 
-      const issueTypes = ((result && result.issueTypes) || []).filter((type) => !type.subtask);
+  const issueTypes = ((result && result.issueTypes) || []).filter((type) => !type.subtask);
       issueTypeSelect.innerHTML = '';
 
       if (issueTypes.length === 0) {
@@ -218,7 +243,12 @@ export function renderTicketForm(container, options) {
         issueTypeSelect.appendChild(option);
       });
 
-      issueTypeSelect.value = String(issueTypes[0].id);
+      if (resolvedDefaultIssueTypeId && issueTypes.some((type) => String(type.id) === String(resolvedDefaultIssueTypeId))) {
+        issueTypeSelect.value = String(resolvedDefaultIssueTypeId);
+      } else {
+        const preferred = issueTypes.find((type) => /^task$/i.test(type.name)) || issueTypes[0];
+        issueTypeSelect.value = String(preferred.id);
+      }
       issueTypeSelect.disabled = false;
     } catch (e) {
       if (requestId !== issueTypesRequestId) return;
@@ -241,6 +271,12 @@ export function renderTicketForm(container, options) {
         option.value = String(priority.id);
         prioritySelect.appendChild(option);
       });
+      if (resolvedDefaultPriorityId && priorities.some((p) => String(p.id) === String(resolvedDefaultPriorityId))) {
+        prioritySelect.value = String(resolvedDefaultPriorityId);
+      } else {
+        const preferred = priorities.find((p) => /^medium$/i.test(p.name)) || priorities[0];
+        if (preferred) prioritySelect.value = String(preferred.id);
+      }
     } catch (e) {
       // Priority is optional; leave only "No priority"
     }

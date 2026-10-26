@@ -38,7 +38,7 @@ function Participants({ participants }) {
   );
 }
 
-export default function CanvasTable({ canvases, hasAccess, onWrite, onReview, onOpenJira }) {
+export default function CanvasTable({ canvases, onOpenJira, onDelete }) {
   const [expanded, setExpanded] = useState(() => new Set());
   const [copiedUrl, setCopiedUrl] = useState(null);
 
@@ -106,7 +106,19 @@ export default function CanvasTable({ canvases, hasAccess, onWrite, onReview, on
                   >
                     {isExpanded ? '▾' : '▸'}
                   </button>
-                  {canvas.canvasName}
+                  {urls.length > 0 ? (
+                    <a
+                      className="jt-canvas-link"
+                      href={urls[0].url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      title="Open original page"
+                    >
+                      {canvas.canvasName} <span className="jt-external-icon">↗</span>
+                    </a>
+                  ) : (
+                    canvas.canvasName
+                  )}
                 </td>
                 <td>
                   <ProjectSpan projectKeys={canvas.projectKeys} />
@@ -120,20 +132,15 @@ export default function CanvasTable({ canvases, hasAccess, onWrite, onReview, on
                   <Participants participants={canvas.participants} />
                 </td>
                 <td className="jt-actions">
+                  <button type="button" className="jt-button" onClick={() => onOpenJira(canvas.canvasName)}>
+                    Review All Tickets
+                  </button>
                   <button
                     type="button"
-                    className="jt-button"
-                    disabled={!hasAccess}
-                    title={hasAccess ? '' : 'Your Jira admin has not granted you access to JiraTack'}
-                    onClick={() => onWrite(canvas.canvasName)}
+                    className="jt-button jt-button-danger"
+                    onClick={() => onDelete(canvas.canvasName)}
                   >
-                    Get write bookmarklet
-                  </button>
-                  <button type="button" className="jt-button" onClick={() => onReview(canvas.canvasName)}>
-                    Copy review bookmarklet
-                  </button>
-                  <button type="button" className="jt-button" onClick={() => onOpenJira(canvas.canvasName)}>
-                    Open in Jira
+                    Delete Canvas
                   </button>
                 </td>
               </tr>

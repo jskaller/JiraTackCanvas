@@ -444,3 +444,18 @@ body {
   border-color: #4c9aff;
   box-shadow: 0 0 0 2px rgba(76, 154, 255, 0.2);
 }
+
+.jt-canvas-link {
+  color: #172b4d;
+  text-decoration: none;
+}
+
+.jt-canvas-link:hover {
+  color: #0052cc;
+  text-decoration: underline;
+}
+
+.jt-external-icon {
+  color: #5e6c84;
+  font-size: 12px;
+}

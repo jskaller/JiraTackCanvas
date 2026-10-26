@@ -81,6 +81,8 @@ async function attachScreenshot(issueKey, screenshotDataUrl) {
     }
     throw new Error(`Attachment upload failed with HTTP ${res.status}${detail ? `: ${detail.slice(0, 300)}` : ''}`);
   }
+
+  console.log('[JiraTack] Screenshot attached to issue:', issueKey);
 }
 
 async function requestCreateIssue(fields) {

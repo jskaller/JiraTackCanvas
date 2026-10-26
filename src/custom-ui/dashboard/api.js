@@ -16,6 +16,10 @@ export function createCanvas(canvasName, targetUrl) {
   return invoke('createCanvas', { canvasName, targetUrl });
 }
 
+export function deleteCanvas(canvasName) {
+  return invoke('deleteCanvas', { canvasName });
+}
+
 export function recoverPins(dryRun) {
   return invoke('recoverPinsFromDescriptions', { dryRun });
 }
@@ -42,8 +46,9 @@ export function formatDate(value) {
   return date.toLocaleString();
 }
 
-export function buildJqlUrl(jiraBaseUrl, canvasFieldId, canvasName) {
+export function buildJqlUrl(jiraBaseUrl, canvasName) {
   if (!jiraBaseUrl) return null;
-  const jql = `"${canvasFieldId}" = "${canvasName}"`;
+  const escapedCanvas = String(canvasName).replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+  const jql = `labels = "jiratack" AND text ~ "${escapedCanvas}"`;
   return `${String(jiraBaseUrl).replace(/\/$/, '')}/issues/?jql=${encodeURIComponent(jql)}`;
 }

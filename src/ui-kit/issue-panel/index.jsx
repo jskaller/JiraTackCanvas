@@ -8,7 +8,7 @@ import ForgeReconciler, {
   SectionMessage,
   useProductContext,
 } from '@forge/react';
-import { invoke } from '@forge/bridge';
+import { invoke, router } from '@forge/bridge';
 
 const IssuePanel = () => {
   const context = useProductContext();
@@ -81,6 +81,14 @@ const IssuePanel = () => {
       ) : (
         <Text>Page URL unavailable</Text>
       )}
+
+      {data.url && (
+        <Stack space="space.050">
+          <Button onClick={() => router.open(data.url)}>Open page to view pins</Button>
+          <Text>Once the page opens, click your JiraTack bookmarklet to view this canvas.</Text>
+        </Stack>
+      )}
+
       <Button onClick={copyLink}>{copied ? 'Copied' : 'Copy link to this pin'}</Button>
       {data.deepLink && <Textfield label="Deep link" value={data.deepLink} isReadOnly />}
 

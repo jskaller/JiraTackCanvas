@@ -3,7 +3,7 @@ import html2canvas from 'html2canvas';
 const CROP_SIZE = 400;
 const WEBP_QUALITY = 0.85;
 
-export async function captureScreenshot(pinX, pinY) {
+export async function captureScreenshot(clientX, clientY) {
   const overlay = document.getElementById('jiratack-overlay');
   const previousVisibility = overlay ? overlay.style.visibility : null;
   if (overlay) overlay.style.visibility = 'hidden';
@@ -22,8 +22,8 @@ export async function captureScreenshot(pinX, pinY) {
     });
 
     const cropSize = Math.round(CROP_SIZE * scale);
-    const centerX = (pinX - window.scrollX) * scale;
-    const centerY = (pinY - window.scrollY) * scale;
+    const centerX = clientX * scale;
+    const centerY = clientY * scale;
 
     let sourceX = Math.round(centerX - cropSize / 2);
     let sourceY = Math.round(centerY - cropSize / 2);
@@ -46,9 +46,10 @@ export async function captureScreenshot(pinX, pinY) {
     if (!dataUrl || dataUrl.indexOf('data:image/webp') !== 0) {
       dataUrl = output.toDataURL('image/png');
     }
+    console.log('[JiraTack] Screenshot captured successfully');
     return dataUrl;
   } catch (e) {
-    console.error('[JiraTack] screenshot failed', e);
+    console.log('[JiraTack] Screenshot failed', e);
     return null;
   } finally {
     if (overlay) overlay.style.visibility = previousVisibility || '';

@@ -2,6 +2,7 @@ import api, { route } from '@forge/api';
 import { getInstallationConfig } from '../../lib/config.js';
 import { errorResult } from '../../lib/errors.js';
 import { normalizeUrl } from '../../shared/urlNormalize.js';
+import { parsePinMarker } from '../../lib/pinMarker.js';
 
 const PAGE_SIZE = 100;
 const MAX_TICKETS = 2000;
@@ -49,6 +50,7 @@ function mapUser(user) {
 export async function dashboardAggregate(context) {
   const config = await getInstallationConfig();
   const fieldRegistry = config.fieldRegistry || {};
+  const archived = new Set(Array.isArray(config.archivedCanvases) ? config.archivedCanvases : []);
 
   if (!fieldRegistry.canvasField) {
     return {
@@ -67,6 +69,7 @@ export async function dashboardAggregate(context) {
   const fields = [
     fieldRegistry.canvasField,
     fieldRegistry.urlField,
+    'description',
     'status',
     'updated',
     'assignee',
@@ -104,7 +107,10 @@ export async function dashboardAggregate(context) {
 
       for (const issue of issues) {
         const issueFields = issue.fields || {};
-        const canvasName = issueFields[fieldRegistry.canvasField];
+        const storedCanvas = issueFields[fieldRegistry.canvasField];
+        const storedUrl = fieldRegistry.urlField ? issueFields[fieldRegistry.urlField] : null;
+        const marker = !storedCanvas || !storedUrl ? parsePinMarker(issueFields.description) : null;
+        const canvasName = storedCanvas || (marker && marker.canvas) || null;
         if (!canvasName) continue;
 
         let entry = canvases.get(canvasName);
@@ -130,8 +136,9 @@ export async function dashboardAggregate(context) {
           entry.openCount += 1;
         }
 
-        if (fieldRegistry.urlField && issueFields[fieldRegistry.urlField]) {
-          const normalized = normalizeUrl(issueFields[fieldRegistry.urlField]);
+        const urlValue = storedUrl || (marker && marker.url) || null;
+        if (urlValue) {
+          const normalized = normalizeUrl(urlValue);
           entry.urls.set(normalized, (entry.urls.get(normalized) || 0) + 1);
         }
 
@@ -157,6 +164,7 @@ export async function dashboardAggregate(context) {
     } while (fetched < MAX_TICKETS);
 
     const summaries = Array.from(canvases.values())
+      .filter((entry) => !archived.has(entry.canvasName))
       .map((entry) => ({
         canvasName: entry.canvasName,
         ticketCount: entry.ticketCount,

@@ -70,11 +70,13 @@ export async function exchangeToken(payload) {
       }
     }
 
+    const scope = userRecord.scope || 'create';
+
     const sessionJwt = await generateSessionJwt({
       iss: 'jiratack',
       sub: userRecord.userId,
       aud: userRecord.installationId,
-      scope: 'universal',
+      scope,
       permittedProjects,
       iat,
       exp,
@@ -86,7 +88,7 @@ export async function exchangeToken(payload) {
       expiresAt: exp * 1000,
       canvasId: null,
       canvasName: null,
-      scope: 'universal',
+      scope,
       permittedProjects,
     });
   }

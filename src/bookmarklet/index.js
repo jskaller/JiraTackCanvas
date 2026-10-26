@@ -8,6 +8,7 @@ import { captureScreenshot } from './screenshot.js';
 import { renderTicketForm } from './form.js';
 import { playDoneAnimation } from './done.js';
 import { installConsoleProxy, restoreConsoleProxy, clearConsoleBuffer } from './consoleProxy.js';
+import { normalizeUrl } from '../shared/urlNormalize.js';
 import styles from './styles.css?inline';
 
 const LOG_PREFIX = '[JiraTack]';
@@ -69,7 +70,14 @@ function renderPinsAndSidebar() {
         canvases: current.canvases,
         selected: current.canvasName,
         onChange: handleCanvasSelect,
-        onCreate: handleCreateCanvas,
+        onCreate: session.scope === 'view' ? undefined : handleCreateCanvas,
+        onSwitch: () => {
+          if (!current) return;
+          current.canvasName = null;
+          current.pins = [];
+          window.__jiratackActiveCanvas = current.config.canvasId || 'universal';
+          renderPinsAndSidebar();
+        },
       }
     : null;
 
@@ -143,23 +151,37 @@ async function handleCapture(capture) {
   const { config, session, overlay } = current;
   const activeAtStart = current.canvasName;
 
-  const absX = capture.clientX + window.scrollX;
-  const absY = capture.clientY + window.scrollY;
-  const screenshotDataUrl = await captureScreenshot(absX, absY);
+  const screenshotDataUrl = await captureScreenshot(capture.clientX, capture.clientY);
+  if (screenshotDataUrl) {
+    console.log(`${LOG_PREFIX} Screenshot captured successfully`);
+  } else {
+    console.log(`${LOG_PREFIX} Screenshot failed`);
+  }
 
   if (!current || window.__jiratackActiveCanvas !== activeAtStart) return;
 
-  const firstPin = current.pins && current.pins.length > 0 ? current.pins[0] : null;
-  const defaultProject = firstPin && firstPin.projectKey ? firstPin.projectKey : undefined;
-  const defaultAssignee = firstPin && firstPin.assignee ? { ...firstPin.assignee } : undefined;
+  const sortedPins = (current.pins || []).slice().sort((a, b) => {
+    const aTime = a && a.createdAt ? Date.parse(a.createdAt) : 0;
+    const bTime = b && b.createdAt ? Date.parse(b.createdAt) : 0;
+    return bTime - aTime;
+  });
+  const newestPin = sortedPins.length > 0 ? sortedPins[0] : null;
+  const defaultProject = newestPin && newestPin.projectKey ? newestPin.projectKey : undefined;
+  const defaultAssignee = newestPin && newestPin.assignee ? { ...newestPin.assignee } : undefined;
+  const defaultIssueTypeId = newestPin && newestPin.issueTypeId ? newestPin.issueTypeId : undefined;
+  const defaultPriorityId = newestPin && newestPin.priorityId ? newestPin.priorityId : undefined;
 
   renderTicketForm(overlay.formEl, {
     config: { ...config, canvasId: current.canvasName },
     session,
     capture,
     screenshotDataUrl,
+    screenshotFailed: !screenshotDataUrl,
+    pins: current.pins,
     defaultProject,
     defaultAssignee,
+    defaultIssueTypeId,
+    defaultPriorityId,
     onCancel: () => {
       if (current && current.overlay) current.overlay.formEl.innerHTML = '';
     },
@@ -250,7 +272,8 @@ async function init(config) {
   try {
     let session = await exchangeSession(config);
 
-    if (session.scope === 'universal') {
+    const isLauncher = config.canvasId === 'universal';
+    if (isLauncher) {
       let canvasList;
       try {
         canvasList = await listCanvasesForUser(config, session);
@@ -276,6 +299,23 @@ async function init(config) {
         sidebarController: null,
         pinModeController: null,
       };
+
+      const pageUrl = normalizeUrl(window.location.href);
+      const matchingCanvases = current.canvases.filter((canvas) =>
+        Array.isArray(canvas.urls) && canvas.urls.some((canvasUrl) => normalizeUrl(canvasUrl) === pageUrl),
+      );
+
+      if (matchingCanvases.length === 1) {
+        const autoCanvasName = matchingCanvases[0].canvasName;
+        window.__jiratackActiveCanvas = autoCanvasName;
+        try {
+          const data = await getPins(config, session, autoCanvasName, window.location.href);
+          current.canvasName = (data && data.canvasName) || autoCanvasName;
+          current.pins = (data && data.pins) || [];
+        } catch (e) {
+          console.error(`${LOG_PREFIX} Auto-select failed:`, e);
+        }
+      }
 
       renderPinsAndSidebar();
       console.log(`${LOG_PREFIX} Universal launcher ready with ${current.canvases.length} canvas(es)`);

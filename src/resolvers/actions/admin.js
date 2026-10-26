@@ -8,6 +8,7 @@ import { generateSessionJwt } from '../../lib/tokens.js';
 import { errorResponse, errorResult } from '../../lib/errors.js';
 import { resolveWebtriggerUrls } from '../../lib/webtriggerUrls.js';
 import { createSeedTicket } from '../../lib/canvas.js';
+import { parsePinMarker } from '../../lib/pinMarker.js';
 import { SDK_VERSION } from '../../lib/version.js';
 
 const CANVAS_TOKEN_TTL_SECONDS = 2592000;
@@ -322,49 +323,6 @@ export async function autoUpdateFieldMappings(context, payload) {
   }
 }
 
-const PIN_MARKER_PREFIX = '📌 JiraTack pin:';
-
-function findMarkerText(node) {
-  if (!node || typeof node !== 'object') return null;
-
-  if (node.type === 'paragraph' && Array.isArray(node.content)) {
-    const firstText = node.content.find((child) => child && child.type === 'text');
-    const text = firstText && typeof firstText.text === 'string' ? firstText.text : '';
-    if (text.startsWith(PIN_MARKER_PREFIX)) {
-      return text.slice(PIN_MARKER_PREFIX.length).trim();
-    }
-  }
-
-  if (Array.isArray(node.content)) {
-    for (const child of node.content) {
-      const found = findMarkerText(child);
-      if (found) return found;
-    }
-  }
-
-  return null;
-}
-
-function parsePinMarker(descriptionAdf) {
-  const raw = findMarkerText(descriptionAdf);
-  if (!raw) return null;
-  let parsed;
-  try {
-    parsed = JSON.parse(raw);
-  } catch (e) {
-    return null;
-  }
-  if (!parsed || typeof parsed.canvas !== 'string' || !parsed.canvas) return null;
-  if (typeof parsed.url !== 'string' || !parsed.url) return null;
-  if (typeof parsed.position !== 'string' || !parsed.position) return null;
-  return {
-    canvas: parsed.canvas,
-    url: parsed.url,
-    position: parsed.position,
-    selector: typeof parsed.selector === 'string' && parsed.selector ? parsed.selector : null,
-  };
-}
-
 async function isJiraAdmin(context) {
   if (context && context.userAccess && context.userAccess.isAdmin === true) {
     return true;
@@ -509,9 +467,7 @@ export async function recoverPinsFromDescriptions(context, payload) {
 const USER_TOKEN_TTL_DAYS = 90;
 
 export async function generateUserToken(context) {
-  if (context && context.userAccess && context.userAccess.hasAccess === false) {
-    return errorResult('LICENSE_INACTIVE', 'JiraTack license is not active.');
-  }
+  const scope = (context && context.userAccess && context.userAccess.hasAccess === false) ? 'view' : 'create';
 
   const config = await getInstallationConfig();
 
@@ -533,6 +489,7 @@ export async function generateUserToken(context) {
   const record = {
     userId: String(userId),
     installationId: String(installationId),
+    scope,
     issuedAt,
     expiresAt,
     revoked: false,
@@ -542,6 +499,7 @@ export async function generateUserToken(context) {
   try {
     console.log('[JiraTack] Saving user token record:', {
       userId: record.userId,
+      scope,
       permittedProjects,
       expiresAt,
     });
@@ -576,4 +534,89 @@ export async function createCanvas(context, payload) {
   } catch (e) {
     return errorResult('INTERNAL', e && e.message ? e.message : String(e));
   }
+}
+
+export async function deleteCanvas(context, payload) {
+  const isAdmin = await isJiraAdmin(context);
+  if (!isAdmin) {
+    return errorResult('INSUFFICIENT_SCOPE', 'Admin access is required.');
+  }
+
+  const canvasName = payload && payload.canvasName;
+  if (typeof canvasName !== 'string' || canvasName.trim().length === 0) {
+    return errorResult('BAD_REQUEST', 'canvasName is required.');
+  }
+
+  const config = await getInstallationConfig();
+  const fieldRegistry = config.fieldRegistry || {};
+
+  const jql = `labels = "jiratack" ORDER BY created ASC`;
+  const issues = [];
+  let nextPageToken = null;
+  const MAX_SCANNED = 2000;
+
+  try {
+    while (issues.length < MAX_SCANNED) {
+      const body = { jql, fields: ['status', fieldRegistry.canvasField, 'description'], maxResults: 100 };
+      if (nextPageToken) body.nextPageToken = nextPageToken;
+
+      const res = await api.asUser().requestJira(route`/rest/api/3/search/jql`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+
+      if (!res.ok) {
+        return errorResult('INTERNAL', `Canvas query failed with HTTP ${res.status}.`);
+      }
+
+      const data = await res.json();
+      const batch = (data && data.issues) || [];
+      issues.push(...batch);
+
+      if (batch.length === 0) break;
+      if (data && (data.isLast || !data.nextPageToken)) break;
+      nextPageToken = data && data.nextPageToken;
+      if (!nextPageToken) break;
+    }
+  } catch (e) {
+    return errorResult('INTERNAL', e && e.message ? e.message : String(e));
+  }
+
+  const canvasIssues = issues.filter((issue) => {
+    const fields = issue.fields || {};
+    const stored = fieldRegistry.canvasField ? fields[fieldRegistry.canvasField] : null;
+    if (stored === canvasName) return true;
+    const marker = parsePinMarker(fields.description);
+    return Boolean(marker && marker.canvas === canvasName);
+  });
+
+  const openIssues = canvasIssues.filter((issue) => {
+    const category = issue.fields && issue.fields.status && issue.fields.status.statusCategory
+      ? issue.fields.status.statusCategory.key
+      : '';
+    return category !== 'done';
+  });
+
+  if (openIssues.length > 0) {
+    return errorResult(
+      'CANVAS_NOT_EMPTY',
+      'Cannot delete: This canvas still has open tickets.',
+      { openCount: openIssues.length, total: canvasIssues.length },
+    );
+  }
+
+  const archived = Array.isArray(config.archivedCanvases) ? config.archivedCanvases : [];
+  if (!archived.includes(canvasName)) {
+    archived.push(canvasName);
+  }
+  config.archivedCanvases = archived;
+
+  try {
+    await setInstallationConfig(config);
+  } catch (e) {
+    return errorResult('INTERNAL', e && e.message ? e.message : String(e));
+  }
+
+  return { ok: true, data: { canvasName, archived: true, ticketCount: canvasIssues.length } };
 }

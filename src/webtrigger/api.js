@@ -104,7 +104,7 @@ export const handler = async (req, context) => {
     }
 
     if (action === 'listCanvasesForUser') {
-      const auth = await authenticate(req, context, ['universal']);
+      const auth = await authenticate(req, context, ['create', 'view', 'universal']);
       if (!auth.ok) return envelope(auth);
       return envelope(await listCanvasesForUser(payload, auth.claims));
     }

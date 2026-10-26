@@ -1,10 +1,10 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { router } from '@forge/bridge';
-import { aggregate, generateToken, generateUserToken, buildJqlUrl } from './api';
+import { aggregate, generateUserToken, buildJqlUrl, deleteCanvas } from './api';
 import CanvasTable from './components/CanvasTable';
 import BookmarkletModal from './components/BookmarkletModal';
-import ConfirmDialog from './components/ConfirmDialog';
 import RecoveryPanel from './components/RecoveryPanel';
+import ConfirmDialog from './components/ConfirmDialog';
 import CreateCanvasModal from './components/CreateCanvasModal';
 
 export default function App() {
@@ -12,15 +12,13 @@ export default function App() {
   const [error, setError] = useState(null);
   const [actionError, setActionError] = useState(null);
   const [canvases, setCanvases] = useState([]);
-  const [hasAccess, setHasAccess] = useState(true);
   const [isAdmin, setIsAdmin] = useState(false);
   const [jiraBaseUrl, setJiraBaseUrl] = useState(null);
-  const [canvasFieldId, setCanvasFieldId] = useState(null);
   const [search, setSearch] = useState('');
   const [modal, setModal] = useState(null);
-  const [confirm, setConfirm] = useState(null);
   const [universalLoading, setUniversalLoading] = useState(false);
   const [createOpen, setCreateOpen] = useState(false);
+  const [confirm, setConfirm] = useState(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -31,10 +29,8 @@ export default function App() {
 
       if (aggregateResult && aggregateResult.ok && aggregateResult.data) {
         setCanvases(aggregateResult.data.canvases || []);
-        setHasAccess(aggregateResult.data.hasAccess !== false);
         setIsAdmin(Boolean(aggregateResult.data.isAdmin));
         setJiraBaseUrl(aggregateResult.data.jiraBaseUrl || null);
-        setCanvasFieldId(aggregateResult.data.canvasFieldId || null);
       } else {
         setError(
           (aggregateResult && aggregateResult.error && aggregateResult.error.message)
@@ -53,41 +49,6 @@ export default function App() {
   useEffect(() => {
     load();
   }, [load]);
-
-  async function issueToken(canvasName, scope) {
-    setActionError(null);
-    try {
-      const result = await generateToken(canvasName, scope);
-      if (result && result.ok && result.data) {
-        setModal({ data: result.data, scope });
-        return;
-      }
-      const err = result && result.error;
-      if (err && err.code === 'NO_CANVAS_ACCESS') {
-        setActionError({
-          canvasName,
-          message:
-            "You don't have access to any project in this canvas. Ask the canvas owner to grant access, or ask a licensed team member with access to share their view bookmarklet.",
-        });
-      } else if (err && err.code === 'LICENSE_INACTIVE') {
-        setActionError({
-          canvasName,
-          message: 'Your Jira admin has not granted you access to JiraTack.',
-        });
-      } else {
-        setActionError({
-          canvasName,
-          message: (err && err.message) || 'Failed to generate bookmarklet.',
-        });
-      }
-    } catch (e) {
-      setActionError({ canvasName, message: e && e.message ? e.message : String(e) });
-    }
-  }
-
-  function handleWrite(canvasName) {
-    issueToken(canvasName, 'create');
-  }
 
   async function handleUniversalBookmarklet() {
     setUniversalLoading(true);
@@ -111,19 +72,8 @@ export default function App() {
     setUniversalLoading(false);
   }
 
-  function handleReview(canvasName) {
-    setConfirm({
-      kind: 'review',
-      canvasName,
-      title: 'Copy review bookmarklet',
-      message:
-        'Review bookmarklets show pins from projects the viewer can browse. The server filters pins by permitted projects. You can share this bookmarklet with reviewers. Continue?',
-      confirmLabel: 'Continue',
-    });
-  }
-
   function handleOpenJira(canvasName) {
-    const url = buildJqlUrl(jiraBaseUrl, canvasFieldId, canvasName);
+    const url = buildJqlUrl(jiraBaseUrl, canvasName);
     if (!url) {
       setActionError({ canvasName, message: 'Jira base URL is unavailable.' });
       return;
@@ -131,12 +81,35 @@ export default function App() {
     router.open(url);
   }
 
+  function handleDeleteCanvas(canvasName) {
+    setConfirm({
+      kind: 'delete',
+      canvasName,
+      title: 'Delete canvas',
+      message:
+        'This archives the canvas so it no longer appears in the dashboard or launcher. Jira tickets are NOT deleted. A canvas can only be deleted when every ticket is Done.',
+      confirmLabel: 'Delete canvas',
+      destructive: true,
+    });
+  }
+
   async function confirmAction() {
-    if (!confirm) return;
-    if (confirm.kind === 'review') {
-      const canvasName = confirm.canvasName;
-      setConfirm(null);
-      issueToken(canvasName, 'view');
+    if (!confirm || confirm.kind !== 'delete') return;
+    const canvasName = confirm.canvasName;
+    setConfirm(null);
+    setActionError(null);
+    try {
+      const result = await deleteCanvas(canvasName);
+      if (!result || !result.ok) {
+        setActionError({
+          canvasName,
+          message: (result && result.error && result.error.message) || 'Failed to delete canvas.',
+        });
+        return;
+      }
+      load();
+    } catch (e) {
+      setActionError({ canvasName, message: e && e.message ? e.message : String(e) });
     }
   }
 
@@ -159,7 +132,7 @@ export default function App() {
           disabled={universalLoading}
           onClick={handleUniversalBookmarklet}
         >
-          {universalLoading ? 'Generating…' : 'Get Universal Launcher Bookmarklet'}
+          {universalLoading ? 'Generating…' : 'Get JiraTack Bookmarklet'}
         </button>
       </header>
 
@@ -202,10 +175,8 @@ export default function App() {
         ) : (
           <CanvasTable
             canvases={filteredCanvases}
-            hasAccess={hasAccess}
-            onWrite={handleWrite}
-            onReview={handleReview}
             onOpenJira={handleOpenJira}
+            onDelete={handleDeleteCanvas}
           />
         )}
       </section>
