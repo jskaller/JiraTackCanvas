@@ -54,3 +54,7 @@ export async function updateIssue(config, session, issueKey, fields) {
 export async function getPriorities(config, session) {
   return postAction(config, session, 'getPriorities', {}, true);
 }
+
+export async function getIssueTypes(config, session, projectKey) {
+  return postAction(config, session, 'getIssueTypes', { projectKey }, true);
+}

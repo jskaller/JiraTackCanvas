@@ -7,10 +7,11 @@ import { getTransitions } from './actions/transitions.js';
 import { updateIssue } from './actions/updateIssue.js';
 import { searchUsers } from './actions/searchUsers.js';
 import { getPriorities } from './actions/priorities.js';
+import { getIssueTypes } from './actions/getIssueTypes.js';
 
 const JSON_HEADERS = { 'Content-Type': ['application/json'] };
 
-function envelope(result) {
+function envelope(result, options = {}) {
   if (result && result.ok === true) {
     return {
       statusCode: 200,
@@ -26,7 +27,7 @@ function envelope(result) {
   } else {
     error = { code: 'INTERNAL', message: 'Unknown error', details: null };
   }
-  const statusCode = STATUS_BY_CODE[error.code] || 500;
+  const statusCode = options.okStatus ? 200 : (STATUS_BY_CODE[error.code] || 500);
   return {
     statusCode,
     headers: JSON_HEADERS,
@@ -92,6 +93,12 @@ export const handler = async (req, context) => {
       const auth = await authenticate(req, context, ['create']);
       if (!auth.ok) return envelope(auth);
       return envelope(await getPriorities(payload, auth.claims));
+    }
+
+    if (action === 'getIssueTypes') {
+      const auth = await authenticate(req, context, ['create']);
+      if (!auth.ok) return envelope(auth);
+      return envelope(await getIssueTypes(payload, auth.claims), { okStatus: true });
     }
 
     return envelope(errorResponse('BAD_REQUEST', `Unknown action: ${action}`));

@@ -1,4 +1,4 @@
-import { createIssue } from './api.js';
+import { createIssue, getIssueTypes } from './api.js';
 import { serializeToAdf } from '../shared/adfSerializer.js';
 import { formatConsoleLog } from './consoleProxy.js';
 
@@ -48,7 +48,11 @@ export function renderTicketForm(container, options) {
   const defaultProject = permitted.length === 1 ? permitted[0] : '';
 
   const projectInput = textInput('e.g. MM', defaultProject);
-  const issueTypeInput = textInput('e.g. 10001', '');
+  const issueTypeSelect = el('select', 'jiratack-input jiratack-select');
+  issueTypeSelect.disabled = true;
+  const initialTypeOption = el('option', null, 'Enter a project key first');
+  initialTypeOption.value = '';
+  issueTypeSelect.appendChild(initialTypeOption);
   const summaryInput = textInput('Short summary', '');
   summaryInput.maxLength = 215;
   const descriptionInput = el('textarea', 'jiratack-textarea');
@@ -57,7 +61,7 @@ export function renderTicketForm(container, options) {
   const parentInput = textInput('e.g. MM-123', '');
 
   form.appendChild(field('Project key', projectInput));
-  form.appendChild(field('Issue type ID', issueTypeInput));
+  form.appendChild(field('Issue type', issueTypeSelect));
   form.appendChild(field('Summary', summaryInput));
   form.appendChild(field('Description', descriptionInput));
   form.appendChild(field('Parent key (optional)', parentInput));
@@ -127,6 +131,57 @@ export function renderTicketForm(container, options) {
     errorBox.style.display = 'none';
   }
 
+  let issueTypesRequestId = 0;
+
+  async function loadIssueTypes(projectKey) {
+    issueTypesRequestId += 1;
+    const requestId = issueTypesRequestId;
+
+    const normalizedProject = String(projectKey || '').trim().toUpperCase();
+
+    issueTypeSelect.innerHTML = '';
+    const placeholder = el('option', null, normalizedProject ? 'Loading issue types…' : 'Enter a project key first');
+    placeholder.value = '';
+    issueTypeSelect.appendChild(placeholder);
+    issueTypeSelect.disabled = true;
+
+    if (!normalizedProject) return;
+
+    try {
+      const result = await getIssueTypes(config, session, normalizedProject);
+      if (requestId !== issueTypesRequestId) return;
+
+      const issueTypes = ((result && result.issueTypes) || []).filter((type) => !type.subtask);
+      issueTypeSelect.innerHTML = '';
+
+      if (issueTypes.length === 0) {
+        const empty = el('option', null, 'No issue types available');
+        empty.value = '';
+        issueTypeSelect.appendChild(empty);
+        return;
+      }
+
+      issueTypes.forEach((type) => {
+        const option = el('option', null, type.name);
+        option.value = String(type.id);
+        issueTypeSelect.appendChild(option);
+      });
+
+      const preferred = issueTypes[0];
+      issueTypeSelect.value = String(preferred.id);
+      issueTypeSelect.disabled = false;
+    } catch (e) {
+      if (requestId !== issueTypesRequestId) return;
+      const message = (e && e.message) || 'Failed to load issue types.';
+      issueTypeSelect.innerHTML = '';
+      const failed = el('option', null, message);
+      failed.value = '';
+      issueTypeSelect.appendChild(failed);
+      issueTypeSelect.disabled = true;
+      showError(message);
+    }
+  }
+
   async function handleSubmit(event) {
     event.preventDefault();
     if (submitting) return;
@@ -134,7 +189,7 @@ export function renderTicketForm(container, options) {
 
     const summary = summaryInput.value.trim();
     const projectKey = projectInput.value.trim();
-    const issueTypeId = issueTypeInput.value.trim();
+    const issueTypeId = issueTypeSelect.value.trim();
     const parentKey = parentInput.value.trim();
 
     if (summary.length < 3) {
@@ -146,7 +201,7 @@ export function renderTicketForm(container, options) {
       return;
     }
     if (!issueTypeId) {
-      showError('Issue type ID is required.');
+      showError('Select an issue type.');
       return;
     }
     if (parentKey && !PARENT_KEY_RE.test(parentKey)) {
@@ -200,7 +255,38 @@ export function renderTicketForm(container, options) {
 
   form.addEventListener('submit', handleSubmit);
 
+  let issueTypeDebounce = null;
+  function scheduleIssueTypes() {
+    if (issueTypeDebounce) {
+      window.clearTimeout(issueTypeDebounce);
+    }
+    issueTypeDebounce = window.setTimeout(() => {
+      issueTypeDebounce = null;
+      loadIssueTypes(projectInput.value.trim());
+    }, 400);
+  }
+
+  projectInput.addEventListener('input', scheduleIssueTypes);
+  projectInput.addEventListener('blur', () => {
+    if (issueTypeDebounce) {
+      window.clearTimeout(issueTypeDebounce);
+      issueTypeDebounce = null;
+    }
+    const upper = projectInput.value.trim().toUpperCase();
+    if (upper) projectInput.value = upper;
+    loadIssueTypes(upper);
+  });
+
+  if (defaultProject) {
+    loadIssueTypes(defaultProject);
+  }
+
   function destroy() {
+    if (issueTypeDebounce) {
+      window.clearTimeout(issueTypeDebounce);
+      issueTypeDebounce = null;
+    }
+    issueTypesRequestId += 1;
     container.innerHTML = '';
   }
 

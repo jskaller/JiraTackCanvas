@@ -316,6 +316,16 @@ Success:  { users: [{ accountId, displayName, avatarUrl }] }
 
 Proxies `GET /rest/api/3/user/assignable/search?project={projectKey}&query={query}&maxResults=10`. Handle both plain array and `{ values: [] }` response shapes.
 
+### 3.7 `getIssueTypes`
+
+```text
+Request:  { action: "getIssueTypes", payload: { projectKey } }
+Auth:     Bearer, scope create only
+Success:  { issueTypes: [{ id, name, subtask }] }
+```
+
+Proxies `GET /rest/api/3/issue/createmeta/{projectKey}/issuetypes`. Handle both `{ issueTypes: [] }` and `{ values: [] }` response shapes.
+
 ---
 
 ## Part 4 — Resolver contracts
