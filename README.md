@@ -4,7 +4,7 @@ A Forge app for dropping visual pins on web pages and turning them into Jira tic
 
 ## Status
 
-Pre-build. Design baseline committed. Sprint 1 begins after `TEST_PLAN.md` is written and decisions D9–D14 are resolved.
+v0.9.0 — MVP Feature Complete, Internal Testing Phase
 
 ## Documentation — read in this order
 
