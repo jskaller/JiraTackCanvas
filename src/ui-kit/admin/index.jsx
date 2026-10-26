@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import ForgeReconciler, { Button, Text, Stack, SectionMessage, Textfield, Link } from '@forge/react';
 import { invoke } from '@forge/bridge';
+import FieldAudit from './FieldAudit.jsx';
 
 const DEFAULT_CONFIG = {
   fieldRegistry: {},
@@ -114,6 +115,17 @@ const AdminApp = () => {
   const registry = (config && config.fieldRegistry) || {};
   const mode = (config && config.viewPermissionMode) || 'per_user_projects';
 
+  const refreshConfig = async () => {
+    try {
+      const cfg = await invoke('getInstallationConfig');
+      if (cfg && cfg.ok && cfg.data) {
+        setConfig({ ...DEFAULT_CONFIG, ...cfg.data });
+      }
+    } catch (e) {
+      // ignore refresh errors
+    }
+  };
+
   return (
     <Stack space="space.200">
       <Text>JiraTack Admin</Text>
@@ -139,6 +151,8 @@ const AdminApp = () => {
       {warnings.map((w, i) => (
         <Text key={i}>{w}</Text>
       ))}
+
+      <FieldAudit onUpdated={refreshConfig} />
 
       <Text>Generate Test Bookmarklet</Text>
       <Textfield

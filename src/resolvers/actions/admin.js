@@ -200,3 +200,123 @@ export async function revokeCanvasToken(payload) {
     return errorResult('INTERNAL', e && e.message ? e.message : String(e));
   }
 }
+
+export async function autoUpdateFieldMappings(context, payload) {
+  const config = await getInstallationConfig();
+  const fieldRegistry = config.fieldRegistry || {};
+  const fieldIds = [
+    fieldRegistry.canvasField,
+    fieldRegistry.urlField,
+    fieldRegistry.pinField,
+    fieldRegistry.selectorField,
+  ].filter(Boolean);
+
+  if (fieldIds.length === 0) {
+    return errorResult('BAD_REQUEST', 'Provision fields before auto-updating field mappings.');
+  }
+
+  const warnings = [];
+  const updatedScreens = [];
+
+  try {
+    const screensRes = await api.asUser().requestJira(route`/rest/api/3/screens?maxResults=100`);
+    if (!screensRes.ok) {
+      return errorResult('INTERNAL', `Failed to list screens with HTTP ${screensRes.status}.`);
+    }
+    const screensJson = await screensRes.json();
+    const screens = (screensJson && screensJson.values) || [];
+
+    const defaultScreens = screens.filter((screen) => /default/i.test(screen.name || ''));
+    const targets = defaultScreens.length > 0 ? defaultScreens : screens;
+
+    if (targets.length === 0) {
+      return { ok: true, data: { updatedScreens: [], warnings: ['No screens found.'] } };
+    }
+
+    for (const screen of targets) {
+      try {
+        let tabsRes;
+        try {
+          tabsRes = await api.asUser().requestJira(route`/rest/api/3/screens/${screen.id}/tabs`);
+        } catch (e) {
+          console.error(`[JiraTack] Failed to read tabs for screen ${screen.name}:`, e);
+          warnings.push(
+            `Skipped screen ${screen.name} (Team-managed screens must be configured manually): ${e && e.message ? e.message : e}`,
+          );
+          continue;
+        }
+
+        if (!tabsRes.ok) {
+          console.error(`[JiraTack] Tabs request for screen ${screen.name} returned HTTP ${tabsRes.status}.`);
+          if (tabsRes.status === 400 || tabsRes.status === 403) {
+            warnings.push(
+              `Skipped screen ${screen.name} (Team-managed screens must be configured manually): HTTP ${tabsRes.status}.`,
+            );
+          } else {
+            warnings.push(`Failed to list tabs for screen ${screen.name}: HTTP ${tabsRes.status}.`);
+          }
+          continue;
+        }
+
+        let tabs = [];
+        try {
+          tabs = (await tabsRes.json()) || [];
+        } catch (e) {
+          warnings.push(`Skipped screen ${screen.name}: could not parse tabs response.`);
+          continue;
+        }
+
+        const added = [];
+
+        for (const tab of tabs) {
+          try {
+            const fieldsRes = await api.asUser().requestJira(route`/rest/api/3/screens/${screen.id}/tabs/${tab.id}/fields`);
+            let existingIds = [];
+            if (fieldsRes.ok) {
+              const existing = await fieldsRes.json();
+              const list = Array.isArray(existing) ? existing : (existing && existing.values) || [];
+              existingIds = list.map((field) => field.id);
+            } else {
+              warnings.push(`Failed to list fields for ${screen.name} / ${tab.name}: HTTP ${fieldsRes.status}.`);
+            }
+
+            for (const fieldId of fieldIds) {
+              if (existingIds.includes(fieldId)) continue;
+
+              const addRes = await api.asUser().requestJira(
+                route`/rest/api/3/screens/${screen.id}/tabs/${tab.id}/fields`,
+                {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ fieldId }),
+                },
+              );
+
+              if (addRes.ok) {
+                added.push(fieldId);
+                existingIds.push(fieldId);
+              } else {
+                warnings.push(`Failed to add ${fieldId} to ${screen.name} / ${tab.name}: HTTP ${addRes.status}.`);
+              }
+            }
+          } catch (e) {
+            console.error(`[JiraTack] Failed to process tab on screen ${screen.name}:`, e);
+            warnings.push(`Skipped tab on ${screen.name}: ${e && e.message ? e.message : e}`);
+          }
+        }
+
+        if (added.length > 0) {
+          updatedScreens.push({ id: screen.id, name: screen.name, added });
+        }
+      } catch (e) {
+        console.error(`[JiraTack] Failed to process screen ${screen.name}:`, e);
+        warnings.push(`Skipped screen ${screen.name}: ${e && e.message ? e.message : e}`);
+      }
+    }
+
+    console.log('[JiraTack] Auto field mapping complete:', { updatedScreens, warnings });
+    return { ok: true, data: { updatedScreens, warnings } };
+  } catch (e) {
+    return errorResult('INTERNAL', e && e.message ? e.message : String(e));
+  }
+}

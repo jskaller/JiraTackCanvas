@@ -45,6 +45,8 @@ modules:
       render: native
       title: JiraTack Canvases
       icon: https://developer.atlassian.com/platform/forge/images/icons/issue-panel-icon.svg
+      displayConditions:
+        issueType: Epic
     - key: jiratack-issue-panel
       resource: issue-panel-ui
       resolver:
