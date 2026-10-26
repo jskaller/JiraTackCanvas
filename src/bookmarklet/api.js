@@ -1,30 +1,44 @@
 import { normalizeUrl } from '../shared/urlNormalize.js';
 
-export async function getPins(config, session, canvasId, url) {
+async function postAction(config, session, action, payload, authenticated) {
+  const headers = { 'Content-Type': 'application/json' };
+  if (authenticated && session && session.jwt) {
+    headers.Authorization = `Bearer ${session.jwt}`;
+  }
+
   const response = await fetch(config.apiUrl, {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${session.jwt}`,
-    },
-    body: JSON.stringify({
-      action: 'getPinsForCanvasAndUrl',
-      payload: { canvasId, url: normalizeUrl(url) },
-    }),
+    headers,
+    body: JSON.stringify({ action, payload }),
   });
 
   let body;
   try {
     body = await response.json();
   } catch (e) {
-    throw new Error('Pin query returned an invalid response.');
+    throw new Error(`${action} returned an invalid response.`);
   }
 
   if (!body || body.ok !== true) {
-    const err = new Error((body && body.error && body.error.message) || 'Pin query failed.');
-    err.code = body && body.error && body.error.code;
-    throw err;
+    const error = new Error((body && body.error && body.error.message) || `${action} failed.`);
+    error.code = body && body.error && body.error.code;
+    error.details = body && body.error && body.error.details;
+    throw error;
   }
 
   return body.data;
+}
+
+export async function getPins(config, session, canvasId, url) {
+  return postAction(
+    config,
+    session,
+    'getPinsForCanvasAndUrl',
+    { canvasId, url: normalizeUrl(url) },
+    true,
+  );
+}
+
+export async function createIssue(config, session, payload) {
+  return postAction(config, session, 'createIssue', payload, true);
 }

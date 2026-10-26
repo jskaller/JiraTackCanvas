@@ -243,3 +243,122 @@ body.jiratack-pin-mode * {
   font-size: 11px;
   white-space: nowrap;
 }
+
+.jiratack-form {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 16px 16px;
+  max-height: 65vh;
+  overflow-y: auto;
+  box-sizing: border-box;
+}
+
+.jiratack-field {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.jiratack-field-inline {
+  flex-direction: row;
+  align-items: center;
+  gap: 6px;
+}
+
+.jiratack-field-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: #5e6c84;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+
+.jiratack-input,
+.jiratack-textarea {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 6px 8px;
+  border: 1px solid #dfe1e6;
+  border-radius: 3px;
+  font-size: 13px;
+  font-family: inherit;
+  color: #172b4d;
+  background: #ffffff;
+}
+
+.jiratack-input:focus,
+.jiratack-textarea:focus {
+  outline: none;
+  border-color: #4c9aff;
+  box-shadow: 0 0 0 2px rgba(76, 154, 255, 0.2);
+}
+
+.jiratack-textarea {
+  resize: vertical;
+  min-height: 80px;
+}
+
+.jiratack-checkbox {
+  width: 14px;
+  height: 14px;
+}
+
+.jiratack-screenshot {
+  display: none;
+}
+
+.jiratack-screenshot-preview {
+  display: block;
+  width: 100%;
+  max-height: 160px;
+  object-fit: cover;
+  border: 1px solid #dfe1e6;
+  border-radius: 3px;
+}
+
+.jiratack-screenshot-remove {
+  margin-top: 4px;
+  padding: 2px 8px;
+  border: 1px solid #dfe1e6;
+  border-radius: 3px;
+  background: #ffffff;
+  color: #de350b;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.jiratack-form-error {
+  padding: 8px;
+  border-radius: 3px;
+  background: #ffebe6;
+  color: #bf2600;
+  font-size: 12px;
+}
+
+.jiratack-form-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.jiratack-button {
+  padding: 6px 12px;
+  border: 1px solid #dfe1e6;
+  border-radius: 3px;
+  background: #ffffff;
+  color: #172b4d;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.jiratack-button:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.jiratack-button-primary {
+  border-color: #0052cc;
+  background: #0052cc;
+  color: #ffffff;
+}

@@ -3,6 +3,10 @@ import { getPins } from './api.js';
 import { createOverlay, removeOverlay } from './overlay.js';
 import { renderPins } from './pins.js';
 import { renderSidebar } from './sidebar.js';
+import { installPinMode } from './pinMode.js';
+import { captureScreenshot } from './screenshot.js';
+import { renderTicketForm } from './form.js';
+import { installConsoleProxy, restoreConsoleProxy, clearConsoleBuffer } from './consoleProxy.js';
 import styles from './styles.css?inline';
 
 const LOG_PREFIX = '[JiraTack]';
@@ -16,8 +20,103 @@ function injectStyles() {
   document.head.appendChild(style);
 }
 
+function showToast(message) {
+  const container = document.getElementById('jiratack-toast-container');
+  if (!container) return;
+  const toast = document.createElement('div');
+  toast.className = 'jiratack-toast';
+  toast.textContent = message;
+  container.appendChild(toast);
+  window.setTimeout(() => {
+    toast.remove();
+  }, 4000);
+}
+
+function select(key) {
+  if (current && current.pinsController) current.pinsController.select(key);
+  if (current && current.sidebarController) current.sidebarController.select(key);
+}
+
+function renderPinsAndSidebar() {
+  if (!current) return;
+  const { overlay, config, session } = current;
+
+  if (current.pinModeController) {
+    current.pinModeController.destroy();
+    current.pinModeController = null;
+  }
+  if (current.pinsController) {
+    current.pinsController.destroy();
+    current.pinsController = null;
+  }
+
+  current.pinsController = renderPins(overlay.pinsEl, current.pins, {
+    onSelect: (pin) => select(pin.key),
+  });
+
+  current.sidebarController = renderSidebar(overlay.sidebarEl, {
+    canvasName: current.canvasName,
+    session,
+    pins: current.pins,
+    config,
+    onSelect: (pin) => select(pin.key),
+  });
+
+  current.pinModeController = installPinMode({
+    header: overlay.headerEl,
+    session,
+    onCapture: handleCapture,
+  });
+}
+
+async function handleCapture(capture) {
+  if (!current) return;
+  const { config, session, overlay } = current;
+  const canvasIdAtStart = config.canvasId;
+
+  const absX = capture.clientX + window.scrollX;
+  const absY = capture.clientY + window.scrollY;
+  const screenshotDataUrl = await captureScreenshot(absX, absY);
+
+  if (!current || window.__jiratackActiveCanvas !== canvasIdAtStart) return;
+
+  renderTicketForm(overlay.formEl, {
+    config,
+    session,
+    capture,
+    screenshotDataUrl,
+    onCancel: () => {
+      if (current && current.overlay) current.overlay.formEl.innerHTML = '';
+    },
+    onCreated: ({ result, capture: createdCapture, summary }) => {
+      if (!current) return;
+      current.pins = current.pins.concat([
+        {
+          key: result.key,
+          summary,
+          status: { name: '', category: '', colorName: '' },
+          priority: null,
+          assignee: null,
+          reporter: null,
+          pinPosition: createdCapture.pinPosition,
+          selector: createdCapture.selector || null,
+          issueType: null,
+          createdAt: new Date().toISOString(),
+        },
+      ]);
+      renderPinsAndSidebar();
+      showToast(`Created ${result.key}`);
+    },
+  });
+}
+
 function teardown(clearStoredSession) {
   if (current) {
+    try {
+      if (current.pinModeController) current.pinModeController.destroy();
+    } catch (e) {
+      // ignore
+    }
     try {
       if (current.pinsController) current.pinsController.destroy();
     } catch (e) {
@@ -41,7 +140,10 @@ function teardown(clearStoredSession) {
 
   document
     .querySelectorAll('[id^="jiratack-"], [class^="jiratack-"], [class*=" jiratack-"]')
-    .forEach((el) => el.remove());
+    .forEach((node) => node.remove());
+
+  restoreConsoleProxy();
+  clearConsoleBuffer();
 
   current = null;
   window.__jiratackActiveCanvas = null;
@@ -53,6 +155,8 @@ function close() {
 }
 
 async function init(config) {
+  installConsoleProxy();
+
   if (!config || !config.apiUrl || !config.token || !config.canvasId) {
     console.error(`${LOG_PREFIX} Init called with invalid config`);
     return;
@@ -65,6 +169,7 @@ async function init(config) {
   }
 
   teardown(false);
+  installConsoleProxy();
   window.__jiratackActiveCanvas = canvasId;
   injectStyles();
 
@@ -83,29 +188,20 @@ async function init(config) {
     }
 
     const overlay = createOverlay();
-    const pins = (data && data.pins) || [];
-    let pinsController = null;
-    let sidebarController = null;
 
-    const select = (key) => {
-      if (pinsController) pinsController.select(key);
-      if (sidebarController) sidebarController.select(key);
+    current = {
+      config,
+      session,
+      overlay,
+      pins: (data && data.pins) || [],
+      canvasName: (data && data.canvasName) || config.canvasName,
+      pinsController: null,
+      sidebarController: null,
+      pinModeController: null,
     };
 
-    pinsController = renderPins(overlay.pinsEl, pins, {
-      onSelect: (pin) => select(pin.key),
-    });
-
-    sidebarController = renderSidebar(overlay.sidebarEl, {
-      canvasName: (data && data.canvasName) || config.canvasName,
-      session,
-      pins,
-      config,
-      onSelect: (pin) => select(pin.key),
-    });
-
-    current = { config, session, pinsController, sidebarController };
-    console.log(`${LOG_PREFIX} Init called with canvas: ${(data && data.canvasName) || config.canvasName}`);
+    renderPinsAndSidebar();
+    console.log(`${LOG_PREFIX} Init called with canvas: ${current.canvasName}`);
   } catch (e) {
     console.error(`${LOG_PREFIX} Init failed:`, e);
     teardown(false);
