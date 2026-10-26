@@ -1,6 +1,6 @@
 import Resolver from '@forge/resolver';
 import { getInstallationConfig, setInstallationConfig } from '../lib/config.js';
-import { runProvisionFields, generateCanvasToken } from './actions/admin.js';
+import { runProvisionFields, generateCanvasToken, listCanvasTokens, revokeCanvasToken } from './actions/admin.js';
 import { getProjectConfig, setProjectConfig } from './actions/config.js';
 import { dashboardAggregate } from './actions/dashboard.js';
 import { epicPanelData } from './actions/epic.js';
@@ -66,6 +66,22 @@ resolver.define('setProjectConfig', async (req) => {
 resolver.define('dashboardAggregate', async (req) => {
   try {
     return await dashboardAggregate(req.context);
+  } catch (e) {
+    return { ok: false, error: { code: 'INTERNAL', message: e && e.message ? e.message : String(e) } };
+  }
+});
+
+resolver.define('listCanvasTokens', async () => {
+  try {
+    return await listCanvasTokens();
+  } catch (e) {
+    return { ok: false, error: { code: 'INTERNAL', message: e && e.message ? e.message : String(e) } };
+  }
+});
+
+resolver.define('revokeCanvasToken', async (req) => {
+  try {
+    return await revokeCanvasToken(req.payload);
   } catch (e) {
     return { ok: false, error: { code: 'INTERNAL', message: e && e.message ? e.message : String(e) } };
   }

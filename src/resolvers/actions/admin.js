@@ -1,8 +1,9 @@
 import crypto from 'crypto';
 import api, { route, getAppContext } from '@forge/api';
+import { WhereConditions } from '@forge/kvs';
 import { provisionFields } from '../../lib/fields.js';
 import { getInstallationConfig } from '../../lib/config.js';
-import { kvsSet } from '../../lib/kvs.js';
+import { kvsGet, kvsSet, kvs } from '../../lib/kvs.js';
 import { generateSessionJwt } from '../../lib/tokens.js';
 import { errorResponse, errorResult } from '../../lib/errors.js';
 import { resolveWebtriggerUrls } from '../../lib/webtriggerUrls.js';
@@ -152,4 +153,50 @@ export async function generateCanvasToken(context, payload) {
       permittedProjects,
     },
   };
+}
+
+export async function listCanvasTokens() {
+  try {
+    const result = await kvs
+      .query()
+      .where('key', WhereConditions.beginsWith('canvasTokens:'))
+      .limit(100)
+      .getMany();
+
+    const entries = (result && result.results) || [];
+    const tokens = entries
+      .map(({ key, value }) => ({
+        token: String(key).replace('canvasTokens:', ''),
+        canvasName: value.canvasName,
+        userId: value.userId,
+        scope: value.scope,
+        issuedAt: value.issuedAt,
+        expiresAt: value.expiresAt,
+        revoked: Boolean(value.revoked),
+      }))
+      .sort((a, b) => (b.issuedAt || 0) - (a.issuedAt || 0));
+
+    return { ok: true, data: { tokens } };
+  } catch (e) {
+    return errorResult('INTERNAL', e && e.message ? e.message : String(e));
+  }
+}
+
+export async function revokeCanvasToken(payload) {
+  const token = payload && payload.token;
+  if (typeof token !== 'string' || token.length === 0) {
+    return errorResult('BAD_REQUEST', 'token is required.');
+  }
+
+  const key = `canvasTokens:${token}`;
+  try {
+    const existing = await kvsGet(key);
+    if (!existing) {
+      return errorResult('NOT_FOUND', 'Canvas token not found.');
+    }
+    await kvs.delete(key);
+    return { ok: true, data: { token, revoked: true } };
+  } catch (e) {
+    return errorResult('INTERNAL', e && e.message ? e.message : String(e));
+  }
 }
