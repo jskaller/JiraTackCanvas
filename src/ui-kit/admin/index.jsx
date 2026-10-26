@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import ForgeReconciler, { Button, Text, Stack, SectionMessage, Textfield, Link } from '@forge/react';
 import { invoke } from '@forge/bridge';
 import FieldAudit from './FieldAudit.jsx';
+import RecoveryPanel from './RecoveryPanel.jsx';
 
 const DEFAULT_CONFIG = {
   fieldRegistry: {},
@@ -153,6 +154,8 @@ const AdminApp = () => {
       ))}
 
       <FieldAudit onUpdated={refreshConfig} />
+
+      <RecoveryPanel onRecovered={refreshConfig} />
 
       <Text>Generate Test Bookmarklet</Text>
       <Textfield

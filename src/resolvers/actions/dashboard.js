@@ -20,6 +20,23 @@ async function fetchJiraBaseUrl() {
   return null;
 }
 
+async function computeIsAdmin(context) {
+  if (context && context.userAccess && typeof context.userAccess.isAdmin === 'boolean') {
+    return context.userAccess.isAdmin;
+  }
+  try {
+    const res = await api.asUser().requestJira(route`/rest/api/3/mypermissions?permissions=ADMINISTER`);
+    if (res.ok) {
+      const data = await res.json();
+      const permission = data && data.permissions && data.permissions.ADMINISTER;
+      return Boolean(permission && permission.havePermission);
+    }
+  } catch (e) {
+    return false;
+  }
+  return false;
+}
+
 function mapUser(user) {
   if (!user || !user.accountId) return null;
   return {
@@ -40,6 +57,7 @@ export async function dashboardAggregate(context) {
         canvases: [],
         configVersion: config.configVersion || '',
         hasAccess: true,
+        isAdmin: await computeIsAdmin(context),
         jiraBaseUrl: null,
         canvasFieldId: null,
       },
@@ -95,7 +113,7 @@ export async function dashboardAggregate(context) {
             canvasName,
             ticketCount: 0,
             openCount: 0,
-            urls: new Set(),
+            urls: new Map(),
             lastUpdated: null,
             projectKeys: new Set(),
             participants: new Map(),
@@ -113,7 +131,8 @@ export async function dashboardAggregate(context) {
         }
 
         if (fieldRegistry.urlField && issueFields[fieldRegistry.urlField]) {
-          entry.urls.add(normalizeUrl(issueFields[fieldRegistry.urlField]));
+          const normalized = normalizeUrl(issueFields[fieldRegistry.urlField]);
+          entry.urls.set(normalized, (entry.urls.get(normalized) || 0) + 1);
         }
 
         if (issueFields.updated && (!entry.lastUpdated || issueFields.updated > entry.lastUpdated)) {
@@ -143,6 +162,12 @@ export async function dashboardAggregate(context) {
         ticketCount: entry.ticketCount,
         openCount: entry.openCount,
         urlCount: entry.urls.size,
+        urls: Array.from(entry.urls.entries())
+          .map(([url, ticketCount]) => ({ url, ticketCount }))
+          .sort((a, b) => {
+            if (b.ticketCount !== a.ticketCount) return b.ticketCount - a.ticketCount;
+            return a.url.localeCompare(b.url);
+          }),
         lastUpdated: entry.lastUpdated,
         projectKeys: Array.from(entry.projectKeys),
         participants: Array.from(entry.participants.values()),
@@ -155,6 +180,7 @@ export async function dashboardAggregate(context) {
       });
 
     const hasAccess = !(context && context.userAccess && context.userAccess.hasAccess === false);
+    const isAdmin = await computeIsAdmin(context);
     const jiraBaseUrl = await fetchJiraBaseUrl();
 
     return {
@@ -163,6 +189,7 @@ export async function dashboardAggregate(context) {
         canvases: summaries,
         configVersion: config.configVersion || '',
         hasAccess,
+        isAdmin,
         jiraBaseUrl,
         canvasFieldId: fieldRegistry.canvasField,
       },

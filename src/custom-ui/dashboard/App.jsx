@@ -5,6 +5,7 @@ import CanvasTable from './components/CanvasTable';
 import TokenList from './components/TokenList';
 import BookmarkletModal from './components/BookmarkletModal';
 import ConfirmDialog from './components/ConfirmDialog';
+import RecoveryPanel from './components/RecoveryPanel';
 
 export default function App() {
   const [loading, setLoading] = useState(true);
@@ -13,6 +14,7 @@ export default function App() {
   const [canvases, setCanvases] = useState([]);
   const [tokens, setTokens] = useState([]);
   const [hasAccess, setHasAccess] = useState(true);
+  const [isAdmin, setIsAdmin] = useState(false);
   const [jiraBaseUrl, setJiraBaseUrl] = useState(null);
   const [canvasFieldId, setCanvasFieldId] = useState(null);
   const [search, setSearch] = useState('');
@@ -29,6 +31,7 @@ export default function App() {
       if (aggregateResult && aggregateResult.ok && aggregateResult.data) {
         setCanvases(aggregateResult.data.canvases || []);
         setHasAccess(aggregateResult.data.hasAccess !== false);
+        setIsAdmin(Boolean(aggregateResult.data.isAdmin));
         setJiraBaseUrl(aggregateResult.data.jiraBaseUrl || null);
         setCanvasFieldId(aggregateResult.data.canvasFieldId || null);
       } else {
@@ -191,7 +194,14 @@ export default function App() {
           <div className="jt-empty">Loading canvases…</div>
         ) : canvases.length === 0 ? (
           <div className="jt-empty">
-            No canvases found. Create a Jira ticket with the JiraTack Canvas field set to get started.
+            <div>No canvases found. Create a Jira ticket with the JiraTack Canvas field set to get started.</div>
+            {tokens.length > 0 && (
+              <div className="jt-empty-hint">
+                {tokens.length} canvas token(s) are issued, but no tickets currently have the JiraTack Canvas
+                field populated. Open Jira Settings → Apps → JiraTack and run “Recover lost pin fields” to
+                backfill them from the ticket descriptions.
+              </div>
+            )}
           </div>
         ) : (
           <CanvasTable
@@ -208,6 +218,8 @@ export default function App() {
         <h2>Canvas tokens</h2>
         <TokenList tokens={tokens} onRevoke={handleRevoke} />
       </section>
+
+      {isAdmin && <RecoveryPanel onRecovered={load} />}
 
       {modal && (
         <BookmarkletModal data={modal.data} scope={modal.scope} onClose={() => setModal(null)} />

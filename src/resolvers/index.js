@@ -1,6 +1,6 @@
 import Resolver from '@forge/resolver';
 import { getInstallationConfig, setInstallationConfig } from '../lib/config.js';
-import { runProvisionFields, generateCanvasToken, listCanvasTokens, revokeCanvasToken, autoUpdateFieldMappings } from './actions/admin.js';
+import { runProvisionFields, generateCanvasToken, listCanvasTokens, revokeCanvasToken, autoUpdateFieldMappings, recoverPinsFromDescriptions } from './actions/admin.js';
 import { getProjectConfig, setProjectConfig } from './actions/config.js';
 import { dashboardAggregate } from './actions/dashboard.js';
 import { epicPanelData } from './actions/epic.js';
@@ -90,6 +90,14 @@ resolver.define('revokeCanvasToken', async (req) => {
 resolver.define('autoUpdateFieldMappings', async (req) => {
   try {
     return await autoUpdateFieldMappings(req.context, req.payload);
+  } catch (e) {
+    return { ok: false, error: { code: 'INTERNAL', message: e && e.message ? e.message : String(e) } };
+  }
+});
+
+resolver.define('recoverPinsFromDescriptions', async (req) => {
+  try {
+    return await recoverPinsFromDescriptions(req.context, req.payload);
   } catch (e) {
     return { ok: false, error: { code: 'INTERNAL', message: e && e.message ? e.message : String(e) } };
   }

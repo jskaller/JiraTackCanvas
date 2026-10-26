@@ -16,6 +16,10 @@ export function generateToken(canvasName, scope) {
   return invoke('generateCanvasToken', { canvasName, scope });
 }
 
+export function recoverPins(dryRun) {
+  return invoke('recoverPinsFromDescriptions', { dryRun });
+}
+
 export function buildBookmarklet(data) {
   const canvasName = data.canvasName || data.canvasId || 'Canvas';
   const canvasId = data.canvasId || canvasName;

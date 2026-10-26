@@ -36,24 +36,50 @@ function buildPinMarker(canvasName, normalizedUrl, pinPosition, selector) {
   return marker;
 }
 
+function buildMultipartBody(fileBuffer, filename, mimeType) {
+  const boundary = `----JiraTack${Date.now().toString(16)}${Math.random().toString(16).slice(2)}`;
+  const preamble = Buffer.from(
+    `--${boundary}\r\n`
+      + `Content-Disposition: form-data; name="file"; filename="${filename}"\r\n`
+      + `Content-Type: ${mimeType}\r\n\r\n`,
+    'utf8',
+  );
+  const epilogue = Buffer.from(`\r\n--${boundary}--\r\n`, 'utf8');
+  return {
+    body: Buffer.concat([preamble, fileBuffer, epilogue]),
+    boundary,
+  };
+}
+
 async function attachScreenshot(issueKey, screenshotDataUrl) {
   const match = /^data:(image\/[a-zA-Z0-9.+-]+);base64,(.+)$/.exec(screenshotDataUrl);
   if (!match) {
     throw new Error('Unsupported screenshot data URL.');
   }
+
   const mime = match[1];
   const buffer = Buffer.from(match[2], 'base64');
   const ext = (mime.split('/')[1] || 'png').split('+')[0];
-  const form = new FormData();
-  form.append('file', new Blob([buffer], { type: mime }), `screenshot.${ext}`);
+  const filename = `jiratack-${issueKey}.${ext}`;
+  const { body, boundary } = buildMultipartBody(buffer, filename, mime);
 
   const res = await api.asApp().requestJira(route`/rest/api/3/issue/${issueKey}/attachments`, {
     method: 'POST',
-    headers: { 'X-Atlassian-Token': 'no-check' },
-    body: form,
+    headers: {
+      'X-Atlassian-Token': 'no-check',
+      'Content-Type': `multipart/form-data; boundary=${boundary}`,
+    },
+    body,
   });
+
   if (!res.ok) {
-    throw new Error(`Attachment upload failed with HTTP ${res.status}.`);
+    let detail = '';
+    try {
+      detail = await res.text();
+    } catch (e) {
+      detail = '';
+    }
+    throw new Error(`Attachment upload failed with HTTP ${res.status}${detail ? `: ${detail.slice(0, 300)}` : ''}`);
   }
 }
 
@@ -141,6 +167,7 @@ export async function createIssue(payload, claims) {
   const summary = rawSummary.startsWith('[JiraTack]') ? rawSummary : `[JiraTack] ${rawSummary}`;
   const marker = buildPinMarker(canvasName, normalizedUrl, pinPosition, selector);
   const description = buildDescription(payload.descriptionAdf, payload.consoleLog, marker);
+  console.log('[JiraTack] Sending ADF:', JSON.stringify(description));
 
   const fields = {
     summary,

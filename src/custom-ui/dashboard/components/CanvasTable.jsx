@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { formatDate } from '../api';
 
 function ProjectSpan({ projectKeys }) {
@@ -39,6 +39,33 @@ function Participants({ participants }) {
 }
 
 export default function CanvasTable({ canvases, hasAccess, onWrite, onReview, onOpenJira }) {
+  const [expanded, setExpanded] = useState(() => new Set());
+  const [copiedUrl, setCopiedUrl] = useState(null);
+
+  function toggle(canvasName) {
+    setExpanded((previous) => {
+      const next = new Set(previous);
+      if (next.has(canvasName)) {
+        next.delete(canvasName);
+      } else {
+        next.add(canvasName);
+      }
+      return next;
+    });
+  }
+
+  async function copyUrl(url) {
+    try {
+      await navigator.clipboard.writeText(url);
+      setCopiedUrl(url);
+      window.setTimeout(() => {
+        setCopiedUrl((current) => (current === url ? null : current));
+      }, 1500);
+    } catch (e) {
+      setCopiedUrl(null);
+    }
+  }
+
   if (!canvases || canvases.length === 0) {
     return (
       <div className="jt-empty">
@@ -62,39 +89,89 @@ export default function CanvasTable({ canvases, hasAccess, onWrite, onReview, on
         </tr>
       </thead>
       <tbody>
-        {canvases.map((canvas) => (
-          <tr key={canvas.canvasName}>
-            <td className="jt-canvas-name">{canvas.canvasName}</td>
-            <td>
-              <ProjectSpan projectKeys={canvas.projectKeys} />
-            </td>
-            <td>
-              {canvas.openCount} / {canvas.ticketCount}
-            </td>
-            <td>{canvas.urlCount}</td>
-            <td>{formatDate(canvas.lastUpdated)}</td>
-            <td>
-              <Participants participants={canvas.participants} />
-            </td>
-            <td className="jt-actions">
-              <button
-                type="button"
-                className="jt-button"
-                disabled={!hasAccess}
-                title={hasAccess ? '' : 'Your Jira admin has not granted you access to JiraTack'}
-                onClick={() => onWrite(canvas.canvasName)}
-              >
-                Get write bookmarklet
-              </button>
-              <button type="button" className="jt-button" onClick={() => onReview(canvas.canvasName)}>
-                Copy review bookmarklet
-              </button>
-              <button type="button" className="jt-button" onClick={() => onOpenJira(canvas.canvasName)}>
-                Open in Jira
-              </button>
-            </td>
-          </tr>
-        ))}
+        {canvases.map((canvas) => {
+          const isExpanded = expanded.has(canvas.canvasName);
+          const urls = canvas.urls || [];
+
+          return (
+            <React.Fragment key={canvas.canvasName}>
+              <tr>
+                <td className="jt-canvas-name">
+                  <button
+                    type="button"
+                    className="jt-expand"
+                    aria-expanded={isExpanded}
+                    title={isExpanded ? 'Hide pages' : 'Show pages'}
+                    onClick={() => toggle(canvas.canvasName)}
+                  >
+                    {isExpanded ? '▾' : '▸'}
+                  </button>
+                  {canvas.canvasName}
+                </td>
+                <td>
+                  <ProjectSpan projectKeys={canvas.projectKeys} />
+                </td>
+                <td>
+                  {canvas.openCount} / {canvas.ticketCount}
+                </td>
+                <td>{canvas.urlCount}</td>
+                <td>{formatDate(canvas.lastUpdated)}</td>
+                <td>
+                  <Participants participants={canvas.participants} />
+                </td>
+                <td className="jt-actions">
+                  <button
+                    type="button"
+                    className="jt-button"
+                    disabled={!hasAccess}
+                    title={hasAccess ? '' : 'Your Jira admin has not granted you access to JiraTack'}
+                    onClick={() => onWrite(canvas.canvasName)}
+                  >
+                    Get write bookmarklet
+                  </button>
+                  <button type="button" className="jt-button" onClick={() => onReview(canvas.canvasName)}>
+                    Copy review bookmarklet
+                  </button>
+                  <button type="button" className="jt-button" onClick={() => onOpenJira(canvas.canvasName)}>
+                    Open in Jira
+                  </button>
+                </td>
+              </tr>
+
+              {isExpanded && (
+                <tr className="jt-url-row">
+                  <td colSpan={7}>
+                    <div className="jt-url-list">
+                      <div className="jt-url-title">Pages ({urls.length})</div>
+                      {urls.length === 0 ? (
+                        <div className="jt-muted">No URLs recorded for this canvas.</div>
+                      ) : (
+                        urls.map((item) => (
+                          <div className="jt-url-item" key={item.url}>
+                            <a href={item.url} target="_blank" rel="noopener noreferrer">
+                              {item.url}
+                            </a>
+                            <span className="jt-url-count">
+                              ({item.ticketCount} {item.ticketCount === 1 ? 'ticket' : 'tickets'})
+                            </span>
+                            <button
+                              type="button"
+                              className="jt-copy"
+                              title="Copy URL"
+                              onClick={() => copyUrl(item.url)}
+                            >
+                              {copiedUrl === item.url ? '✓' : '⧉'}
+                            </button>
+                          </div>
+                        ))
+                      )}
+                    </div>
+                  </td>
+                </tr>
+              )}
+            </React.Fragment>
+          );
+        })}
       </tbody>
     </table>
   );

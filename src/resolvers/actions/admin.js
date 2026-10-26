@@ -320,3 +320,179 @@ export async function autoUpdateFieldMappings(context, payload) {
     return errorResult('INTERNAL', e && e.message ? e.message : String(e));
   }
 }
+
+const PIN_MARKER_PREFIX = '📌 JiraTack pin:';
+
+function findMarkerText(node) {
+  if (!node || typeof node !== 'object') return null;
+
+  if (node.type === 'paragraph' && Array.isArray(node.content)) {
+    const firstText = node.content.find((child) => child && child.type === 'text');
+    const text = firstText && typeof firstText.text === 'string' ? firstText.text : '';
+    if (text.startsWith(PIN_MARKER_PREFIX)) {
+      return text.slice(PIN_MARKER_PREFIX.length).trim();
+    }
+  }
+
+  if (Array.isArray(node.content)) {
+    for (const child of node.content) {
+      const found = findMarkerText(child);
+      if (found) return found;
+    }
+  }
+
+  return null;
+}
+
+function parsePinMarker(descriptionAdf) {
+  const raw = findMarkerText(descriptionAdf);
+  if (!raw) return null;
+  let parsed;
+  try {
+    parsed = JSON.parse(raw);
+  } catch (e) {
+    return null;
+  }
+  if (!parsed || typeof parsed.canvas !== 'string' || !parsed.canvas) return null;
+  if (typeof parsed.url !== 'string' || !parsed.url) return null;
+  if (typeof parsed.position !== 'string' || !parsed.position) return null;
+  return {
+    canvas: parsed.canvas,
+    url: parsed.url,
+    position: parsed.position,
+    selector: typeof parsed.selector === 'string' && parsed.selector ? parsed.selector : null,
+  };
+}
+
+async function isJiraAdmin(context) {
+  if (context && context.userAccess && context.userAccess.isAdmin === true) {
+    return true;
+  }
+  try {
+    const res = await api.asUser().requestJira(route`/rest/api/3/mypermissions?permissions=ADMINISTER`);
+    if (res.ok) {
+      const data = await res.json();
+      const permission = data && data.permissions && data.permissions.ADMINISTER;
+      return Boolean(permission && permission.havePermission);
+    }
+  } catch (e) {
+    return false;
+  }
+  return false;
+}
+
+export async function recoverPinsFromDescriptions(context, payload) {
+  const isAdmin = await isJiraAdmin(context);
+  if (!isAdmin) {
+    return errorResult('INSUFFICIENT_SCOPE', 'Admin access is required.');
+  }
+
+  const dryRun = Boolean(payload && payload.dryRun);
+  const config = await getInstallationConfig();
+  const fieldRegistry = config.fieldRegistry || {};
+  if (!fieldRegistry.canvasField || !fieldRegistry.urlField || !fieldRegistry.pinField) {
+    return errorResult('BAD_REQUEST', 'Provision fields before running recovery.');
+  }
+
+  const jql = `labels = "jiratack" ORDER BY created ASC`;
+  const issues = [];
+  let nextPageToken = null;
+  const MAX_SCANNED = 2000;
+
+  try {
+    while (issues.length < MAX_SCANNED) {
+      const body = { jql, fields: ['description', fieldRegistry.canvasField], maxResults: 100 };
+      if (nextPageToken) body.nextPageToken = nextPageToken;
+
+      const res = await api.asUser().requestJira(route`/rest/api/3/search/jql`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+
+      if (!res.ok) {
+        return errorResult('INTERNAL', `Recovery query failed with HTTP ${res.status}.`);
+      }
+
+      const data = await res.json();
+      const batch = (data && data.issues) || [];
+      issues.push(...batch);
+
+      if (batch.length === 0) break;
+      if (data && (data.isLast || !data.nextPageToken)) break;
+      nextPageToken = data && data.nextPageToken;
+      if (!nextPageToken) break;
+    }
+  } catch (e) {
+    return errorResult('INTERNAL', e && e.message ? e.message : String(e));
+  }
+
+  const alreadyPopulated = issues.filter(
+    (issue) => issue.fields && issue.fields[fieldRegistry.canvasField],
+  ).length;
+  const candidates = issues
+    .filter((issue) => !(issue.fields && issue.fields[fieldRegistry.canvasField]))
+    .slice(0, 500);
+  const truncated = candidates.length >= 500;
+  console.log(
+    '[JiraTack] Recovery scan:',
+    { scanned: issues.length, alreadyPopulated, candidates: candidates.length, jql },
+  );
+
+  let recovered = 0;
+  let skipped = 0;
+  const errors = [];
+
+  for (const issue of candidates) {
+    const marker = parsePinMarker(issue.fields && issue.fields.description);
+    if (!marker) {
+      skipped += 1;
+      continue;
+    }
+
+    if (dryRun) {
+      recovered += 1;
+      continue;
+    }
+
+    const fields = {
+      [fieldRegistry.canvasField]: marker.canvas,
+      [fieldRegistry.urlField]: marker.url,
+      [fieldRegistry.pinField]: marker.position,
+    };
+    if (fieldRegistry.selectorField && marker.selector) {
+      fields[fieldRegistry.selectorField] = marker.selector;
+    }
+
+    try {
+      const res = await api.asUser().requestJira(route`/rest/api/3/issue/${issue.key}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ fields }),
+      });
+      if (res.ok) {
+        recovered += 1;
+      } else {
+        skipped += 1;
+        errors.push(`${issue.key}: HTTP ${res.status}`);
+      }
+    } catch (e) {
+      skipped += 1;
+      errors.push(`${issue.key}: ${e && e.message ? e.message : e}`);
+    }
+  }
+
+  return {
+    ok: true,
+    data: {
+      recovered,
+      skipped,
+      errors,
+      truncated,
+      dryRun,
+      candidates: candidates.length,
+      scanned: issues.length,
+      alreadyPopulated,
+    },
+  };
+}

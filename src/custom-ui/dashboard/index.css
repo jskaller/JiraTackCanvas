@@ -266,3 +266,118 @@ body {
   font-size: 11px;
   resize: vertical;
 }
+
+.jt-expand {
+  width: 20px;
+  height: 20px;
+  margin-right: 6px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: #5e6c84;
+  font-size: 12px;
+  line-height: 1;
+  cursor: pointer;
+  vertical-align: middle;
+}
+
+.jt-expand:hover {
+  color: #0052cc;
+}
+
+.jt-url-row td {
+  background: #fafbfc;
+  padding: 0 12px 12px 38px;
+}
+
+.jt-url-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.jt-url-title {
+  font-size: 11px;
+  font-weight: 600;
+  color: #5e6c84;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  margin-top: 8px;
+}
+
+.jt-url-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+}
+
+.jt-url-item a {
+  color: #0052cc;
+  text-decoration: none;
+  word-break: break-all;
+}
+
+.jt-url-item a:hover {
+  text-decoration: underline;
+}
+
+.jt-url-count {
+  color: #5e6c84;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.jt-copy {
+  padding: 1px 6px;
+  border: 1px solid #dfe1e6;
+  border-radius: 3px;
+  background: #ffffff;
+  color: #42526e;
+  font-size: 12px;
+  line-height: 1.4;
+  cursor: pointer;
+}
+
+.jt-copy:hover {
+  background: #f4f5f7;
+}
+
+.jt-empty-hint {
+  margin-top: 10px;
+  font-size: 12px;
+  color: #6b778c;
+  line-height: 1.5;
+}
+
+.jt-recovery {
+  background: #ffffff;
+  border: 1px solid #dfe1e6;
+  border-radius: 4px;
+  padding: 16px;
+}
+
+.jt-recovery-copy {
+  margin: 0 0 12px;
+  color: #5e6c84;
+  line-height: 1.5;
+}
+
+.jt-recovery-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.jt-recovery-result {
+  margin-top: 10px;
+  font-size: 13px;
+}
+
+.jt-recovery-error {
+  margin-top: 4px;
+  font-size: 12px;
+  color: #bf2600;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  word-break: break-word;
+}
