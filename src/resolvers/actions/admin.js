@@ -7,6 +7,7 @@ import { kvsGet, kvsSet, kvs } from '../../lib/kvs.js';
 import { generateSessionJwt } from '../../lib/tokens.js';
 import { errorResponse, errorResult } from '../../lib/errors.js';
 import { resolveWebtriggerUrls } from '../../lib/webtriggerUrls.js';
+import { createSeedTicket } from '../../lib/canvas.js';
 import { SDK_VERSION } from '../../lib/version.js';
 
 const CANVAS_TOKEN_TTL_SECONDS = 2592000;
@@ -465,7 +466,7 @@ export async function recoverPinsFromDescriptions(context, payload) {
     }
 
     try {
-      const res = await api.asUser().requestJira(route`/rest/api/3/issue/${issue.key}`, {
+      const res = await api.asUser().requestJira(route`/rest/api/3/issue/${issue.key}?overrideScreenSecurity=true&overrideEditableFlag=true`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ fields }),
@@ -473,8 +474,16 @@ export async function recoverPinsFromDescriptions(context, payload) {
       if (res.ok) {
         recovered += 1;
       } else {
+        let errorText = '';
+        try {
+          const raw = await res.text();
+          errorText = raw ? raw.slice(0, 800) : '';
+        } catch (readError) {
+          errorText = '';
+        }
+        console.error('[JiraTack] Recovery PUT failed:', issue.key, res.status, fields, errorText);
         skipped += 1;
-        errors.push(`${issue.key}: HTTP ${res.status}`);
+        errors.push(`${issue.key}: HTTP ${res.status}${errorText ? ` - ${errorText}` : ''}`);
       }
     } catch (e) {
       skipped += 1;
@@ -495,4 +504,76 @@ export async function recoverPinsFromDescriptions(context, payload) {
       alreadyPopulated,
     },
   };
+}
+
+const USER_TOKEN_TTL_DAYS = 90;
+
+export async function generateUserToken(context) {
+  if (context && context.userAccess && context.userAccess.hasAccess === false) {
+    return errorResult('LICENSE_INACTIVE', 'JiraTack license is not active.');
+  }
+
+  const config = await getInstallationConfig();
+
+  let permitted;
+  try {
+    permitted = await computePermittedProjects(config.viewPermissionMode, null, null);
+  } catch (e) {
+    return errorResult('INTERNAL', e && e.message ? e.message : String(e));
+  }
+  if (!permitted.ok) return permitted;
+
+  const permittedProjects = permitted.permittedProjects;
+  const userId = (context && (context.accountId || context.userId)) || '';
+  const installationId = resolveInstallationId(context);
+  const token = crypto.randomBytes(32).toString('hex');
+  const issuedAt = Date.now();
+  const expiresAt = issuedAt + USER_TOKEN_TTL_DAYS * 24 * 60 * 60 * 1000;
+
+  const record = {
+    userId: String(userId),
+    installationId: String(installationId),
+    issuedAt,
+    expiresAt,
+    revoked: false,
+    permittedProjectsJson: JSON.stringify(permittedProjects),
+  };
+
+  try {
+    console.log('[JiraTack] Saving user token record:', {
+      userId: record.userId,
+      permittedProjects,
+      expiresAt,
+    });
+    await kvsSet(`userTokens:${token}`, record, { ttl: { value: USER_TOKEN_TTL_DAYS, unit: 'DAYS' } });
+  } catch (e) {
+    return errorResult('INTERNAL', `Failed to persist user token: ${e && e.message ? e.message : e}`);
+  }
+
+  const { apiUrl, sdkUrl } = await resolveWebtriggerUrls(config);
+
+  return {
+    ok: true,
+    data: {
+      token,
+      apiUrl,
+      sdkUrl,
+      sdkVersion: SDK_VERSION,
+    },
+  };
+}
+
+export async function createCanvas(context, payload) {
+  try {
+    return await createSeedTicket({
+      requester: api.asUser(),
+      reporterAccountId: context && context.accountId,
+      canvasName: payload && payload.canvasName,
+      targetUrl: payload && payload.targetUrl,
+      projectKey: payload && payload.projectKey,
+      issueTypeId: payload && payload.issueTypeId,
+    });
+  } catch (e) {
+    return errorResult('INTERNAL', e && e.message ? e.message : String(e));
+  }
 }

@@ -19,29 +19,45 @@ export default function BookmarkletModal({ data, scope, onClose }) {
   return (
     <div className="jt-modal-backdrop" onClick={onClose}>
       <div className="jt-modal" onClick={(event) => event.stopPropagation()}>
-        <h2>{scope === 'create' ? 'Write bookmarklet' : 'Review bookmarklet'}</h2>
+        <h2>
+          {scope === 'create'
+            ? 'Write bookmarklet'
+            : scope === 'universal'
+              ? 'Universal launcher'
+              : 'Review bookmarklet'}
+        </h2>
         <p className="jt-modal-canvas">{canvasName}</p>
 
         {scope === 'create' ? (
           <p>Anyone with this bookmarklet can add pins to this canvas. Keep it in your bookmarks bar.</p>
+        ) : scope === 'universal' ? (
+          <p>
+            This is your personal launcher. Click it on any page, then choose a canvas from the sidebar to view
+            or add pins.
+          </p>
         ) : (
           <p>Anyone with this bookmarklet can see all pins and summaries in this canvas. Share carefully.</p>
         )}
 
-        <a className="jt-bookmarklet-link" href={url}>
-          JiraTack — {canvasName}
+        <p className="jt-modal-instruction">Drag this button to your bookmarks bar.</p>
+
+        <a
+          className="jt-bookmarklet-link"
+          href={url}
+          draggable="true"
+          title="Drag to your bookmarks bar"
+        >
+          📌 JiraTack
         </a>
 
         <div className="jt-modal-actions">
           <button type="button" className="jt-button jt-button-primary" onClick={copyUrl}>
-            {copied ? 'Copied' : 'Copy URL'}
+            {copied ? 'Copied' : 'Copy'}
           </button>
           <button type="button" className="jt-button" onClick={onClose}>
             Close
           </button>
         </div>
-
-        <textarea className="jt-bookmarklet-url" readOnly value={url} rows={4} />
       </div>
     </div>
   );

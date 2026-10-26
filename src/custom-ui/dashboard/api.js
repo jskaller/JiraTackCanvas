@@ -4,16 +4,16 @@ export function aggregate() {
   return invoke('dashboardAggregate');
 }
 
-export function listTokens() {
-  return invoke('listCanvasTokens');
-}
-
-export function revokeToken(token) {
-  return invoke('revokeCanvasToken', { token });
-}
-
 export function generateToken(canvasName, scope) {
   return invoke('generateCanvasToken', { canvasName, scope });
+}
+
+export function generateUserToken() {
+  return invoke('generateUserToken');
+}
+
+export function createCanvas(canvasName, targetUrl) {
+  return invoke('createCanvas', { canvasName, targetUrl });
 }
 
 export function recoverPins(dryRun) {

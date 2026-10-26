@@ -240,20 +240,32 @@ body {
   margin-top: 16px;
 }
 
+.jt-modal-instruction {
+  margin: 12px 0 6px;
+  font-weight: 600;
+}
+
 .jt-bookmarklet-link {
   display: inline-block;
-  margin: 12px 0;
-  padding: 8px 12px;
-  border: 1px dashed #0052cc;
+  margin: 4px 0 12px;
+  padding: 10px 16px;
+  border: 1px solid #0052cc;
   border-radius: 4px;
-  color: #0052cc;
+  background: #0052cc;
+  color: #ffffff;
   font-weight: 600;
   text-decoration: none;
   cursor: grab;
+  user-select: none;
+}
+
+.jt-bookmarklet-link:active {
+  cursor: grabbing;
 }
 
 .jt-bookmarklet-link:hover {
-  background: #deebff;
+  background: #0747a6;
+  border-color: #0747a6;
 }
 
 .jt-bookmarklet-url {
@@ -380,4 +392,55 @@ body {
   color: #bf2600;
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   word-break: break-word;
+}
+
+.jt-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.jt-universal-button {
+  margin-top: 4px;
+  white-space: nowrap;
+}
+
+.jt-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 16px;
+}
+
+.jt-toolbar .jt-search {
+  margin-bottom: 0;
+}
+
+.jt-form-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 12px 0;
+  font-size: 12px;
+  font-weight: 600;
+  color: #5e6c84;
+}
+
+.jt-input {
+  padding: 8px 10px;
+  border: 1px solid #dfe1e6;
+  border-radius: 4px;
+  font-size: 14px;
+  font-family: inherit;
+  color: #172b4d;
+  font-weight: 400;
+}
+
+.jt-input:focus {
+  outline: none;
+  border-color: #4c9aff;
+  box-shadow: 0 0 0 2px rgba(76, 154, 255, 0.2);
 }

@@ -1,18 +1,17 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { router } from '@forge/bridge';
-import { aggregate, listTokens, revokeToken, generateToken, buildJqlUrl } from './api';
+import { aggregate, generateToken, generateUserToken, buildJqlUrl } from './api';
 import CanvasTable from './components/CanvasTable';
-import TokenList from './components/TokenList';
 import BookmarkletModal from './components/BookmarkletModal';
 import ConfirmDialog from './components/ConfirmDialog';
 import RecoveryPanel from './components/RecoveryPanel';
+import CreateCanvasModal from './components/CreateCanvasModal';
 
 export default function App() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [actionError, setActionError] = useState(null);
   const [canvases, setCanvases] = useState([]);
-  const [tokens, setTokens] = useState([]);
   const [hasAccess, setHasAccess] = useState(true);
   const [isAdmin, setIsAdmin] = useState(false);
   const [jiraBaseUrl, setJiraBaseUrl] = useState(null);
@@ -20,6 +19,8 @@ export default function App() {
   const [search, setSearch] = useState('');
   const [modal, setModal] = useState(null);
   const [confirm, setConfirm] = useState(null);
+  const [universalLoading, setUniversalLoading] = useState(false);
+  const [createOpen, setCreateOpen] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -40,15 +41,6 @@ export default function App() {
             || 'Failed to load canvases.',
         );
         setCanvases([]);
-      }
-
-      try {
-        const tokensResult = await listTokens();
-        if (tokensResult && tokensResult.ok && tokensResult.data) {
-          setTokens(tokensResult.data.tokens || []);
-        }
-      } catch (tokenError) {
-        console.error('Failed to load tokens:', tokenError);
       }
     } catch (e) {
       console.error('Failed to load dashboard:', e);
@@ -97,6 +89,28 @@ export default function App() {
     issueToken(canvasName, 'create');
   }
 
+  async function handleUniversalBookmarklet() {
+    setUniversalLoading(true);
+    setActionError(null);
+    try {
+      const result = await generateUserToken();
+      if (result && result.ok && result.data) {
+        setModal({
+          data: { ...result.data, canvasId: 'universal', canvasName: 'JiraTack Launcher' },
+          scope: 'universal',
+        });
+      } else {
+        setActionError({
+          message:
+            (result && result.error && result.error.message) || 'Failed to generate universal bookmarklet.',
+        });
+      }
+    } catch (e) {
+      setActionError({ message: e && e.message ? e.message : String(e) });
+    }
+    setUniversalLoading(false);
+  }
+
   function handleReview(canvasName) {
     setConfirm({
       kind: 'review',
@@ -117,41 +131,12 @@ export default function App() {
     router.open(url);
   }
 
-  function handleRevoke(token) {
-    setConfirm({
-      kind: 'revoke',
-      token,
-      title: 'Revoke canvas token',
-      message:
-        'This deletes the token. Bookmarklets using it stop working immediately for new exchanges, and existing sessions expire within 8 hours. Continue?',
-      confirmLabel: 'Revoke',
-      destructive: true,
-    });
-  }
-
   async function confirmAction() {
     if (!confirm) return;
     if (confirm.kind === 'review') {
       const canvasName = confirm.canvasName;
       setConfirm(null);
       issueToken(canvasName, 'view');
-      return;
-    }
-    if (confirm.kind === 'revoke') {
-      const token = confirm.token;
-      setConfirm(null);
-      setActionError(null);
-      try {
-        const result = await revokeToken(token);
-        if (!result || !result.ok) {
-          setActionError({
-            message: (result && result.error && result.error.message) || 'Failed to revoke token.',
-          });
-        }
-      } catch (e) {
-        setActionError({ message: e && e.message ? e.message : String(e) });
-      }
-      load();
     }
   }
 
@@ -165,19 +150,31 @@ export default function App() {
         <div>
           <h1>JiraTack Canvases</h1>
           <p className="jt-subtitle">
-            Create a ticket with a new canvas name in the JiraTack Canvas field; the canvas appears here
-            automatically.
+            Pick a canvas to review its pages, or create a new one to start pinning.
           </p>
         </div>
+        <button
+          type="button"
+          className="jt-button jt-button-primary jt-universal-button"
+          disabled={universalLoading}
+          onClick={handleUniversalBookmarklet}
+        >
+          {universalLoading ? 'Generating…' : 'Get Universal Launcher Bookmarklet'}
+        </button>
       </header>
 
-      <input
-        className="jt-search"
-        type="search"
-        placeholder="Search canvases…"
-        value={search}
-        onChange={(event) => setSearch(event.target.value)}
-      />
+      <div className="jt-toolbar">
+        <input
+          className="jt-search"
+          type="search"
+          placeholder="Search canvases…"
+          value={search}
+          onChange={(event) => setSearch(event.target.value)}
+        />
+        <button type="button" className="jt-button jt-button-primary" onClick={() => setCreateOpen(true)}>
+          Create New Canvas
+        </button>
+      </div>
 
       {actionError && (
         <div className="jt-banner jt-banner-error">
@@ -194,12 +191,11 @@ export default function App() {
           <div className="jt-empty">Loading canvases…</div>
         ) : canvases.length === 0 ? (
           <div className="jt-empty">
-            <div>No canvases found. Create a Jira ticket with the JiraTack Canvas field set to get started.</div>
-            {tokens.length > 0 && (
+            <div>No canvases yet. Use Create New Canvas to make your first one.</div>
+            {isAdmin && (
               <div className="jt-empty-hint">
-                {tokens.length} canvas token(s) are issued, but no tickets currently have the JiraTack Canvas
-                field populated. Open Jira Settings → Apps → JiraTack and run “Recover lost pin fields” to
-                backfill them from the ticket descriptions.
+                If older JiraTack tickets are missing their canvas fields, use Maintenance below to recover
+                them.
               </div>
             )}
           </div>
@@ -212,11 +208,6 @@ export default function App() {
             onOpenJira={handleOpenJira}
           />
         )}
-      </section>
-
-      <section className="jt-section">
-        <h2>Canvas tokens</h2>
-        <TokenList tokens={tokens} onRevoke={handleRevoke} />
       </section>
 
       {isAdmin && <RecoveryPanel onRecovered={load} />}
@@ -233,6 +224,16 @@ export default function App() {
           destructive={confirm.destructive}
           onConfirm={confirmAction}
           onCancel={() => setConfirm(null)}
+        />
+      )}
+
+      {createOpen && (
+        <CreateCanvasModal
+          onClose={() => setCreateOpen(false)}
+          onCreated={() => {
+            setCreateOpen(false);
+            load();
+          }}
         />
       )}
     </div>

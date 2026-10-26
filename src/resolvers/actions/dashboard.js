@@ -74,7 +74,7 @@ export async function dashboardAggregate(context) {
     'project',
   ].filter(Boolean);
 
-  const jql = `"${fieldRegistry.canvasField}" is not EMPTY ORDER BY created DESC`;
+  const jql = `labels = "jiratack" ORDER BY created DESC`;
 
   const canvases = new Map();
   let nextPageToken = null;

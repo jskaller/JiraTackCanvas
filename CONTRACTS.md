@@ -129,6 +129,31 @@ await storage.set(`canvasTokens:${token}`, record, { ttl: 2592000 });
 
 - Validation: verify signature, `exp > now`, `aud === installationId`. Extract `scope`, `sub`, `canvasId`, `permittedProjects`. Reject on any failure with 401 `TOKEN_INVALID` or `TOKEN_EXPIRED`.
 
+### 2.3 User token (universal)
+
+- Generation: `crypto.randomBytes(32).toString('hex')` → 64-char hex string.
+- Storage: KVS `userTokens:<token>`, TTL 90 days.
+- Write call:
+
+```javascript
+await kvs.set(`userTokens:${token}`, record, { ttl: { value: 90, unit: 'DAYS' } });
+```
+
+- Record:
+
+```json
+{
+  "userId": "Atlassian accountId",
+  "installationId": "ari:cloud:ecosystem::installation/<uuid>",
+  "issuedAt": 1234567890000,
+  "expiresAt": 1234567890000,
+  "revoked": false,
+  "permittedProjectsJson": "[\"MM\",\"QA\"] or \"*\""
+}
+```
+
+- Not bound to a canvas. Exchanged for a session JWT with `scope: "universal"`, no `canvasId`, and the parsed `permittedProjects` claim. Used by the universal bookmarklet's launcher to list only accessible canvases.
+
 ---
 
 ## Part 3 — Webtrigger API contracts
@@ -151,6 +176,8 @@ Request:  { action: "exchangeToken", payload: { canvasToken: string } }
 Auth:     none
 Success:  { sessionJwt, expiresAt, canvasId, canvasName, scope, permittedProjects, apiUrl, sdkUrl, jiraBaseUrl, configVersion }
 ```
+
+`canvasToken` may be either a canvas token (`canvasTokens:<token>`) or a user token (`userTokens:<token>`). User tokens produce a JWT with `scope: "universal"`, `canvasId: null`, and `canvasName: null`.
 
 Errors: `TOKEN_INVALID`, `TOKEN_EXPIRED`, `LICENSE_INACTIVE`.
 
@@ -326,6 +353,16 @@ Success:  { issueTypes: [{ id, name, subtask }] }
 
 Proxies `GET /rest/api/3/issue/createmeta/{projectKey}/issuetypes`. Handle both `{ issueTypes: [] }` and `{ values: [] }` response shapes.
 
+### 3.8 `listCanvasesForUser`
+
+```text
+Request:  { action: "listCanvasesForUser", payload: {} }
+Auth:     Bearer, scope universal only
+Success:  { canvases: [{ canvasName, urlCount }] }
+```
+
+Queries `labels = "jiratack" ORDER BY created DESC` (paginated up to 2,000), skips tickets whose canvas field is empty, and aggregates distinct canvas names with a distinct URL count per canvas. Used by the universal bookmarklet launcher.
+
 ---
 
 ## Part 4 — Resolver contracts
@@ -456,6 +493,20 @@ Behavior (per D9 part 3):
 5. If `dryRun === true`: no writes. Return `recovered` count as "would recover" count.
 
 Called from admin page as an on-demand action. Not scheduled. Not automatic.
+
+### 4.7 `generateUserToken`
+
+```text
+generateUserToken(context) → { ok, data: { token, apiUrl, sdkUrl, sdkVersion } } | { ok: false, error }
+```
+
+Behavior:
+
+1. **License check:** if `context.userAccess?.hasAccess === false` → `LICENSE_INACTIVE`.
+
+2. **Mint user token:** `crypto.randomBytes(32).toString('hex')`; write `userTokens:<token>` record (Part 2.3) with TTL 90 days.
+
+3. **Return** the token plus `apiUrl`, `sdkUrl` (D10), and `sdkVersion` (D13).
 
 ---
 

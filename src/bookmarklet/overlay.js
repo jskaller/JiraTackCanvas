@@ -15,11 +15,13 @@ export function createOverlay() {
   const sidebar = make('aside', 'jiratack-sidebar');
 
   const header = make('div', null, 'jiratack-sidebar-header');
+  const canvasSelector = make('div', null, 'jiratack-canvas-selector');
   const list = make('div', null, 'jiratack-ticket-list');
   const form = make('div', null, 'jiratack-new-ticket-form');
   const toast = make('div', 'jiratack-toast-container');
 
   sidebar.appendChild(header);
+  sidebar.appendChild(canvasSelector);
   sidebar.appendChild(list);
   sidebar.appendChild(form);
 
@@ -35,6 +37,7 @@ export function createOverlay() {
     pinsEl: pins,
     sidebarEl: sidebar,
     headerEl: header,
+    canvasSelectorEl: canvasSelector,
     listEl: list,
     formEl: form,
     toastEl: toast,

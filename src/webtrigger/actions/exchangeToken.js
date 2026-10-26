@@ -22,21 +22,82 @@ async function getJiraBaseUrl() {
   return cachedJiraBaseUrl;
 }
 
+function tokenFromPayload(payload) {
+  if (!payload) return '';
+  return payload.canvasToken || payload.userToken || payload.token || '';
+}
+
+async function commonResponse(config, extra) {
+  const { apiUrl, sdkUrl } = await resolveWebtriggerUrls(config);
+  const jiraBaseUrl = await getJiraBaseUrl();
+  return {
+    ok: true,
+    data: {
+      apiUrl,
+      sdkUrl,
+      jiraBaseUrl,
+      configVersion: config.configVersion || '',
+      ...extra,
+    },
+  };
+}
+
 export async function exchangeToken(payload) {
-  const canvasToken = payload && payload.canvasToken;
-  if (typeof canvasToken !== 'string' || canvasToken.length === 0) {
+  const token = tokenFromPayload(payload);
+  if (typeof token !== 'string' || token.length === 0) {
     return errorResult('BAD_REQUEST', 'canvasToken is required.');
   }
 
-  const record = await kvsGet(`canvasTokens:${canvasToken}`);
+  const now = Date.now();
+  const iat = Math.floor(now / 1000);
+  const exp = iat + SESSION_TTL_SECONDS;
+
+  const userRecord = await kvsGet(`userTokens:${token}`);
+  if (userRecord) {
+    if (userRecord.revoked) {
+      return errorResult('TOKEN_INVALID', 'User token has been revoked.');
+    }
+    if (userRecord.expiresAt && userRecord.expiresAt < now) {
+      return errorResult('TOKEN_EXPIRED', 'User token has expired.');
+    }
+
+    let permittedProjects = '*';
+    if (typeof userRecord.permittedProjectsJson === 'string') {
+      try {
+        permittedProjects = JSON.parse(userRecord.permittedProjectsJson);
+      } catch (e) {
+        permittedProjects = [];
+      }
+    }
+
+    const sessionJwt = await generateSessionJwt({
+      iss: 'jiratack',
+      sub: userRecord.userId,
+      aud: userRecord.installationId,
+      scope: 'universal',
+      permittedProjects,
+      iat,
+      exp,
+    });
+
+    const config = await getInstallationConfig();
+    return commonResponse(config, {
+      sessionJwt,
+      expiresAt: exp * 1000,
+      canvasId: null,
+      canvasName: null,
+      scope: 'universal',
+      permittedProjects,
+    });
+  }
+
+  const record = await kvsGet(`canvasTokens:${token}`);
   if (!record) {
     return errorResult('TOKEN_INVALID', 'Canvas token not found.');
   }
   if (record.revoked) {
     return errorResult('TOKEN_INVALID', 'Canvas token has been revoked.');
   }
-
-  const now = Date.now();
   if (record.expiresAt && record.expiresAt < now) {
     return errorResult('TOKEN_EXPIRED', 'Canvas token has expired.');
   }
@@ -51,8 +112,6 @@ export async function exchangeToken(payload) {
   } else {
     permittedProjects = record.permittedProjects === undefined ? [] : record.permittedProjects;
   }
-  const iat = Math.floor(now / 1000);
-  const exp = iat + SESSION_TTL_SECONDS;
 
   const sessionJwt = await generateSessionJwt({
     iss: 'jiratack',
@@ -67,22 +126,12 @@ export async function exchangeToken(payload) {
   });
 
   const config = await getInstallationConfig();
-  const { apiUrl, sdkUrl } = await resolveWebtriggerUrls(config);
-  const jiraBaseUrl = await getJiraBaseUrl();
-
-  return {
-    ok: true,
-    data: {
-      sessionJwt,
-      expiresAt: exp * 1000,
-      canvasId: record.canvasName,
-      canvasName: record.canvasName,
-      scope: record.scope,
-      permittedProjects,
-      apiUrl,
-      sdkUrl,
-      jiraBaseUrl,
-      configVersion: config.configVersion || '',
-    },
-  };
+  return commonResponse(config, {
+    sessionJwt,
+    expiresAt: exp * 1000,
+    canvasId: record.canvasName,
+    canvasName: record.canvasName,
+    scope: record.scope,
+    permittedProjects,
+  });
 }

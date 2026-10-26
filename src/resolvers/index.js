@@ -1,6 +1,6 @@
 import Resolver from '@forge/resolver';
 import { getInstallationConfig, setInstallationConfig } from '../lib/config.js';
-import { runProvisionFields, generateCanvasToken, listCanvasTokens, revokeCanvasToken, autoUpdateFieldMappings, recoverPinsFromDescriptions } from './actions/admin.js';
+import { runProvisionFields, generateCanvasToken, generateUserToken, listCanvasTokens, revokeCanvasToken, autoUpdateFieldMappings, recoverPinsFromDescriptions, createCanvas } from './actions/admin.js';
 import { getProjectConfig, setProjectConfig } from './actions/config.js';
 import { dashboardAggregate } from './actions/dashboard.js';
 import { epicPanelData } from './actions/epic.js';
@@ -19,6 +19,22 @@ resolver.define('provisionFields', async (req) => {
 resolver.define('generateCanvasToken', async (req) => {
   try {
     return await generateCanvasToken(req.context, req.payload);
+  } catch (e) {
+    return { ok: false, error: { code: 'INTERNAL', message: e && e.message ? e.message : String(e) } };
+  }
+});
+
+resolver.define('generateUserToken', async (req) => {
+  try {
+    return await generateUserToken(req.context);
+  } catch (e) {
+    return { ok: false, error: { code: 'INTERNAL', message: e && e.message ? e.message : String(e) } };
+  }
+});
+
+resolver.define('createCanvas', async (req) => {
+  try {
+    return await createCanvas(req.context, req.payload);
   } catch (e) {
     return { ok: false, error: { code: 'INTERNAL', message: e && e.message ? e.message : String(e) } };
   }

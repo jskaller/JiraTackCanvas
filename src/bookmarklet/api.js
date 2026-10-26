@@ -59,6 +59,14 @@ export async function getIssueTypes(config, session, projectKey) {
   return postAction(config, session, 'getIssueTypes', { projectKey }, true);
 }
 
+export async function listCanvasesForUser(config, session) {
+  return postAction(config, session, 'listCanvasesForUser', {}, true);
+}
+
+export async function createCanvas(config, session, canvasName, targetUrl) {
+  return postAction(config, session, 'createCanvas', { canvasName, targetUrl }, true);
+}
+
 export async function searchUsers(config, session, projectKey, query) {
   return postAction(config, session, 'searchUsers', { projectKey, query }, true);
 }

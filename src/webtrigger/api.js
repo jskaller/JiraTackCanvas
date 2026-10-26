@@ -8,6 +8,8 @@ import { updateIssue } from './actions/updateIssue.js';
 import { searchUsers } from './actions/searchUsers.js';
 import { getPriorities } from './actions/priorities.js';
 import { getIssueTypes } from './actions/getIssueTypes.js';
+import { listCanvasesForUser } from './actions/listCanvasesForUser.js';
+import { createCanvas } from './actions/createCanvas.js';
 
 const JSON_HEADERS = { 'Content-Type': ['application/json'] };
 
@@ -60,45 +62,57 @@ export const handler = async (req, context) => {
     }
 
     if (action === 'getPinsForCanvasAndUrl') {
-      const auth = await authenticate(req, context, ['create', 'view']);
+      const auth = await authenticate(req, context, ['create', 'view', 'universal']);
       if (!auth.ok) return envelope(auth);
       return envelope(await getPinsForCanvasAndUrl(payload, auth.claims));
     }
 
     if (action === 'createIssue') {
-      const auth = await authenticate(req, context, ['create']);
+      const auth = await authenticate(req, context, ['create', 'universal']);
       if (!auth.ok) return envelope(auth);
       return envelope(await createIssue(payload, auth.claims));
     }
 
     if (action === 'getTransitions') {
-      const auth = await authenticate(req, context, ['create', 'view']);
+      const auth = await authenticate(req, context, ['create', 'view', 'universal']);
       if (!auth.ok) return envelope(auth);
       return envelope(await getTransitions(payload, auth.claims));
     }
 
     if (action === 'updateIssue') {
-      const auth = await authenticate(req, context, ['create']);
+      const auth = await authenticate(req, context, ['create', 'universal']);
       if (!auth.ok) return envelope(auth);
       return envelope(await updateIssue(payload, auth.claims));
     }
 
     if (action === 'searchUsers') {
-      const auth = await authenticate(req, context, ['create']);
+      const auth = await authenticate(req, context, ['create', 'universal']);
       if (!auth.ok) return envelope(auth);
       return envelope(await searchUsers(payload, auth.claims));
     }
 
     if (action === 'getPriorities') {
-      const auth = await authenticate(req, context, ['create']);
+      const auth = await authenticate(req, context, ['create', 'universal']);
       if (!auth.ok) return envelope(auth);
       return envelope(await getPriorities(payload, auth.claims));
     }
 
     if (action === 'getIssueTypes') {
-      const auth = await authenticate(req, context, ['create']);
+      const auth = await authenticate(req, context, ['create', 'universal']);
       if (!auth.ok) return envelope(auth);
       return envelope(await getIssueTypes(payload, auth.claims), { okStatus: true });
+    }
+
+    if (action === 'listCanvasesForUser') {
+      const auth = await authenticate(req, context, ['universal']);
+      if (!auth.ok) return envelope(auth);
+      return envelope(await listCanvasesForUser(payload, auth.claims));
+    }
+
+    if (action === 'createCanvas') {
+      const auth = await authenticate(req, context, ['create', 'universal']);
+      if (!auth.ok) return envelope(auth);
+      return envelope(await createCanvas(payload, auth.claims));
     }
 
     return envelope(errorResponse('BAD_REQUEST', `Unknown action: ${action}`));

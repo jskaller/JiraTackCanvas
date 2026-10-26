@@ -84,7 +84,7 @@ async function attachScreenshot(issueKey, screenshotDataUrl) {
 }
 
 async function requestCreateIssue(fields) {
-  const res = await api.asApp().requestJira(route`/rest/api/3/issue`, {
+  const res = await api.asApp().requestJira(route`/rest/api/3/issue?overrideScreenSecurity=true&overrideEditableFlag=true`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ fields }),

@@ -33,12 +33,41 @@ export function renderSidebar(container, options) {
   const { canvasName, session, pins, config, onSelect, onToast, onDone } = options;
 
   const header = container.querySelector('.jiratack-sidebar-header');
+  const selectorContainer = container.querySelector('.jiratack-canvas-selector');
   const list = container.querySelector('.jiratack-ticket-list');
   const form = container.querySelector('.jiratack-new-ticket-form');
 
   header.innerHTML = '';
+  if (selectorContainer) selectorContainer.innerHTML = '';
   list.innerHTML = '';
   form.innerHTML = '';
+
+  if (selectorContainer && options.canvasSelector) {
+    const select = make('select', 'jiratack-canvas-select');
+    const placeholder = make('option', null, 'Select a canvas…');
+    placeholder.value = '';
+    select.appendChild(placeholder);
+    options.canvasSelector.canvases.forEach((canvas) => {
+      const option = make('option', null, canvas.canvasName);
+      option.value = canvas.canvasName;
+      select.appendChild(option);
+    });
+    const createOption = make('option', null, '+ Create new canvas…');
+    createOption.value = '__create__';
+    select.appendChild(createOption);
+    if (options.canvasSelector.selected) {
+      select.value = options.canvasSelector.selected;
+    }
+    select.addEventListener('change', () => {
+      if (select.value === '__create__') {
+        select.value = options.canvasSelector.selected || '';
+        if (options.canvasSelector.onCreate) options.canvasSelector.onCreate();
+        return;
+      }
+      if (options.canvasSelector.onChange) options.canvasSelector.onChange(select.value);
+    });
+    selectorContainer.appendChild(select);
+  }
 
   header.appendChild(make('div', 'jiratack-sidebar-title', canvasName || 'JiraTack'));
 
@@ -57,7 +86,7 @@ export function renderSidebar(container, options) {
   const controllers = [];
 
   if (!pins || pins.length === 0) {
-    list.appendChild(make('div', 'jiratack-empty', 'No pins on this page.'));
+    list.appendChild(make('div', 'jiratack-empty', options.emptyMessage || 'No pins on this page.'));
   } else {
     pins.forEach((pin) => {
       const card = make('div', 'jiratack-ticket-card');

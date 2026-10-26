@@ -1,5 +1,5 @@
 import { exchangeSession, clearSession } from './auth.js';
-import { getPins } from './api.js';
+import { getPins, listCanvasesForUser, createCanvas } from './api.js';
 import { createOverlay, removeOverlay } from './overlay.js';
 import { renderPins } from './pins.js';
 import { renderSidebar } from './sidebar.js';
@@ -48,6 +48,8 @@ function handleDone({ pin, cardEl }) {
 function renderPinsAndSidebar() {
   if (!current) return;
   const { overlay, config, session } = current;
+  const universal = Boolean(current.universal);
+  const hasCanvas = Boolean(current.canvasName);
 
   if (current.pinModeController) {
     current.pinModeController.destroy();
@@ -62,40 +64,97 @@ function renderPinsAndSidebar() {
     onSelect: (pin) => select(pin.key),
   });
 
+  const canvasSelector = universal
+    ? {
+        canvases: current.canvases,
+        selected: current.canvasName,
+        onChange: handleCanvasSelect,
+        onCreate: handleCreateCanvas,
+      }
+    : null;
+
   current.sidebarController = renderSidebar(overlay.sidebarEl, {
-    canvasName: current.canvasName,
+    canvasName: universal && !hasCanvas ? 'JiraTack Launcher' : current.canvasName,
     session,
     pins: current.pins,
     config,
     onSelect: (pin) => select(pin.key),
     onToast: showToast,
     onDone: handleDone,
+    canvasSelector,
+    emptyMessage: universal && !hasCanvas ? 'Select a canvas to start.' : undefined,
   });
 
-  current.pinModeController = installPinMode({
-    header: overlay.headerEl,
-    session,
-    onCapture: handleCapture,
-  });
+  if (!universal || hasCanvas) {
+    current.pinModeController = installPinMode({
+      header: overlay.headerEl,
+      session,
+      onCapture: handleCapture,
+    });
+  }
+}
+
+async function handleCanvasSelect(canvasName) {
+  if (!current || !current.universal) return;
+
+  if (!canvasName) {
+    current.canvasName = null;
+    current.pins = [];
+    window.__jiratackActiveCanvas = current.config.canvasId || 'universal';
+    renderPinsAndSidebar();
+    return;
+  }
+
+  window.__jiratackActiveCanvas = canvasName;
+
+  try {
+    const data = await getPins(current.config, current.session, canvasName, window.location.href);
+    if (!current) return;
+    current.canvasName = (data && data.canvasName) || canvasName;
+    current.pins = (data && data.pins) || [];
+    renderPinsAndSidebar();
+  } catch (e) {
+    showToast((e && e.message) || 'Failed to load canvas.');
+  }
+}
+
+async function handleCreateCanvas() {
+  if (!current || !current.universal) return;
+
+  const entered = window.prompt('New canvas name');
+  if (!entered || !entered.trim()) return;
+  const canvasName = entered.trim();
+
+  try {
+    await createCanvas(current.config, current.session, canvasName, window.location.href);
+    if (!current) return;
+    const list = await listCanvasesForUser(current.config, current.session);
+    if (!current) return;
+    current.canvases = (list && list.canvases) || [];
+    await handleCanvasSelect(canvasName);
+    showToast(`Canvas "${canvasName}" created`);
+  } catch (e) {
+    showToast((e && e.message) || 'Failed to create canvas.');
+  }
 }
 
 async function handleCapture(capture) {
-  if (!current) return;
+  if (!current || !current.canvasName) return;
   const { config, session, overlay } = current;
-  const canvasIdAtStart = config.canvasId;
+  const activeAtStart = current.canvasName;
 
   const absX = capture.clientX + window.scrollX;
   const absY = capture.clientY + window.scrollY;
   const screenshotDataUrl = await captureScreenshot(absX, absY);
 
-  if (!current || window.__jiratackActiveCanvas !== canvasIdAtStart) return;
+  if (!current || window.__jiratackActiveCanvas !== activeAtStart) return;
 
   const firstPin = current.pins && current.pins.length > 0 ? current.pins[0] : null;
   const defaultProject = firstPin && firstPin.projectKey ? firstPin.projectKey : undefined;
   const defaultAssignee = firstPin && firstPin.assignee ? { ...firstPin.assignee } : undefined;
 
   renderTicketForm(overlay.formEl, {
-    config,
+    config: { ...config, canvasId: current.canvasName },
     session,
     capture,
     screenshotDataUrl,
@@ -173,24 +232,57 @@ function close() {
 async function init(config) {
   installConsoleProxy();
 
-  if (!config || !config.apiUrl || !config.token || !config.canvasId) {
+  if (!config || !config.apiUrl || !config.token) {
     console.error(`${LOG_PREFIX} Init called with invalid config`);
     return;
   }
 
-  const canvasId = config.canvasId;
-  if (window.__jiratackActiveCanvas === canvasId) {
+  if (config.canvasId && window.__jiratackActiveCanvas === config.canvasId) {
     window.__jiratackClose();
     return;
   }
 
   teardown(false);
   installConsoleProxy();
-  window.__jiratackActiveCanvas = canvasId;
+  window.__jiratackActiveCanvas = config.canvasId || 'universal';
   injectStyles();
 
   try {
     let session = await exchangeSession(config);
+
+    if (session.scope === 'universal') {
+      let canvasList;
+      try {
+        canvasList = await listCanvasesForUser(config, session);
+      } catch (e) {
+        if (e.code === 'TOKEN_EXPIRED' || e.code === 'TOKEN_INVALID') {
+          session = await exchangeSession(config, { force: true });
+          canvasList = await listCanvasesForUser(config, session);
+        } else {
+          throw e;
+        }
+      }
+
+      const overlay = createOverlay();
+      current = {
+        config,
+        session,
+        overlay,
+        universal: true,
+        canvases: (canvasList && canvasList.canvases) || [],
+        pins: [],
+        canvasName: null,
+        pinsController: null,
+        sidebarController: null,
+        pinModeController: null,
+      };
+
+      renderPinsAndSidebar();
+      console.log(`${LOG_PREFIX} Universal launcher ready with ${current.canvases.length} canvas(es)`);
+      return;
+    }
+
+    const canvasId = config.canvasId;
     let data;
     try {
       data = await getPins(config, session, canvasId, window.location.href);
@@ -204,11 +296,12 @@ async function init(config) {
     }
 
     const overlay = createOverlay();
-
     current = {
       config,
       session,
       overlay,
+      universal: false,
+      canvases: [],
       pins: (data && data.pins) || [],
       canvasName: (data && data.canvasName) || config.canvasName,
       pinsController: null,
