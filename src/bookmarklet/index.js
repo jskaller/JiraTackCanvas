@@ -106,12 +106,10 @@ function renderPinsAndSidebar() {
     current.pinsController = null;
   }
 
-  const pageUrl = normalizeUrl(window.location.href);
-  const pagePins = current.pins.filter(
-    (pin) => pin.url && normalizeUrl(pin.url) === pageUrl,
-  );
+  const pageUrl = getPageUrl();
 
-  current.pinsController = renderPins(overlay.pinsEl, pagePins, {
+  current.pinsController = renderPins(overlay.pinsEl, current.pins, {
+    pageUrl,
     onSelect: (pin) => select(pin.key),
   });
 

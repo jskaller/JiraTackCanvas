@@ -1,3 +1,5 @@
+import { normalizeUrl, stripDeepLinkParams } from '../shared/urlNormalize.js';
+
 const SELECTED_CLASS = 'jiratack-pin-selected';
 
 function parsePair(value) {
@@ -34,6 +36,11 @@ function resolvePlacement(pin) {
 
 export function renderPins(container, pins, options = {}) {
   const onSelect = options.onSelect;
+  const currentUrl = normalizeUrl(stripDeepLinkParams(options.pageUrl || window.location.href));
+  const visiblePins = (Array.isArray(pins) ? pins : []).filter(
+    (pin) => pin && pin.url && normalizeUrl(pin.url) === currentUrl,
+  );
+
   container.innerHTML = '';
 
   const cluster = document.createElement('div');
@@ -45,7 +52,7 @@ export function renderPins(container, pins, options = {}) {
   const elementsByKey = new Map();
   let detachedCount = 0;
 
-  pins.forEach((pin) => {
+  visiblePins.forEach((pin) => {
     const placement = resolvePlacement(pin);
     const el = document.createElement('div');
     el.className = 'jiratack-pin';
