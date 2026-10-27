@@ -6,6 +6,7 @@ import { renderSidebar } from './sidebar.js';
 import { installPinMode } from './pinMode.js';
 import { captureScreenshot } from './screenshot.js';
 import { renderTicketForm } from './form.js';
+import { installFixedShift } from './fixedShift.js';
 import { playDoneAnimation } from './done.js';
 import { installConsoleProxy, restoreConsoleProxy, clearConsoleBuffer } from './consoleProxy.js';
 import { normalizeUrl, stripDeepLinkParams } from '../shared/urlNormalize.js';
@@ -69,8 +70,7 @@ function restorePushLayout() {
 }
 
 function buildLayoutFixCss() {
-  return `html{margin-right:${SIDEBAR_WIDTH_PX}px !important;overflow-x:hidden !important;}`
-    + `[style*="position: fixed" i],[style*="position:fixed" i]{transform:translateX(-${SIDEBAR_WIDTH_PX}px) !important;max-width:calc(100vw - ${SIDEBAR_WIDTH_PX}px) !important;}`;
+  return `html{margin-right:${SIDEBAR_WIDTH_PX}px !important;overflow-x:hidden !important;}`;
 }
 
 function injectLayoutFix() {
@@ -534,6 +534,14 @@ async function handleCapture(capture) {
 }
 
 function teardown(clearStoredSession) {
+  if (current && current.fixedShift) {
+    try {
+      current.fixedShift.destroy();
+    } catch (e) {
+      // ignore
+    }
+    current.fixedShift = null;
+  }
   removeLayoutFix();
   restorePushLayout();
   cancelHydration();
@@ -621,6 +629,7 @@ async function init(config) {
     removeBootstrapLoading();
     applyPushLayout();
     injectLayoutFix();
+    current.fixedShift = installFixedShift();
 
     current = {
       config,
@@ -638,6 +647,7 @@ async function init(config) {
       sidebarController: null,
       pinModeController: null,
       formController: null,
+      fixedShift: null,
       hydrationKeys: new Set(),
       hydrationToken: 0,
       hydrationRunning: false,
