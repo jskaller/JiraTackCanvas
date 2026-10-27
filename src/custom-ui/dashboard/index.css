@@ -22,8 +22,15 @@ body {
 }
 
 .jt-subtitle {
-  margin: 0 0 20px;
+  margin: 0 0 12px;
   color: #5e6c84;
+}
+
+.jt-header-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 20px;
 }
 
 .jt-search {
@@ -243,6 +250,35 @@ body {
 .jt-modal-instruction {
   margin: 12px 0 6px;
   font-weight: 600;
+}
+
+.jt-checkbox-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 280px;
+  overflow-y: auto;
+  margin: 8px 0 12px;
+  padding: 8px;
+  border: 1px solid #dfe1e6;
+  border-radius: 4px;
+  background: #fafbfc;
+}
+
+.jt-checkbox-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 2px;
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.jt-checkbox-label {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .jt-bookmarklet-link {

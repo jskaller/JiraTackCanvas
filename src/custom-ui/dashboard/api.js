@@ -15,6 +15,10 @@ export function generateUserToken() {
   return invoke('generateUserToken');
 }
 
+export function generateGuestToken(permittedCanvases) {
+  return invoke('generateGuestToken', { permittedCanvases });
+}
+
 export function createCanvas(canvasName, targetUrl) {
   return invoke('createCanvas', { canvasName, targetUrl });
 }

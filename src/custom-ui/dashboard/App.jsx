@@ -6,6 +6,7 @@ import BookmarkletModal from './components/BookmarkletModal';
 import RecoveryPanel from './components/RecoveryPanel';
 import ConfirmDialog from './components/ConfirmDialog';
 import CreateCanvasModal from './components/CreateCanvasModal';
+import GuestLinkModal from './components/GuestLinkModal';
 
 export default function App() {
   const [loading, setLoading] = useState(true);
@@ -20,6 +21,7 @@ export default function App() {
   const [createOpen, setCreateOpen] = useState(false);
   const [confirm, setConfirm] = useState(null);
   const [viewArchived, setViewArchived] = useState(false);
+  const [guestOpen, setGuestOpen] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -148,14 +150,23 @@ export default function App() {
             Pick a canvas to review its pages, or create a new one to start pinning.
           </p>
         </div>
-        <button
-          type="button"
-          className="jt-button jt-button-primary jt-universal-button"
-          disabled={universalLoading}
-          onClick={handleUniversalBookmarklet}
-        >
-          {universalLoading ? 'Generating…' : 'Get JiraTack Bookmarklet'}
-        </button>
+        <div className="jt-header-actions">
+          <button
+            type="button"
+            className="jt-button jt-button-primary jt-universal-button"
+            disabled={universalLoading}
+            onClick={handleUniversalBookmarklet}
+          >
+            {universalLoading ? 'Generating…' : 'Get JiraTack Bookmarklet'}
+          </button>
+          <button
+            type="button"
+            className="jt-button"
+            onClick={() => setGuestOpen(true)}
+          >
+            Generate Guest Link
+          </button>
+        </div>
       </header>
 
       <div className="jt-toolbar">
@@ -242,6 +253,14 @@ export default function App() {
             setCreateOpen(false);
             load();
           }}
+        />
+      )}
+
+      {guestOpen && (
+        <GuestLinkModal
+          canvases={canvases.filter((canvas) => canvas.archived !== true)}
+          defaultCanvas={canvases.find((canvas) => canvas.archived !== true)?.canvasName || null}
+          onClose={() => setGuestOpen(false)}
         />
       )}
     </div>
