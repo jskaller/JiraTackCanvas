@@ -82,6 +82,8 @@ export async function exchangeSession(config, options = {}) {
     expiresAt: data.expiresAt,
     scope: data.scope,
     permittedProjects: data.permittedProjects,
+    permittedCanvases: data.permittedCanvases || null,
+    issuer: data.issuer || null,
     jiraBaseUrl: data.jiraBaseUrl || null,
     displayName: data.displayName || null,
   };

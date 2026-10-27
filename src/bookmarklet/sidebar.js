@@ -125,8 +125,32 @@ export function renderSidebar(container, options) {
   form.innerHTML = '';
 
   const isUniversal = Boolean(options.canvasSelector);
+  const isGuest = Boolean(options.guestSelector);
 
-  if (isUniversal) {
+  if (isGuest) {
+    const wrap = make('div', 'jiratack-guest-canvas');
+    wrap.appendChild(make('span', 'jiratack-guest-canvas-label', 'Canvas'));
+
+    const select = make('select', 'jiratack-canvas-dropdown');
+    (options.guestSelector.canvases || []).forEach((name) => {
+      const option = make('option', null, name);
+      option.value = name;
+      select.appendChild(option);
+    });
+    if (canvasName) select.value = canvasName;
+    select.addEventListener('change', () => {
+      if (options.guestSelector.onChange) options.guestSelector.onChange(select.value);
+    });
+    wrap.appendChild(select);
+    header.appendChild(wrap);
+
+    const badges = make('div', 'jiratack-badges');
+    badges.appendChild(make('span', 'jiratack-badge', 'Guest'));
+    header.appendChild(badges);
+    header.appendChild(makeCloseButton());
+
+    if (selectorContainer) renderFilterToggle(selectorContainer);
+  } else if (isUniversal) {
     const hasSelectedCanvas = Boolean(canvasName && canvasName !== 'JiraTack Launcher');
     const title = make(
       'div',
@@ -308,6 +332,10 @@ export function renderSidebar(container, options) {
 
       select(pin.key);
       if (onSelect) onSelect(pin);
+
+      if (session && session.scope === 'guest_create') {
+        return;
+      }
 
       if (session && session.scope === 'view') {
         window.open(buildIssueUrl(config, session, pin.key), '_blank', 'noopener');

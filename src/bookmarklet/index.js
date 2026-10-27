@@ -110,6 +110,7 @@ function renderPinsAndSidebar() {
   const { overlay, config, session } = current;
   const universal = Boolean(current.universal);
   const hasCanvas = Boolean(current.canvasName);
+  const guest = Boolean(session && session.scope === 'guest_create');
 
   if (current.pinModeController) {
     current.pinModeController.destroy();
@@ -143,6 +144,17 @@ function renderPinsAndSidebar() {
       }
     : null;
 
+  const guestCanvases = guest && Array.isArray(current.permittedCanvases)
+    ? current.permittedCanvases
+    : [];
+  const guestSelector = guestCanvases.length > 0
+    ? {
+        canvases: guestCanvases,
+        selected: current.canvasName,
+        onChange: handleGuestCanvasSelect,
+      }
+    : null;
+
   current.sidebarController = renderSidebar(overlay.sidebarEl, {
     canvasName: universal && !hasCanvas ? 'JiraTack Launcher' : current.canvasName,
     session,
@@ -152,6 +164,7 @@ function renderPinsAndSidebar() {
     onToast: showToast,
     onDone: handleDone,
     canvasSelector,
+    guestSelector,
     emptyMessage: universal && !hasCanvas ? 'Select a canvas to start.' : undefined,
     loading: Boolean(current.loading),
     loadingLabel: current.loadingLabel || '',
@@ -195,6 +208,34 @@ async function handleCanvasSelect(canvasName) {
   } catch (e) {
     if (current) current.pins = [];
     showToast((e && e.message) || 'Failed to load canvas.');
+  }
+
+  if (!current) return;
+  current.loading = false;
+  renderPinsAndSidebar();
+}
+
+async function handleGuestCanvasSelect(canvasName) {
+  if (!current || !canvasName) return;
+  if (!current.session || current.session.scope !== 'guest_create') return;
+
+  clearPendingPin();
+  current.canvasName = canvasName;
+  current.loading = true;
+  current.loadError = null;
+  window.__jiratackActiveCanvas = canvasName;
+  renderPinsAndSidebar();
+
+  try {
+    const data = await getPins(current.config, current.session, canvasName, getPageUrl(), true);
+    if (!current) return;
+    current.canvasName = (data && data.canvasName) || canvasName;
+    current.pins = (data && data.pins) || [];
+  } catch (e) {
+    if (current) {
+      current.pins = [];
+      current.loadError = (e && e.message) || 'Failed to load canvas.';
+    }
   }
 
   if (!current) return;
@@ -396,6 +437,46 @@ async function init(config) {
     current.session = session;
     current.loadingLabel = isLauncher ? 'Loading canvases…' : 'Loading pins…';
     renderPinsAndSidebar();
+
+    if (session.scope === 'guest_create') {
+      const permittedCanvases = Array.isArray(session.permittedCanvases) ? session.permittedCanvases : [];
+      current.permittedCanvases = permittedCanvases;
+
+      const initialCanvas = deepCanvas && permittedCanvases.includes(deepCanvas)
+        ? deepCanvas
+        : (permittedCanvases[0] || null);
+      current.canvasName = initialCanvas;
+
+      if (!initialCanvas) {
+        current.loading = false;
+        current.loadError = 'No canvases are available for this link. Ask the person who sent it for a new one.';
+        renderPinsAndSidebar();
+        return;
+      }
+
+      current.loadingLabel = 'Loading pins…';
+      window.__jiratackActiveCanvas = initialCanvas;
+      renderPinsAndSidebar();
+
+      try {
+        const data = await getPins(config, session, initialCanvas, getPageUrl(), true);
+        if (!current || current.overlay !== overlay) return;
+        current.canvasName = (data && data.canvasName) || initialCanvas;
+        current.pins = (data && data.pins) || [];
+      } catch (e) {
+        if (current && current.overlay === overlay) {
+          current.pins = [];
+          current.loadError = (e && e.message) || 'Failed to load pins.';
+        }
+      }
+
+      if (!current || current.overlay !== overlay) return;
+      current.loading = false;
+      renderPinsAndSidebar();
+      if (deepTicket) selectAndScroll(deepTicket);
+      console.log(`${LOG_PREFIX} Guest bookmarklet ready for canvas: ${current.canvasName}`);
+      return;
+    }
 
     if (isLauncher) {
       let canvasList;

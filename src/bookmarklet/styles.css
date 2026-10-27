@@ -104,6 +104,39 @@
   white-space: nowrap;
 }
 
+.jiratack-guest-canvas {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 8px;
+}
+
+.jiratack-guest-canvas-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: #5e6c84;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+
+.jiratack-canvas-dropdown {
+  width: 100%;
+  padding: 6px 8px;
+  border: 1px solid #dfe1e6;
+  border-radius: 4px;
+  background: #ffffff;
+  color: #172b4d;
+  font: inherit;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.jiratack-canvas-dropdown:focus {
+  outline: none;
+  border-color: #4c9aff;
+  box-shadow: 0 0 0 2px rgba(76, 154, 255, 0.2);
+}
+
 .jiratack-badges {
   display: flex;
   flex-wrap: wrap;

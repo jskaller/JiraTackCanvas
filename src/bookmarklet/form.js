@@ -39,6 +39,7 @@ function withPageUrl(descriptionAdf, pageUrl, include) {
 
 export function renderTicketForm(container, options) {
   const { config, session, capture, onCancel, onCreated, defaultProject, defaultAssignee, defaultIssueTypeId, defaultPriorityId, pins } = options;
+  const isGuest = Boolean(session && session.scope === 'guest_create');
   let screenshotDataUrl = options.screenshotDataUrl || null;
   let submitting = false;
   const pageUrl = normalizeUrl(stripDeepLinkParams(window.location.href));
@@ -65,6 +66,9 @@ export function renderTicketForm(container, options) {
     input.value = value || '';
     return input;
   }
+
+  const guestNameInput = isGuest ? textInput('Your name', '') : null;
+  const guestEmailInput = isGuest ? textInput('you@example.com', '') : null;
 
   const permitted = Array.isArray(session.permittedProjects) ? session.permittedProjects : [];
   const openMode = session.permittedProjects === '*';
@@ -125,7 +129,9 @@ export function renderTicketForm(container, options) {
   descriptionInput.placeholder = 'Describe the issue…';
 
   const assigneeWrap = el('div', 'jiratack-field');
-  assigneeWrap.appendChild(el('span', 'jiratack-field-label', 'Assignee'));
+  assigneeWrap.appendChild(
+    el('span', 'jiratack-field-label', isGuest ? 'Assign To (Licensed User)' : 'Assignee'),
+  );
   const typeahead = el('div', 'jiratack-typeahead');
   const assigneeInput = textInput('Search by name', '');
   const typeaheadResults = el('div', 'jiratack-typeahead-results');
@@ -138,10 +144,16 @@ export function renderTicketForm(container, options) {
   reporterInput.disabled = true;
   reporterInput.title = 'Reporter is set from the authenticated Jira user.';
 
+  if (isGuest) {
+    form.appendChild(field('Your Name', guestNameInput));
+    form.appendChild(field('Your Email', guestEmailInput));
+  }
   form.appendChild(field('Project', projectSelect || projectInput));
   form.appendChild(field('Issue type', issueTypeSelect));
   form.appendChild(assigneeWrap);
-  form.appendChild(field('Reporter', reporterInput));
+  if (!isGuest) {
+    form.appendChild(field('Reporter', reporterInput));
+  }
   form.appendChild(field('Summary', summaryInput));
   form.appendChild(field('Description', descriptionInput));
 
@@ -315,11 +327,12 @@ export function renderTicketForm(container, options) {
     }
   })();
 
-  let assigneeAccountId = defaultAssignee && defaultAssignee.accountId
-    ? String(defaultAssignee.accountId)
+  const initialAssignee = isGuest ? null : defaultAssignee;
+  let assigneeAccountId = initialAssignee && initialAssignee.accountId
+    ? String(initialAssignee.accountId)
     : null;
-  if (defaultAssignee) {
-    assigneeInput.value = defaultAssignee.displayName || defaultAssignee.accountId || '';
+  if (initialAssignee) {
+    assigneeInput.value = initialAssignee.displayName || initialAssignee.accountId || '';
   }
 
   let assigneeDebounce = null;
@@ -431,6 +444,23 @@ export function renderTicketForm(container, options) {
       return;
     }
 
+    const guestName = isGuest ? guestNameInput.value.trim() : null;
+    const guestEmail = isGuest ? guestEmailInput.value.trim() : null;
+    if (isGuest) {
+      if (guestName.length === 0) {
+        showError('Your name is required.');
+        return;
+      }
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(guestEmail)) {
+        showError('A valid email is required.');
+        return;
+      }
+      if (!assigneeAccountId) {
+        showError('Select a licensed user to assign this ticket to.');
+        return;
+      }
+    }
+
     const consoleLog = consoleCheckbox && consoleCheckbox.checked
       ? formatConsoleLog(consoleSnapshot)
       : null;
@@ -459,6 +489,8 @@ export function renderTicketForm(container, options) {
         priorityId: prioritySelect.value || null,
         assigneeAccountId: assigneeAccountId || null,
         parentKey: parentKey || null,
+        guestName,
+        guestEmail,
       });
 
       destroy();
