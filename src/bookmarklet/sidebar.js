@@ -76,6 +76,27 @@ function loadingNode(label) {
   return wrap;
 }
 
+function skeletonTickets() {
+  const wrap = make('div', 'jiratack-skeleton-list');
+  for (let i = 0; i < 3; i += 1) {
+    const card = make('div', 'jiratack-skeleton-card');
+    card.appendChild(make('div', 'jiratack-skeleton-line jiratack-skeleton-line-key'));
+    card.appendChild(make('div', 'jiratack-skeleton-line jiratack-skeleton-line-summary'));
+    card.appendChild(make('div', 'jiratack-skeleton-line jiratack-skeleton-line-meta'));
+    card.appendChild(make('div', 'jiratack-skeleton-line jiratack-skeleton-line-people'));
+    wrap.appendChild(card);
+  }
+  return wrap;
+}
+
+function skeletonCanvases() {
+  const wrap = make('div', 'jiratack-skeleton-list');
+  for (let i = 0; i < 3; i += 1) {
+    wrap.appendChild(make('div', 'jiratack-skeleton-line jiratack-skeleton-line-canvas'));
+  }
+  return wrap;
+}
+
 function makeCloseButton() {
   const button = make('button', 'jiratack-close', '×');
   button.type = 'button';
@@ -90,6 +111,8 @@ export function renderSidebar(container, options) {
   const { canvasName, session, pins, config, onSelect, onToast, onDone } = options;
   const activeFilter = options.filter || 'all';
   const pageUrl = options.pageUrl || '';
+  const loadingLabel = options.loadingLabel || '';
+  const loadError = options.loadError || '';
 
   const header = container.querySelector('.jiratack-sidebar-header');
   const selectorContainer = container.querySelector('.jiratack-canvas-selector');
@@ -131,8 +154,11 @@ export function renderSidebar(container, options) {
     header.appendChild(makeCloseButton());
 
     if (!hasSelectedCanvas) {
-      if (options.loading) {
-        selectorContainer.appendChild(loadingNode('Loading canvases…'));
+      if (loadError) {
+        selectorContainer.appendChild(make('div', 'jiratack-canvas-error', loadError));
+      } else if (options.loading) {
+        selectorContainer.appendChild(loadingNode(loadingLabel || 'Loading canvases…'));
+        selectorContainer.appendChild(skeletonCanvases());
       } else {
         const canvases = (options.canvasSelector && options.canvasSelector.canvases) || [];
         if (canvases.length === 0) {
@@ -317,8 +343,11 @@ export function renderSidebar(container, options) {
   }
 
   const universalHasCanvas = Boolean(canvasName && canvasName !== 'JiraTack Launcher');
-  if (options.loading && (!isUniversal || universalHasCanvas)) {
-    list.appendChild(loadingNode('Loading pins…'));
+  if (loadError && (!isUniversal || universalHasCanvas)) {
+    list.appendChild(make('div', 'jiratack-canvas-error', loadError));
+  } else if (options.loading && (!isUniversal || universalHasCanvas)) {
+    list.appendChild(loadingNode(loadingLabel || 'Loading pins…'));
+    list.appendChild(skeletonTickets());
   } else if (!isUniversal || universalHasCanvas) {
     if (!visiblePins || visiblePins.length === 0) {
       list.appendChild(make('div', 'jiratack-empty', options.emptyMessage || 'No pins on this page.'));
