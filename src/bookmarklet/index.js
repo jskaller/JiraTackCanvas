@@ -18,6 +18,13 @@ function getPageUrl() {
   return normalizeUrl(stripDeepLinkParams(window.location.href));
 }
 
+function removeBootstrapLoading() {
+  const loader = document.getElementById('jiratack-bootstrap-loading');
+  if (loader) loader.remove();
+  const style = document.getElementById('jiratack-bootstrap-style');
+  if (style) style.remove();
+}
+
 function injectStyles() {
   if (document.getElementById('jiratack-styles')) return;
   const style = document.createElement('style');
@@ -335,9 +342,12 @@ async function init(config) {
   installConsoleProxy();
 
   if (!config || !config.apiUrl || !config.token) {
+    removeBootstrapLoading();
     console.error(`${LOG_PREFIX} Init called with invalid config`);
     return;
   }
+
+  removeBootstrapLoading();
 
   if (config.canvasId && window.__jiratackActiveCanvas === config.canvasId) {
     window.__jiratackClose();
