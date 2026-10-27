@@ -34,9 +34,30 @@ function showToast(message) {
   }, 4000);
 }
 
+function scrollPairIntoView(key) {
+  if (!current) return;
+
+  try {
+    const escaped = String(key).replace(/"/g, '\\"');
+    const card = document.querySelector(
+      `#jiratack-sidebar .jiratack-ticket-card[data-key="${escaped}"]`,
+    );
+    if (card) card.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+  } catch (e) {
+    // ignore
+  }
+
+  const pinEl = current.pinsController && current.pinsController.elementsByKey
+    ? current.pinsController.elementsByKey.get(key)
+    : null;
+  if (pinEl) pinEl.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+}
+
 function select(key) {
-  if (current && current.pinsController) current.pinsController.select(key);
-  if (current && current.sidebarController) current.sidebarController.select(key);
+  if (!current) return;
+  if (current.pinsController) current.pinsController.select(key);
+  if (current.sidebarController) current.sidebarController.select(key);
+  scrollPairIntoView(key);
 }
 
 function handleDone({ pin, cardEl }) {
@@ -65,24 +86,7 @@ function stripDeepLinkParams() {
 }
 
 function selectAndScroll(key) {
-  if (!current) return;
-  if (current.pinsController) current.pinsController.select(key);
-  if (current.sidebarController) current.sidebarController.select(key);
-
-  try {
-    const escaped = String(key).replace(/"/g, '\\"');
-    const card = document.querySelector(
-      `#jiratack-sidebar .jiratack-ticket-card[data-key="${escaped}"]`,
-    );
-    if (card) card.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
-  } catch (e) {
-    // ignore
-  }
-
-  const pinEl = current.pinsController && current.pinsController.elementsByKey
-    ? current.pinsController.elementsByKey.get(key)
-    : null;
-  if (pinEl) pinEl.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+  select(key);
 }
 
 function renderPinsAndSidebar() {
