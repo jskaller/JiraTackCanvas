@@ -13,6 +13,7 @@ import styles from './styles.css?inline';
 
 const LOG_PREFIX = '[JiraTack]';
 const SIDEBAR_WIDTH_PX = 360;
+const LAYOUT_FIX_STYLE_ID = 'jiratack-layout-fix';
 let current = null;
 
 let savedHtmlMarginRight = null;
@@ -65,6 +66,32 @@ function restorePushLayout() {
   savedHtmlMarginRight = null;
   savedHtmlTransition = null;
   savedBodyWidth = null;
+}
+
+function buildLayoutFixCss() {
+  return `html{margin-right:${SIDEBAR_WIDTH_PX}px !important;overflow-x:hidden !important;}`
+    + `[style*="position: fixed" i],[style*="position:fixed" i]{transform:translateX(-${SIDEBAR_WIDTH_PX}px) !important;max-width:calc(100vw - ${SIDEBAR_WIDTH_PX}px) !important;}`;
+}
+
+function injectLayoutFix() {
+  try {
+    if (!document.head || document.getElementById(LAYOUT_FIX_STYLE_ID)) return;
+    const style = document.createElement('style');
+    style.id = LAYOUT_FIX_STYLE_ID;
+    style.textContent = buildLayoutFixCss();
+    document.head.appendChild(style);
+  } catch (e) {
+    // ignore — fixed elements just stay under the sidebar
+  }
+}
+
+function removeLayoutFix() {
+  try {
+    const el = document.getElementById(LAYOUT_FIX_STYLE_ID);
+    if (el) el.remove();
+  } catch (e) {
+    // ignore
+  }
 }
 
 function getPageUrl() {
@@ -507,6 +534,7 @@ async function handleCapture(capture) {
 }
 
 function teardown(clearStoredSession) {
+  removeLayoutFix();
   restorePushLayout();
   cancelHydration();
   clearPendingPin();
@@ -592,6 +620,7 @@ async function init(config) {
     overlay = createOverlay();
     removeBootstrapLoading();
     applyPushLayout();
+    injectLayoutFix();
 
     current = {
       config,

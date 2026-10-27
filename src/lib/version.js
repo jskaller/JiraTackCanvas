@@ -1,1 +1,1 @@
-export const SDK_VERSION = '64285e8d0ef1';
+export const SDK_VERSION = 'a784883ef2e2';
