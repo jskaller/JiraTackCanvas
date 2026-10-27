@@ -1,6 +1,7 @@
 import { normalizeUrl, stripDeepLinkParams } from '../shared/urlNormalize.js';
 
 const SELECTED_CLASS = 'jiratack-pin-selected';
+const COLLISION_RADIUS = 14;
 
 function parsePair(value) {
   if (typeof value !== 'string') return null;
@@ -92,17 +93,53 @@ export function renderPins(container, pins, options = {}) {
   cluster.style.display = detachedCount > 0 ? 'flex' : 'none';
 
   function update() {
+    const positioned = [];
+
     entries.forEach(({ el, placement }) => {
       if (placement.mode === 'selector') {
         const rect = placement.element.getBoundingClientRect();
         const x = rect.left + (placement.relX / 100) * rect.width;
         const y = rect.top + (placement.relY / 100) * rect.height;
-        el.style.left = `${Math.round(x)}px`;
-        el.style.top = `${Math.round(y)}px`;
+        positioned.push({ el, x, y });
       } else if (placement.mode === 'absolute') {
-        el.style.left = `${Math.round(placement.x - window.scrollX)}px`;
-        el.style.top = `${Math.round(placement.y - window.scrollY)}px`;
+        positioned.push({
+          el,
+          x: placement.x - window.scrollX,
+          y: placement.y - window.scrollY,
+        });
       }
+    });
+
+    const buckets = new Map();
+    positioned.forEach((item) => {
+      const key = `${Math.round(item.x)},${Math.round(item.y)}`;
+      if (!buckets.has(key)) buckets.set(key, []);
+      buckets.get(key).push(item);
+    });
+
+    buckets.forEach((bucket) => {
+      if (bucket.length === 1) {
+        const item = bucket[0];
+        item.el.style.left = `${Math.round(item.x)}px`;
+        item.el.style.top = `${Math.round(item.y)}px`;
+        item.el.style.zIndex = '';
+        return;
+      }
+
+      bucket.forEach((item, index) => {
+        if (index === 0) {
+          item.el.style.left = `${Math.round(item.x)}px`;
+          item.el.style.top = `${Math.round(item.y)}px`;
+          item.el.style.zIndex = '1';
+          return;
+        }
+
+        const angle = (Math.PI * 2 * (index - 1)) / Math.max(1, bucket.length - 1) - Math.PI / 2;
+        const ring = COLLISION_RADIUS + Math.floor((index - 1) / 6) * COLLISION_RADIUS;
+        item.el.style.left = `${Math.round(item.x + Math.cos(angle) * ring)}px`;
+        item.el.style.top = `${Math.round(item.y + Math.sin(angle) * ring)}px`;
+        item.el.style.zIndex = String(index + 1);
+      });
     });
   }
 
