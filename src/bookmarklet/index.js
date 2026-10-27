@@ -91,6 +91,21 @@ function clearPendingPin() {
   }
 }
 
+function dismissTicketForm() {
+  if (current && current.formController) {
+    try {
+      current.formController.destroy();
+    } catch (e) {
+      // ignore
+    }
+    current.formController = null;
+  }
+  if (current && current.overlay && current.overlay.formEl) {
+    current.overlay.formEl.innerHTML = '';
+  }
+  clearPendingPin();
+}
+
 function stripLocationDeepLinks() {
   try {
     const url = new URL(window.location.href);
@@ -136,6 +151,7 @@ function renderPinsAndSidebar() {
         onCreate: session && session.scope === 'view' ? undefined : handleCreateCanvas,
         onSwitch: () => {
           if (!current) return;
+          dismissTicketForm();
           current.canvasName = null;
           current.pins = [];
           window.__jiratackActiveCanvas = current.config.canvasId || 'universal';
@@ -186,6 +202,8 @@ function renderPinsAndSidebar() {
 async function handleCanvasSelect(canvasName) {
   if (!current || !current.universal) return;
 
+  dismissTicketForm();
+
   if (!canvasName) {
     current.canvasName = null;
     current.pins = [];
@@ -219,7 +237,7 @@ async function handleGuestCanvasSelect(canvasName) {
   if (!current || !canvasName) return;
   if (!current.session || current.session.scope !== 'guest_create') return;
 
-  clearPendingPin();
+  dismissTicketForm();
   current.canvasName = canvasName;
   current.loading = true;
   current.loadError = null;
@@ -227,7 +245,23 @@ async function handleGuestCanvasSelect(canvasName) {
   renderPinsAndSidebar();
 
   try {
-    const data = await getPins(current.config, current.session, canvasName, getPageUrl(), true);
+    let data;
+    try {
+      data = await getPins(current.config, current.session, canvasName, getPageUrl(), true);
+    } catch (e) {
+      if (e && (e.code === 'TOKEN_EXPIRED' || e.code === 'TOKEN_INVALID')) {
+        const session = await exchangeSession(current.config, { force: true });
+        if (!current) return;
+        current.session = session;
+        if (Array.isArray(session.permittedCanvases)) {
+          current.permittedCanvases = session.permittedCanvases;
+        }
+        data = await getPins(current.config, session, canvasName, getPageUrl(), true);
+      } else {
+        throw e;
+      }
+    }
+
     if (!current) return;
     current.canvasName = (data && data.canvasName) || canvasName;
     current.pins = (data && data.pins) || [];
@@ -294,7 +328,7 @@ async function handleCapture(capture) {
   const defaultIssueTypeId = newestPin && newestPin.issueTypeId ? newestPin.issueTypeId : undefined;
   const defaultPriorityId = newestPin && newestPin.priorityId ? newestPin.priorityId : undefined;
 
-  renderTicketForm(overlay.formEl, {
+  current.formController = renderTicketForm(overlay.formEl, {
     config: { ...config, canvasId: current.canvasName },
     session,
     capture,
@@ -306,12 +340,11 @@ async function handleCapture(capture) {
     defaultIssueTypeId,
     defaultPriorityId,
     onCancel: () => {
-      clearPendingPin();
-      if (current && current.overlay) current.overlay.formEl.innerHTML = '';
+      dismissTicketForm();
     },
     onCreated: ({ result, capture: createdCapture, summary, projectKey, issueTypeId, priorityId }) => {
       if (!current) return;
-      clearPendingPin();
+      dismissTicketForm();
       current.pins = current.pins.concat([
         {
           key: result.key,
@@ -354,6 +387,12 @@ function teardown(clearStoredSession) {
     } catch (e) {
       // ignore
     }
+    try {
+      if (current.formController) current.formController.destroy();
+    } catch (e) {
+      // ignore
+    }
+    current.formController = null;
   }
 
   if (clearStoredSession) {
@@ -429,6 +468,7 @@ async function init(config) {
       pinsController: null,
       sidebarController: null,
       pinModeController: null,
+      formController: null,
     };
     renderPinsAndSidebar();
 
