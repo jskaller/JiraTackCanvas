@@ -150,16 +150,36 @@
 .jiratack-ticket-meta {
   display: flex;
   flex-wrap: wrap;
+  align-items: baseline;
   gap: 4px;
   margin-bottom: 6px;
 }
 
 .jiratack-chip {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 4px;
+  max-width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
   padding: 1px 6px;
   border-radius: 3px;
   background: #f4f5f7;
   color: #42526e;
   font-size: 11px;
+}
+
+.jiratack-chip-label {
+  flex: 0 0 auto;
+  color: #6b778c;
+  font-weight: 600;
+}
+
+.jiratack-chip-value {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .jiratack-ticket-people {

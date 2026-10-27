@@ -45,6 +45,14 @@ function isDone(pin) {
   return Boolean(pin && pin.status && pin.status.category === 'done');
 }
 
+function addChip(container, className, label, value) {
+  if (!value) return;
+  const chip = make('span', `jiratack-chip ${className}`);
+  chip.appendChild(make('span', 'jiratack-chip-label', `${label}:`));
+  chip.appendChild(make('span', 'jiratack-chip-value', value));
+  container.appendChild(chip);
+}
+
 function loadingNode(label) {
   const wrap = make('div', 'jiratack-loading');
   wrap.appendChild(make('span', 'jiratack-spinner'));
@@ -219,13 +227,13 @@ export function renderSidebar(container, options) {
       peopleEl.innerHTML = '';
 
       if (pin.status && pin.status.name) {
-        metaEl.appendChild(make('span', 'jiratack-chip jiratack-status', pin.status.name));
+        addChip(metaEl, 'jiratack-status', 'Status', pin.status.name);
       }
       if (pin.priority && pin.priority.name) {
-        metaEl.appendChild(make('span', 'jiratack-chip jiratack-priority', pin.priority.name));
+        addChip(metaEl, 'jiratack-priority', 'Priority', pin.priority.name);
       }
       if (pin.issueType && pin.issueType.name) {
-        metaEl.appendChild(make('span', 'jiratack-chip jiratack-issuetype', pin.issueType.name));
+        addChip(metaEl, 'jiratack-issuetype', 'Type', pin.issueType.name);
       }
       if (includeDoneState && isDone(pin)) {
         metaEl.appendChild(make('span', 'jiratack-chip jiratack-done-badge', 'Done'));
