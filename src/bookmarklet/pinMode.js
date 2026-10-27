@@ -80,8 +80,9 @@ export function generateSelector(element) {
   return isUniqueSelector(byPath, element) ? byPath : null;
 }
 
-export function computePinPosition(element, clientX, clientY) {
+export function computePinPosition(element, clientX, clientY, zoom = 1) {
   const selector = generateSelector(element);
+  const factor = Number.isFinite(zoom) && zoom > 0 ? zoom : 1;
 
   if (selector) {
     const rect = element.getBoundingClientRect();
@@ -90,13 +91,13 @@ export function computePinPosition(element, clientX, clientY) {
     return { selector, pinPosition: `${relX.toFixed(1)},${relY.toFixed(1)}` };
   }
 
-  const absX = Math.round(clientX + window.scrollX);
-  const absY = Math.round(clientY + window.scrollY);
+  const absX = Math.round((clientX + window.scrollX) / factor);
+  const absY = Math.round((clientY + window.scrollY) / factor);
   return { selector: null, pinPosition: `${absX},${absY}` };
 }
 
 export function installPinMode(options = {}) {
-  const { header, session, onCapture } = options;
+  const { header, session, onCapture, getZoom } = options;
   const canCreate = session
     && (session.scope === 'create' || session.scope === 'universal' || session.scope === 'guest_create');
   if (!header || !canCreate) return null;
@@ -152,7 +153,8 @@ export function installPinMode(options = {}) {
     event.preventDefault();
     event.stopPropagation();
 
-    const result = computePinPosition(target, event.clientX, event.clientY);
+    const zoom = typeof getZoom === 'function' ? getZoom() : 1;
+    const result = computePinPosition(target, event.clientX, event.clientY, zoom);
     const consoleSnapshot = getBufferSnapshot();
     const elementTag = target.tagName.toLowerCase();
 
@@ -180,7 +182,12 @@ export function installPinMode(options = {}) {
     active = true;
     button.classList.add('jiratack-pinmode-toggle-active');
     document.body.classList.add('jiratack-pin-mode');
-    document.body.appendChild(outline);
+    try {
+      const scope = (header.closest && header.closest('#jiratack-overlay')) || document.body;
+      scope.appendChild(outline);
+    } catch (e) {
+      document.body.appendChild(outline);
+    }
     document.addEventListener('mousemove', onMove, true);
     document.addEventListener('click', onClick, true);
     document.addEventListener('keydown', onKey, true);

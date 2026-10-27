@@ -1,5 +1,7 @@
 const SHIFT_PX = 360;
-const RESCAN_MS = 250;
+const RESCAN_MS = 350;
+const SCAN_BUDGET_MS = 12;
+const SCAN_CHECK_EVERY = 128;
 
 function viewportZoneLeft() {
   return window.innerWidth - SHIFT_PX;
@@ -77,9 +79,14 @@ export function installFixedShift() {
     else unshift(el);
   }
 
-  function scanSubtree(root) {
-    if (disposed || !root || root.nodeType !== 1) return;
-    if (root.id === 'jiratack-overlay') return;
+  function scanSubtree(root, deadline) {
+    if (disposed || !root || root.nodeType !== 1) return true;
+    if (root.id === 'jiratack-overlay') return true;
+    try {
+      if (!root.isConnected) return true;
+    } catch (e) {
+      // ignore
+    }
     evaluate(root);
     let walker = null;
     try {
@@ -90,13 +97,23 @@ export function installFixedShift() {
         },
       });
     } catch (e) {
-      return;
+      return true;
     }
+    let count = 0;
     let node = walker.nextNode();
     while (node) {
       evaluate(node);
+      count += 1;
+      if (deadline !== null && count % SCAN_CHECK_EVERY === 0) {
+        try {
+          if (performance.now() > deadline) return false;
+        } catch (e) {
+          // ignore timing errors, keep scanning
+        }
+      }
       node = walker.nextNode();
     }
+    return true;
   }
 
   function pruneDisconnected() {
@@ -105,16 +122,48 @@ export function installFixedShift() {
     });
   }
 
+  let initialLogged = false;
+
   function flush() {
     debounce = null;
     if (disposed) return;
+    try {
+      if (typeof document !== 'undefined' && document.hidden) {
+        pendingRoots = [];
+        pendingTargets = [];
+        return;
+      }
+    } catch (e) {
+      // ignore
+    }
+    let deadline = null;
+    try {
+      deadline = performance.now() + SCAN_BUDGET_MS;
+    } catch (e) {
+      deadline = null;
+    }
     const roots = pendingRoots;
     const targets = pendingTargets;
     pendingRoots = [];
     pendingTargets = [];
-    roots.forEach(scanSubtree);
+    const remaining = [];
+    roots.forEach((root) => {
+      if (!scanSubtree(root, deadline)) remaining.push(root);
+    });
+    if (remaining.length > 0) {
+      pendingRoots.unshift(...remaining);
+      scheduleFlush();
+    }
     targets.forEach(evaluate);
     pruneDisconnected();
+    if (!initialLogged && pendingRoots.length === 0 && pendingTargets.length === 0) {
+      initialLogged = true;
+      try {
+        console.log(`[JiraTack] fixed-shift: ${shifted.size} element(s) shifted`);
+      } catch (e) {
+        // ignore
+      }
+    }
   }
 
   function scheduleFlush() {
@@ -159,10 +208,28 @@ export function installFixedShift() {
   }
   window.addEventListener('resize', handleResize);
 
+  function handleVisibility() {
+    if (!disposed) {
+      try {
+        if (!document.hidden) fullScan();
+      } catch (e) {
+        // ignore
+      }
+    }
+  }
+  try {
+    document.addEventListener('visibilitychange', handleVisibility);
+  } catch (e) {
+    // ignore
+  }
+
   fullScan();
 
   return {
     rescan: fullScan,
+    size() {
+      return shifted.size;
+    },
     destroy() {
       disposed = true;
       if (debounce) {
@@ -178,6 +245,11 @@ export function installFixedShift() {
         observer = null;
       }
       window.removeEventListener('resize', handleResize);
+      try {
+        document.removeEventListener('visibilitychange', handleVisibility);
+      } catch (e) {
+        // ignore
+      }
       Array.from(shifted.keys()).forEach(unshift);
       shifted.clear();
       pendingRoots = [];

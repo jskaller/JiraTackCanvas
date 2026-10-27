@@ -1344,6 +1344,14 @@ All of 6.1–6.14 pass. Commit: `feat(s6): epic panel, issue panel, field audit,
 
 - Guest on a canvas outside the grant (crafted request) → assert `INSUFFICIENT_SCOPE`; guest assigning an unlicensed user → assert `VALIDATION_ERROR`.
 
+### 7.17 Layout toggle — Actual size vs Fit page (D17)
+
+- Default mode is Actual size; toggle in the sidebar header switches to Fit page and persists across reopen.
+- Fit on a rigid-header page (Montefiore): assert the "Call us today" button is visible beside the sidebar; assert page scrolls normally.
+- Pin in Fit mode (selector + absolute), toggle to Actual size: assert pins stay on their targets; screenshot crop stays centered on the pin.
+- Narrow the window until zoom would drop below 0.5: assert automatic fallback to Actual size with a toast.
+- Close in each mode: assert exact original layout (no residual margin, zoom, translate, or style tag; `__jiratackLayoutDebug()` confirms).
+
 ### Sprint 7 exit criteria
 
 All of 7.1–7.13 pass. Commit: `feat(s7): inline edit, done animation, retirement, license, marketplace`.

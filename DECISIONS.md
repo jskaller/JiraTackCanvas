@@ -60,6 +60,13 @@ Single decision log for JiraTack. Every open and resolved decision appears exact
 **Rejected alternatives:** Migrating to static webtriggers (breaks the bookmarklet API/SDK/installer architecture and all existing bookmark URLs).
 **Applies to:** CONTRACTS §10.1.
 
+### D17 — Dual layout modes (push vs fit)
+
+**Status:** Resolved (2026-10-27)
+**Resolution:** The sidebar offers two layout modes with a header toggle (default Actual size, choice persisted in `sessionStorage`). Actual size (push) keeps 1:1 scale via the `<html>` margin + fixed-element shifter, minus the `overflow-x` rule and with an incremental-only observer. Fit page zooms `<body>` to `(viewport − 360) / viewport` (floor 0.5, else falls back to push), counter-zooms the overlay so JiraTack UI stays 1:1, and normalizes absolute pin coordinates by the zoom factor (selector pins are zoom-immune). Rationale: push preserves readability but fights rigid layouts and responsive scripts; fit shows everything without perturbing layout measurements. Chrome-capping of rigid containers was dropped in favor of fit.
+**Rejected alternatives:** Single-mode push (leaves rigid pages like the Montefiore header covered); single-mode zoom (forces small text on everyone); per-site CSS overrides (fragile, un-universal).
+**Applies to:** TEST_PLAN §7.17.
+
 ### D13 — SDK version source
 
 **Status:** Resolved (2026-10-23)

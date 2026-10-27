@@ -127,6 +127,21 @@ export function renderSidebar(container, options) {
   const isUniversal = Boolean(options.canvasSelector);
   const isGuest = Boolean(options.guestSelector);
 
+  function makeModeToggle() {
+    const inFit = options.layoutMode === 'fit';
+    const button = make('button', 'jiratack-mode-toggle', inFit ? 'Actual size' : 'Fit page');
+    button.type = 'button';
+    button.title = inFit
+      ? 'Show the page at actual size (sidebar covers content)'
+      : 'Shrink the page to fit beside the sidebar';
+    button.addEventListener('click', () => {
+      if (options.onLayoutModeChange) {
+        options.onLayoutModeChange(inFit ? 'push' : 'fit');
+      }
+    });
+    return button;
+  }
+
   if (isGuest) {
     const wrap = make('div', 'jiratack-guest-canvas');
     wrap.appendChild(make('span', 'jiratack-guest-canvas-label', 'Canvas'));
@@ -147,6 +162,7 @@ export function renderSidebar(container, options) {
     const badges = make('div', 'jiratack-badges');
     badges.appendChild(make('span', 'jiratack-badge', 'Guest'));
     header.appendChild(badges);
+    header.appendChild(makeModeToggle());
     header.appendChild(makeCloseButton());
 
     if (selectorContainer) renderFilterToggle(selectorContainer);
@@ -175,6 +191,7 @@ export function renderSidebar(container, options) {
       badges.appendChild(make('span', 'jiratack-badge jiratack-badge-view', 'View only'));
     }
     if (badges.childNodes.length > 0) header.appendChild(badges);
+    header.appendChild(makeModeToggle());
     header.appendChild(makeCloseButton());
 
     if (!hasSelectedCanvas) {
@@ -231,7 +248,9 @@ export function renderSidebar(container, options) {
       );
     }
     if (badges.childNodes.length > 0) header.appendChild(badges);
+    header.appendChild(makeModeToggle());
     header.appendChild(makeCloseButton());
+    if (selectorContainer) renderFilterToggle(selectorContainer);
     if (selectorContainer) renderFilterToggle(selectorContainer);
   }
 

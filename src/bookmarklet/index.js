@@ -7,6 +7,7 @@ import { installPinMode } from './pinMode.js';
 import { captureScreenshot } from './screenshot.js';
 import { renderTicketForm } from './form.js';
 import { installFixedShift } from './fixedShift.js';
+import { installFitZoom } from './fitZoom.js';
 import { playDoneAnimation } from './done.js';
 import { installConsoleProxy, restoreConsoleProxy, clearConsoleBuffer } from './consoleProxy.js';
 import { normalizeUrl, stripDeepLinkParams } from '../shared/urlNormalize.js';
@@ -16,6 +17,40 @@ const LOG_PREFIX = '[JiraTack]';
 const SIDEBAR_WIDTH_PX = 360;
 const LAYOUT_FIX_STYLE_ID = 'jiratack-layout-fix';
 let current = null;
+let debugConfig = null;
+
+if (typeof window !== 'undefined' && !window.__jiratackLayoutDebug) {
+  window.__jiratackLayoutDebug = () => {
+    let overlayZoom = null;
+    try {
+      const overlay = document.getElementById('jiratack-overlay');
+      overlayZoom = overlay ? (overlay.style.zoom || '(none)') : '(no overlay)';
+    } catch (e) {
+      overlayZoom = '(error)';
+    }
+    return {
+      sdkVersion: debugConfig ? debugConfig.sdkVersion || '(unknown)' : '(not initialized)',
+      mode: current ? current.layoutMode || 'push' : '(closed)',
+      zoom: current && current.fitZoom ? current.fitZoom.zoom : 1,
+      fixedShifted: current && current.fixedShift ? current.fixedShift.size() : 0,
+      htmlMarginRight: (() => {
+        try {
+          return document.documentElement.style.marginRight || '(none)';
+        } catch (e) {
+          return '(error)';
+        }
+      })(),
+      bodyZoom: (() => {
+        try {
+          return document.body ? (document.body.style.zoom || '(none)') : '(no body)';
+        } catch (e) {
+          return '(error)';
+        }
+      })(),
+      overlayZoom,
+    };
+  };
+}
 
 let savedHtmlMarginRight = null;
 let savedHtmlTransition = null;
@@ -70,7 +105,7 @@ function restorePushLayout() {
 }
 
 function buildLayoutFixCss() {
-  return `html{margin-right:${SIDEBAR_WIDTH_PX}px !important;overflow-x:hidden !important;}`;
+  return `html{margin-right:${SIDEBAR_WIDTH_PX}px !important;}`;
 }
 
 function injectLayoutFix() {
@@ -92,6 +127,119 @@ function removeLayoutFix() {
   } catch (e) {
     // ignore
   }
+}
+
+const LAYOUT_MODE_KEY = 'jiratack_layout_mode';
+const MIN_FIT_ZOOM = 0.5;
+
+function getStoredLayoutMode() {
+  try {
+    return window.sessionStorage.getItem(LAYOUT_MODE_KEY) === 'fit' ? 'fit' : 'push';
+  } catch (e) {
+    return 'push';
+  }
+}
+
+function setStoredLayoutMode(mode) {
+  try {
+    window.sessionStorage.setItem(LAYOUT_MODE_KEY, mode);
+  } catch (e) {
+    // ignore
+  }
+}
+
+function getFitZoom() {
+  if (!current || !current.fitZoom) return 1;
+  const zoom = current.fitZoom.zoom;
+  return typeof zoom === 'number' && Number.isFinite(zoom) && zoom > 0 ? zoom : 1;
+}
+
+function setOverlayZoom(zoom) {
+  try {
+    const overlayEl = current && current.overlay && current.overlay.overlayEl
+      ? current.overlay.overlayEl
+      : document.getElementById('jiratack-overlay');
+    if (overlayEl) overlayEl.style.zoom = zoom === 1 ? '' : String(zoom);
+  } catch (e) {
+    // ignore
+  }
+}
+
+function teardownLayout() {
+  if (current && current.fitZoom) {
+    try {
+      current.fitZoom.destroy();
+    } catch (e) {
+      // ignore
+    }
+    current.fitZoom = null;
+  }
+  if (current && current.fixedShift) {
+    try {
+      current.fixedShift.destroy();
+    } catch (e) {
+      // ignore
+    }
+    current.fixedShift = null;
+  }
+  removeLayoutFix();
+  restorePushLayout();
+  setOverlayZoom(1);
+}
+
+function applyLayoutMode(mode) {
+  if (!current) return 'push';
+  teardownLayout();
+  let effective = mode === 'fit' ? 'fit' : 'push';
+  if (effective === 'fit') {
+    let installed = null;
+    try {
+      installed = installFitZoom({
+        sidebarWidth: SIDEBAR_WIDTH_PX,
+        minZoom: MIN_FIT_ZOOM,
+        onBelowFloor: () => {
+          if (current && current.layoutMode === 'fit') {
+            applyLayoutMode('push');
+            setStoredLayoutMode('push');
+            renderPinsAndSidebar();
+            showToast('Window too narrow — using Actual size.');
+          }
+        },
+        onZoomChange: () => {
+          if (current && current.layoutMode === 'fit') {
+            setOverlayZoom(1 / getFitZoom());
+            renderPinsAndSidebar();
+          }
+        },
+      });
+    } catch (e) {
+      installed = null;
+    }
+    if (!installed) {
+      effective = 'push';
+    } else {
+      current.fitZoom = installed;
+      setOverlayZoom(1 / installed.zoom);
+    }
+  }
+  if (effective === 'push') {
+    applyPushLayout();
+    injectLayoutFix();
+    try {
+      current.fixedShift = installFixedShift();
+    } catch (e) {
+      current.fixedShift = null;
+    }
+  }
+  current.layoutMode = effective;
+  return effective;
+}
+
+function handleLayoutModeChange(next) {
+  if (!current || next === current.layoutMode) return;
+  applyLayoutMode(next);
+  setStoredLayoutMode(current.layoutMode);
+  renderPinsAndSidebar();
 }
 
 function getPageUrl() {
@@ -296,6 +444,7 @@ function renderPinsAndSidebar() {
 
   current.pinsController = renderPins(overlay.pinsEl, current.pins, {
     pageUrl,
+    zoom: getFitZoom(),
     onSelect: (pin) => select(pin.key),
   });
 
@@ -337,6 +486,8 @@ function renderPinsAndSidebar() {
     onToast: showToast,
     onDone: handleDone,
     onEditStart: handleEditStart,
+    layoutMode: current.layoutMode || 'push',
+    onLayoutModeChange: handleLayoutModeChange,
     canvasSelector,
     guestSelector,
     emptyMessage: universal && !hasCanvas ? 'Select a canvas to start.' : undefined,
@@ -352,6 +503,7 @@ function renderPinsAndSidebar() {
     current.pinModeController = installPinMode({
       header: overlay.headerEl,
       session,
+      getZoom: () => getFitZoom(),
       onCapture: handleCapture,
     });
   }
@@ -463,7 +615,7 @@ async function handleCapture(capture) {
   const activeAtStart = current.canvasName;
 
   clearPendingPin();
-  current.pendingPin = createPendingPin(overlay.overlayEl, capture);
+  current.pendingPin = createPendingPin(overlay.overlayEl, capture, getFitZoom());
 
   const screenshotDataUrl = await captureScreenshot(capture.clientX, capture.clientY);
   if (screenshotDataUrl) {
@@ -534,16 +686,7 @@ async function handleCapture(capture) {
 }
 
 function teardown(clearStoredSession) {
-  if (current && current.fixedShift) {
-    try {
-      current.fixedShift.destroy();
-    } catch (e) {
-      // ignore
-    }
-    current.fixedShift = null;
-  }
-  removeLayoutFix();
-  restorePushLayout();
+  teardownLayout();
   cancelHydration();
   clearPendingPin();
   if (current) {
@@ -627,8 +770,8 @@ async function init(config) {
     const isLauncher = config.canvasId === 'universal';
     overlay = createOverlay();
     removeBootstrapLoading();
-    applyPushLayout();
-    injectLayoutFix();
+    debugConfig = config;
+    console.log(`${LOG_PREFIX} SDK ${config.sdkVersion || 'unknown'} ready`);
 
     current = {
       config,
@@ -647,15 +790,14 @@ async function init(config) {
       pinModeController: null,
       formController: null,
       fixedShift: null,
+      fitZoom: null,
+      layoutMode: null,
       hydrationKeys: new Set(),
       hydrationToken: 0,
       hydrationRunning: false,
     };
-    try {
-      current.fixedShift = installFixedShift();
-    } catch (e) {
-      current.fixedShift = null;
-    }
+    current.layoutMode = applyLayoutMode(getStoredLayoutMode());
+    setStoredLayoutMode(current.layoutMode);
     renderPinsAndSidebar();
 
     let session = await exchangeSession(config);
