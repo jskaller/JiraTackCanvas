@@ -156,7 +156,7 @@ export async function createIssue(payload, claims) {
 
   const config = await getInstallationConfig();
   const fieldRegistry = config.fieldRegistry || {};
-  if (!fieldRegistry.canvasField || !fieldRegistry.urlField || !fieldRegistry.pinField) {
+  if (!fieldRegistry.canvasField || !fieldRegistry.pinField) {
     return errorResult('INTERNAL', 'Custom fields are not provisioned.');
   }
 
@@ -179,9 +179,11 @@ export async function createIssue(payload, claims) {
     reporter: { accountId: claims.sub },
     labels: ['jiratack'],
     [fieldRegistry.canvasField]: canvasName,
-    [fieldRegistry.urlField]: normalizedUrl,
     [fieldRegistry.pinField]: pinPosition,
   };
+  if (fieldRegistry.urlField) {
+    fields[fieldRegistry.urlField] = normalizedUrl;
+  }
 
   if (fieldRegistry.selectorField && typeof selector === 'string' && selector.length > 0) {
     fields[fieldRegistry.selectorField] = selector;

@@ -38,6 +38,7 @@ export function buildBookmarklet(data) {
     canvasId,
     canvasName,
     sdkVersion: data.sdkVersion,
+    fieldRegistry: data.fieldRegistry || null,
   };
   const code = `(function(){var c=${JSON.stringify(config)};if(window.__jiratackActiveCanvas===c.canvasId){window.__jiratackClose();return;}var s=document.createElement('script');s.src=c.sdkUrl+'?v='+c.sdkVersion;s.onload=function(){window.__jiratackInit(c);};document.head.appendChild(s);})();`;
   return `javascript:${code}`;

@@ -153,6 +153,7 @@ export async function generateCanvasToken(context, payload) {
       canvasName,
       scope,
       permittedProjects,
+      fieldRegistry: config.fieldRegistry || {},
     },
   };
 }
@@ -517,6 +518,7 @@ export async function generateUserToken(context) {
       apiUrl,
       sdkUrl,
       sdkVersion: SDK_VERSION,
+      fieldRegistry: config.fieldRegistry || {},
     },
   };
 }
