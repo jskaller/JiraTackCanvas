@@ -629,7 +629,6 @@ async function init(config) {
     removeBootstrapLoading();
     applyPushLayout();
     injectLayoutFix();
-    current.fixedShift = installFixedShift();
 
     current = {
       config,
@@ -652,6 +651,11 @@ async function init(config) {
       hydrationToken: 0,
       hydrationRunning: false,
     };
+    try {
+      current.fixedShift = installFixedShift();
+    } catch (e) {
+      current.fixedShift = null;
+    }
     renderPinsAndSidebar();
 
     let session = await exchangeSession(config);
