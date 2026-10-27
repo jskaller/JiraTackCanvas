@@ -215,10 +215,12 @@ export function renderTicketForm(container, options) {
 
   let issueTypesRequestId = 0;
 
-  async function loadIssueTypes(projectKey) {
+  async function loadIssueTypes(projectKey, options = {}) {
+    const silent = Boolean(options.silent);
     issueTypesRequestId += 1;
     const requestId = issueTypesRequestId;
 
+    if (!silent) clearError();
     const normalizedProject = String(projectKey || '').trim().toUpperCase();
 
     issueTypeSelect.innerHTML = '';
@@ -260,11 +262,15 @@ export function renderTicketForm(container, options) {
       if (requestId !== issueTypesRequestId) return;
       const message = (e && e.message) || 'Failed to load issue types.';
       issueTypeSelect.innerHTML = '';
-      const failed = el('option', null, message);
+      const failed = el('option', null, silent ? 'Select a project first' : message);
       failed.value = '';
       issueTypeSelect.appendChild(failed);
       issueTypeSelect.disabled = true;
-      showError(message);
+      if (silent) {
+        clearError();
+      } else {
+        showError(message);
+      }
     }
   }
 
@@ -368,26 +374,13 @@ export function renderTicketForm(container, options) {
   if (projectSelect) {
     projectSelect.addEventListener('change', onProjectChanged);
   } else if (projectInput) {
-    let projectDebounce = null;
-    projectInput.addEventListener('input', () => {
-      if (projectDebounce) window.clearTimeout(projectDebounce);
-      projectDebounce = window.setTimeout(() => {
-        projectDebounce = null;
-        loadIssueTypes(getProjectKey());
-      }, 400);
-    });
-    projectInput.addEventListener('blur', () => {
-      if (projectDebounce) {
-        window.clearTimeout(projectDebounce);
-        projectDebounce = null;
-      }
-      onProjectChanged();
-    });
+    projectInput.addEventListener('blur', onProjectChanged);
   }
 
+  clearError();
   const initialProject = getProjectKey();
   if (initialProject) {
-    loadIssueTypes(initialProject);
+    loadIssueTypes(initialProject, { silent: true });
   }
 
   async function handleSubmit(event) {
