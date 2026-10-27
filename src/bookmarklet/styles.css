@@ -624,3 +624,125 @@ body.jiratack-pin-mode * {
 .jiratack-switch-canvas:hover {
   background: #f4f5f7;
 }
+
+.jiratack-sidebar-header {
+  position: relative;
+  padding-right: 44px;
+}
+
+.jiratack-close {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: 1px solid #dfe1e6;
+  border-radius: 3px;
+  background: #ffffff;
+  color: #42526e;
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.jiratack-close:hover {
+  background: #ffebe6;
+  color: #bf2600;
+  border-color: #bf2600;
+}
+
+.jiratack-loading {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 14px 8px;
+  color: #5e6c84;
+  font-size: 12px;
+}
+
+.jiratack-spinner {
+  width: 16px;
+  height: 16px;
+  border: 2px solid #dfe1e6;
+  border-top-color: #0052cc;
+  border-radius: 50%;
+  animation: jiratack-spin 0.8s linear infinite;
+}
+
+@keyframes jiratack-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.jiratack-filter-toggle {
+  display: flex;
+  gap: 0;
+  padding: 0 16px 8px;
+}
+
+.jiratack-filter-toggle button {
+  flex: 1;
+  padding: 5px 8px;
+  border: 1px solid #dfe1e6;
+  background: #ffffff;
+  color: #42526e;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.jiratack-filter-toggle button:first-child {
+  border-radius: 3px 0 0 3px;
+}
+
+.jiratack-filter-toggle button:last-child {
+  border-left: none;
+  border-radius: 0 3px 3px 0;
+}
+
+.jiratack-filter-toggle button.jiratack-filter-active {
+  background: #0052cc;
+  border-color: #0052cc;
+  color: #ffffff;
+}
+
+.jiratack-ticket-key {
+  display: inline-block;
+  color: #5e6c84;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.jiratack-ticket-key:hover {
+  color: #0052cc;
+  text-decoration: underline;
+}
+
+.jiratack-url-group {
+  margin-bottom: 10px;
+}
+
+.jiratack-url-group-header {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 6px 8px;
+  border: 1px solid #dfe1e6;
+  border-radius: 3px;
+  background: #f4f5f7;
+  color: #172b4d;
+  font-size: 11px;
+  font-weight: 600;
+  text-align: left;
+  cursor: pointer;
+  word-break: break-all;
+}
+
+.jiratack-url-group-header:hover {
+  background: #deebff;
+}
+
+.jiratack-url-group-cards {
+  padding-top: 8px;
+}

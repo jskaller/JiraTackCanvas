@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { router } from '@forge/bridge';
-import { aggregate, generateUserToken, buildJqlUrl, deleteCanvas } from './api';
+import { aggregate, generateUserToken, buildJqlUrl, deleteCanvas, archiveCanvas } from './api';
 import CanvasTable from './components/CanvasTable';
 import BookmarkletModal from './components/BookmarkletModal';
 import RecoveryPanel from './components/RecoveryPanel';
@@ -19,6 +19,7 @@ export default function App() {
   const [universalLoading, setUniversalLoading] = useState(false);
   const [createOpen, setCreateOpen] = useState(false);
   const [confirm, setConfirm] = useState(null);
+  const [viewArchived, setViewArchived] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -81,29 +82,46 @@ export default function App() {
     router.open(url);
   }
 
+  function handleArchiveCanvas(canvasName) {
+    setConfirm({
+      kind: 'archive',
+      canvasName,
+      title: 'Archive canvas',
+      message:
+        'The canvas will be hidden from the dashboard and launcher. Jira tickets are not changed. You can permanently delete it later from the archived view.',
+      confirmLabel: 'Archive canvas',
+      destructive: false,
+    });
+  }
+
   function handleDeleteCanvas(canvasName) {
     setConfirm({
       kind: 'delete',
       canvasName,
-      title: 'Delete canvas',
+      title: 'Permanently delete canvas',
       message:
-        'This archives the canvas so it no longer appears in the dashboard or launcher. Jira tickets are NOT deleted. A canvas can only be deleted when every ticket is Done.',
-      confirmLabel: 'Delete canvas',
+        'This permanently removes the canvas from JiraTack. It is only allowed when every ticket in the canvas is Done. Jira tickets themselves are not deleted.',
+      confirmLabel: 'Permanently delete',
       destructive: true,
     });
   }
 
   async function confirmAction() {
-    if (!confirm || confirm.kind !== 'delete') return;
+    if (!confirm) return;
     const canvasName = confirm.canvasName;
+    const kind = confirm.kind;
     setConfirm(null);
     setActionError(null);
     try {
-      const result = await deleteCanvas(canvasName);
+      const result = kind === 'archive'
+        ? await archiveCanvas(canvasName)
+        : await deleteCanvas(canvasName);
       if (!result || !result.ok) {
         setActionError({
           canvasName,
-          message: (result && result.error && result.error.message) || 'Failed to delete canvas.',
+          message:
+            (result && result.error && result.error.message)
+            || (kind === 'archive' ? 'Failed to archive canvas.' : 'Failed to delete canvas.'),
         });
         return;
       }
@@ -113,7 +131,11 @@ export default function App() {
     }
   }
 
-  const filteredCanvases = canvases.filter((canvas) =>
+  const visibleCanvases = canvases.filter((canvas) =>
+    viewArchived ? canvas.archived === true : canvas.archived !== true,
+  );
+
+  const filteredCanvases = visibleCanvases.filter((canvas) =>
     canvas.canvasName.toLowerCase().includes(search.trim().toLowerCase()),
   );
 
@@ -144,8 +166,17 @@ export default function App() {
           value={search}
           onChange={(event) => setSearch(event.target.value)}
         />
-        <button type="button" className="jt-button jt-button-primary" onClick={() => setCreateOpen(true)}>
-          Create New Canvas
+        {!viewArchived && (
+          <button type="button" className="jt-button jt-button-primary" onClick={() => setCreateOpen(true)}>
+            Create New Canvas
+          </button>
+        )}
+        <button
+          type="button"
+          className="jt-button"
+          onClick={() => setViewArchived((current) => !current)}
+        >
+          {viewArchived ? 'View Active Canvases' : 'View Archived Canvases'}
         </button>
       </div>
 
@@ -159,13 +190,17 @@ export default function App() {
       {error && <div className="jt-banner jt-banner-error">{error}</div>}
 
       <section className="jt-section">
-        <h2>Canvases</h2>
+        <h2>{viewArchived ? 'Archived Canvases' : 'Canvases'}</h2>
         {loading ? (
           <div className="jt-empty">Loading canvases…</div>
-        ) : canvases.length === 0 ? (
+        ) : visibleCanvases.length === 0 ? (
           <div className="jt-empty">
-            <div>No canvases yet. Use Create New Canvas to make your first one.</div>
-            {isAdmin && (
+            <div>
+              {viewArchived
+                ? 'No archived canvases.'
+                : 'No canvases yet. Use Create New Canvas to make your first one.'}
+            </div>
+            {!viewArchived && isAdmin && (
               <div className="jt-empty-hint">
                 If older JiraTack tickets are missing their canvas fields, use Maintenance below to recover
                 them.
@@ -177,6 +212,8 @@ export default function App() {
             canvases={filteredCanvases}
             onOpenJira={handleOpenJira}
             onDelete={handleDeleteCanvas}
+            onArchive={handleArchiveCanvas}
+            archivedView={viewArchived}
           />
         )}
       </section>

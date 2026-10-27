@@ -1,4 +1,4 @@
-import { getTransitions, getPriorities, updateIssue } from './api.js';
+import { getTransitions, getPriorities, updateIssue, searchUsers } from './api.js';
 
 function el(tag, className, text) {
   const node = document.createElement(tag);
@@ -23,16 +23,22 @@ export function renderInlineEdit(container, options) {
 
   const statusSelect = el('select', 'jiratack-inline-select');
   const prioritySelect = el('select', 'jiratack-inline-select');
+
+  const typeahead = el('div', 'jiratack-typeahead');
   const assigneeInput = el('input', 'jiratack-inline-input');
   assigneeInput.type = 'text';
-  assigneeInput.placeholder = 'accountId';
+  assigneeInput.placeholder = 'Search by name';
+  const typeaheadResults = el('div', 'jiratack-typeahead-results');
+  typeaheadResults.style.display = 'none';
+  typeahead.appendChild(assigneeInput);
+  typeahead.appendChild(typeaheadResults);
 
   statusSelect.disabled = true;
   prioritySelect.disabled = true;
 
   root.appendChild(field('Status', statusSelect));
   root.appendChild(field('Priority', prioritySelect));
-  root.appendChild(field('Assignee', assigneeInput));
+  root.appendChild(field('Assignee', typeahead));
 
   const statusNote = el('div', 'jiratack-inline-note');
   root.appendChild(statusNote);
@@ -103,7 +109,9 @@ export function renderInlineEdit(container, options) {
       prioritySelect.value = '';
     }
 
-    assigneeInput.value = pin.assignee && pin.assignee.accountId ? pin.assignee.accountId : '';
+    assigneeInput.value = pin.assignee
+      ? (pin.assignee.displayName || pin.assignee.accountId || '')
+      : '';
   }
 
   statusSelect.addEventListener('change', async () => {
@@ -154,29 +162,85 @@ export function renderInlineEdit(container, options) {
     );
   });
 
-  let assigneeInFlight = false;
-  async function commitAssignee() {
-    if (assigneeInFlight) return;
-    const value = assigneeInput.value.trim();
-    const previous = pin.assignee ? { ...pin.assignee } : null;
-    const currentAccount = previous && previous.accountId ? previous.accountId : '';
-    if (value === currentAccount) return;
+  let assigneeAccountId = pin.assignee && pin.assignee.accountId ? pin.assignee.accountId : null;
+  let assigneeDebounce = null;
+  let assigneeRequestId = 0;
 
-    assigneeInFlight = true;
-    await applyUpdate(
-      { assigneeAccountId: value || null },
-      () => {
-        pin.assignee = value ? { accountId: value, displayName: value, avatarUrl: null } : null;
-      },
-      () => {
-        pin.assignee = previous;
-      },
-    );
-    assigneeInFlight = false;
+  function hideTypeahead() {
+    typeaheadResults.innerHTML = '';
+    typeaheadResults.style.display = 'none';
   }
 
-  assigneeInput.addEventListener('change', commitAssignee);
-  assigneeInput.addEventListener('blur', commitAssignee);
+  function renderTypeahead(users) {
+    typeaheadResults.innerHTML = '';
+    if (!users || users.length === 0) {
+      hideTypeahead();
+      return;
+    }
+    typeaheadResults.style.display = 'block';
+    users.forEach((user) => {
+      const item = el('div', 'jiratack-typeahead-item', user.displayName || user.accountId);
+      item.addEventListener('mousedown', async (event) => {
+        event.preventDefault();
+        const previous = pin.assignee ? { ...pin.assignee } : null;
+        const next = {
+          accountId: user.accountId,
+          displayName: user.displayName || user.accountId,
+          avatarUrl: user.avatarUrl || null,
+        };
+        assigneeAccountId = user.accountId;
+        assigneeInput.value = next.displayName;
+        hideTypeahead();
+
+        await applyUpdate(
+          { assigneeAccountId: user.accountId },
+          () => {
+            pin.assignee = next;
+          },
+          () => {
+            pin.assignee = previous;
+            assigneeAccountId = previous && previous.accountId ? previous.accountId : null;
+            assigneeInput.value = previous ? (previous.displayName || previous.accountId || '') : '';
+          },
+        );
+      });
+      typeaheadResults.appendChild(item);
+    });
+  }
+
+  assigneeInput.addEventListener('input', () => {
+    assigneeAccountId = null;
+    if (assigneeDebounce) {
+      window.clearTimeout(assigneeDebounce);
+      assigneeDebounce = null;
+    }
+
+    const query = assigneeInput.value.trim();
+    if (query.length === 0 || !pin.projectKey) {
+      hideTypeahead();
+      return;
+    }
+
+    assigneeDebounce = window.setTimeout(async () => {
+      assigneeDebounce = null;
+      assigneeRequestId += 1;
+      const requestId = assigneeRequestId;
+      try {
+        const result = await searchUsers(config, session, pin.projectKey, query);
+        if (requestId !== assigneeRequestId || disposed) return;
+        renderTypeahead((result && result.users) || []);
+      } catch (e) {
+        hideTypeahead();
+      }
+    }, 300);
+  });
+
+  assigneeInput.addEventListener('blur', () => {
+    window.setTimeout(hideTypeahead, 150);
+    if (!assigneeAccountId && pin.assignee) {
+      assigneeInput.value = pin.assignee.displayName || pin.assignee.accountId || '';
+    }
+  });
 
   loadOptions();
 

@@ -1,6 +1,6 @@
 import html2canvas from 'html2canvas';
 
-const CROP_SIZE = 400;
+const CROP_SIZE = 800;
 const WEBP_QUALITY = 0.85;
 
 export async function captureScreenshot(clientX, clientY) {

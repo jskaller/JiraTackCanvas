@@ -51,6 +51,7 @@ function mapPin(issue, fieldRegistry, marker) {
     selector: storedSelector || (marker && marker.selector) || null,
     issueType: fields.issuetype ? { name: fields.issuetype.name } : null,
     createdAt: fields.created || null,
+    url: (fields[fieldRegistry.urlField] || (marker && marker.url) || null),
   };
 }
 
@@ -71,6 +72,7 @@ export async function getPinsForCanvasAndUrl(payload, claims) {
   }
 
   const normalizedUrl = normalizeUrl(url);
+  const wantAll = Boolean(payload && payload.all);
   const retirementDays = await getEffectiveRetirementDays(canvasName, config);
   const retirementCutoff = retirementDays > 0 ? Date.now() - retirementDays * 24 * 60 * 60 * 1000 : null;
 
@@ -125,8 +127,10 @@ export async function getPinsForCanvasAndUrl(payload, claims) {
 
         const storedUrl = issueFields[fieldRegistry.urlField];
         const issueUrl = storedUrl || (marker && marker.url) || null;
-        if (!issueUrl) continue;
-        if (normalizeUrl(issueUrl) !== normalizedUrl) continue;
+        if (!wantAll) {
+          if (!issueUrl) continue;
+          if (normalizeUrl(issueUrl) !== normalizedUrl) continue;
+        }
 
         const category = issueFields.status && issueFields.status.statusCategory
           ? issueFields.status.statusCategory.key

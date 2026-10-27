@@ -20,6 +20,10 @@ export function deleteCanvas(canvasName) {
   return invoke('deleteCanvas', { canvasName });
 }
 
+export function archiveCanvas(canvasName) {
+  return invoke('archiveCanvas', { canvasName });
+}
+
 export function recoverPins(dryRun) {
   return invoke('recoverPinsFromDescriptions', { dryRun });
 }

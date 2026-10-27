@@ -33,16 +33,26 @@ export async function updateIssue(payload) {
   }
 
   if (Object.keys(updateFields).length > 0) {
-    const res = await api.asApp().requestJira(route`/rest/api/3/issue/${issueKey}`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ fields: updateFields }),
-    });
+    const res = await api.asApp().requestJira(
+      route`/rest/api/3/issue/${issueKey}?overrideScreenSecurity=true&overrideEditableFlag=true`,
+      {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ fields: updateFields }),
+      },
+    );
     if (!res.ok) {
-      if (res.status === 400) {
-        return errorResult('VALIDATION_ERROR', 'Jira rejected the issue update.');
+      let detail = '';
+      try {
+        detail = await res.text();
+      } catch (e) {
+        detail = '';
       }
-      return errorResult('INTERNAL', `Jira issue update failed with HTTP ${res.status}.`);
+      console.error('[JiraTack] updateIssue failed:', updateFields, res.status, detail);
+      if (res.status === 400) {
+        return errorResult('VALIDATION_ERROR', 'Jira rejected the issue update.', { raw: detail.slice(0, 500) });
+      }
+      return errorResult('INTERNAL', `Jira issue update failed with HTTP ${res.status}.`, { raw: detail.slice(0, 500) });
     }
   }
 

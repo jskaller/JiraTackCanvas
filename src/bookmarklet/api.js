@@ -29,12 +29,12 @@ async function postAction(config, session, action, payload, authenticated) {
   return body.data;
 }
 
-export async function getPins(config, session, canvasId, url) {
+export async function getPins(config, session, canvasId, url, all = false) {
   return postAction(
     config,
     session,
     'getPinsForCanvasAndUrl',
-    { canvasId, url: normalizeUrl(url) },
+    { canvasId, url: normalizeUrl(url), all: Boolean(all) },
     true,
   );
 }

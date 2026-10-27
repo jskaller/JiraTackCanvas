@@ -38,7 +38,7 @@ function Participants({ participants }) {
   );
 }
 
-export default function CanvasTable({ canvases, onOpenJira, onDelete }) {
+export default function CanvasTable({ canvases, onOpenJira, onDelete, onArchive, archivedView }) {
   const [expanded, setExpanded] = useState(() => new Set());
   const [copiedUrl, setCopiedUrl] = useState(null);
 
@@ -135,13 +135,23 @@ export default function CanvasTable({ canvases, onOpenJira, onDelete }) {
                   <button type="button" className="jt-button" onClick={() => onOpenJira(canvas.canvasName)}>
                     Review All Tickets
                   </button>
-                  <button
-                    type="button"
-                    className="jt-button jt-button-danger"
-                    onClick={() => onDelete(canvas.canvasName)}
-                  >
-                    Delete Canvas
-                  </button>
+                  {archivedView ? (
+                    <button
+                      type="button"
+                      className="jt-button jt-button-danger"
+                      onClick={() => onDelete(canvas.canvasName)}
+                    >
+                      Permanently Delete
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      className="jt-button"
+                      onClick={() => onArchive(canvas.canvasName)}
+                    >
+                      Archive Canvas
+                    </button>
+                  )}
                 </td>
               </tr>
 

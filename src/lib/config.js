@@ -8,6 +8,7 @@ const DEFAULT_CONFIG = {
   viewPermissionMode: 'per_user_projects',
   projects: {},
   archivedCanvases: [],
+  deletedCanvases: [],
   configVersion: '',
   updatedAt: 0,
   schemaVersion: 1,

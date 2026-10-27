@@ -102,8 +102,24 @@ export function renderTicketForm(container, options) {
   descriptionInput.rows = 5;
   descriptionInput.placeholder = 'Describe the issue…';
 
+  const assigneeWrap = el('div', 'jiratack-field');
+  assigneeWrap.appendChild(el('span', 'jiratack-field-label', 'Assignee'));
+  const typeahead = el('div', 'jiratack-typeahead');
+  const assigneeInput = textInput('Search by name', '');
+  const typeaheadResults = el('div', 'jiratack-typeahead-results');
+  typeaheadResults.style.display = 'none';
+  typeahead.appendChild(assigneeInput);
+  typeahead.appendChild(typeaheadResults);
+  assigneeWrap.appendChild(typeahead);
+
+  const reporterInput = textInput('', session.displayName || 'Current user');
+  reporterInput.disabled = true;
+  reporterInput.title = 'Reporter is set from the authenticated Jira user.';
+
   form.appendChild(field('Project', projectSelect || projectInput));
   form.appendChild(field('Issue type', issueTypeSelect));
+  form.appendChild(assigneeWrap);
+  form.appendChild(field('Reporter', reporterInput));
   form.appendChild(field('Summary', summaryInput));
   form.appendChild(field('Description', descriptionInput));
 
@@ -115,17 +131,6 @@ export function renderTicketForm(container, options) {
   noPriority.value = '';
   prioritySelect.appendChild(noPriority);
   additional.appendChild(field('Priority', prioritySelect));
-
-  const assigneeWrap = el('div', 'jiratack-field');
-  assigneeWrap.appendChild(el('span', 'jiratack-field-label', 'Assignee'));
-  const typeahead = el('div', 'jiratack-typeahead');
-  const assigneeInput = textInput('Search by name', '');
-  const typeaheadResults = el('div', 'jiratack-typeahead-results');
-  typeaheadResults.style.display = 'none';
-  typeahead.appendChild(assigneeInput);
-  typeahead.appendChild(typeaheadResults);
-  assigneeWrap.appendChild(typeahead);
-  additional.appendChild(assigneeWrap);
 
   const parentInput = textInput('e.g. MM-123', '');
   additional.appendChild(field('Parent key (optional)', parentInput));
@@ -437,7 +442,16 @@ export function renderTicketForm(container, options) {
       });
 
       destroy();
-      if (onCreated) onCreated({ result, capture, summary });
+      if (onCreated) {
+        onCreated({
+          result,
+          capture,
+          summary,
+          projectKey,
+          issueTypeId,
+          priorityId: prioritySelect.value || null,
+        });
+      }
     } catch (err) {
       submitting = false;
       submitButton.disabled = false;

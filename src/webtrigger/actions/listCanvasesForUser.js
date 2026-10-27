@@ -11,6 +11,7 @@ export async function listCanvasesForUser(payload, claims) {
   const config = await getInstallationConfig();
   const fieldRegistry = config.fieldRegistry || {};
   const archived = new Set(Array.isArray(config.archivedCanvases) ? config.archivedCanvases : []);
+  const deleted = new Set(Array.isArray(config.deletedCanvases) ? config.deletedCanvases : []);
 
   if (!fieldRegistry.canvasField) {
     return { ok: true, data: { canvases: [] } };
@@ -82,7 +83,7 @@ export async function listCanvasesForUser(payload, claims) {
 
     const result = Array.from(canvases.values())
       .filter(canAccess)
-      .filter((entry) => !archived.has(entry.canvasName))
+      .filter((entry) => !archived.has(entry.canvasName) && !deleted.has(entry.canvasName))
       .map((entry) => ({
         canvasName: entry.canvasName,
         urlCount: entry.urls.size,

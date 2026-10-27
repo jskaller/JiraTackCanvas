@@ -1,4 +1,5 @@
 import { renderInlineEdit } from './inlineEdit.js';
+import { normalizeUrl } from '../shared/urlNormalize.js';
 
 const SELECTED_CLASS = 'jiratack-ticket-selected';
 
@@ -20,6 +21,21 @@ function buildIssueUrl(config, session, key) {
   return `/browse/${encodeURIComponent(key)}`;
 }
 
+function navigateToPin(pin, canvasName) {
+  if (!pin.url) return false;
+  try {
+    const target = new URL(pin.url, window.location.href);
+    target.searchParams.set('jiratack_ticket', pin.key);
+    if (canvasName) {
+      target.searchParams.set('jiratack_canvas', canvasName);
+    }
+    window.location.href = target.toString();
+    return true;
+  } catch (e) {
+    return false;
+  }
+}
+
 function addPerson(container, label, user) {
   const name = user && user.displayName ? user.displayName : '—';
   container.appendChild(make('span', 'jiratack-person', `${label}: ${name}`));
@@ -29,8 +45,27 @@ function isDone(pin) {
   return Boolean(pin && pin.status && pin.status.category === 'done');
 }
 
+function loadingNode(label) {
+  const wrap = make('div', 'jiratack-loading');
+  wrap.appendChild(make('span', 'jiratack-spinner'));
+  wrap.appendChild(make('span', null, label));
+  return wrap;
+}
+
+function makeCloseButton() {
+  const button = make('button', 'jiratack-close', '×');
+  button.type = 'button';
+  button.title = 'Close';
+  button.addEventListener('click', () => {
+    if (window.__jiratackClose) window.__jiratackClose();
+  });
+  return button;
+}
+
 export function renderSidebar(container, options) {
   const { canvasName, session, pins, config, onSelect, onToast, onDone } = options;
+  const activeFilter = options.filter || 'all';
+  const pageUrl = options.pageUrl || '';
 
   const header = container.querySelector('.jiratack-sidebar-header');
   const selectorContainer = container.querySelector('.jiratack-canvas-selector');
@@ -69,39 +104,45 @@ export function renderSidebar(container, options) {
       badges.appendChild(make('span', 'jiratack-badge jiratack-badge-view', 'View only'));
     }
     if (badges.childNodes.length > 0) header.appendChild(badges);
+    header.appendChild(makeCloseButton());
 
     if (!hasSelectedCanvas) {
-      const canvases = (options.canvasSelector && options.canvasSelector.canvases) || [];
-      if (canvases.length === 0) {
-        const error = make('div', 'jiratack-canvas-error', `No canvases found. API returned: ${canvases.length}`);
-        selectorContainer.appendChild(error);
+      if (options.loading) {
+        selectorContainer.appendChild(loadingNode('Loading canvases…'));
       } else {
-        const canvasList = make('div', 'jiratack-canvas-list');
-        canvases.forEach((canvas) => {
-          const button = make('button', 'jiratack-canvas-button', canvas.canvasName);
-          button.type = 'button';
-          button.addEventListener('click', () => {
-            if (options.canvasSelector.onChange) options.canvasSelector.onChange(canvas.canvasName);
+        const canvases = (options.canvasSelector && options.canvasSelector.canvases) || [];
+        if (canvases.length === 0) {
+          const error = make('div', 'jiratack-canvas-error', `No canvases found. API returned: ${canvases.length}`);
+          selectorContainer.appendChild(error);
+        } else {
+          const canvasList = make('div', 'jiratack-canvas-list');
+          canvases.forEach((canvas) => {
+            const button = make('button', 'jiratack-canvas-button', canvas.canvasName);
+            button.type = 'button';
+            button.addEventListener('click', () => {
+              if (options.canvasSelector.onChange) options.canvasSelector.onChange(canvas.canvasName);
+            });
+            canvasList.appendChild(button);
           });
-          canvasList.appendChild(button);
+          selectorContainer.appendChild(canvasList);
+        }
+
+        const createButton = make('button', 'jiratack-create-canvas', '+ Create new canvas…');
+        createButton.type = 'button';
+        createButton.addEventListener('click', () => {
+          if (options.canvasSelector.onCreate) options.canvasSelector.onCreate();
         });
-        selectorContainer.appendChild(canvasList);
-      }
+        selectorContainer.appendChild(createButton);
 
-      const createButton = make('button', 'jiratack-create-canvas', '+ Create new canvas…');
-      createButton.type = 'button';
-      createButton.addEventListener('click', () => {
-        if (options.canvasSelector.onCreate) options.canvasSelector.onCreate();
-      });
-      selectorContainer.appendChild(createButton);
-
-      if (options.emptyMessage) {
-        list.appendChild(make('div', 'jiratack-empty', options.emptyMessage));
-      } else {
-        list.appendChild(make('div', 'jiratack-empty', 'Select a canvas to start.'));
+        if (options.emptyMessage) {
+          list.appendChild(make('div', 'jiratack-empty', options.emptyMessage));
+        } else {
+          list.appendChild(make('div', 'jiratack-empty', 'Select a canvas to start.'));
+        }
       }
     } else {
       selectorContainer.innerHTML = '';
+      renderFilterToggle(selectorContainer);
     }
   } else {
     header.appendChild(make('div', 'jiratack-sidebar-title', canvasName || 'JiraTack'));
@@ -116,105 +157,179 @@ export function renderSidebar(container, options) {
       );
     }
     if (badges.childNodes.length > 0) header.appendChild(badges);
+    header.appendChild(makeCloseButton());
+    if (selectorContainer) renderFilterToggle(selectorContainer);
   }
+
+  function renderFilterToggle(container) {
+    container.innerHTML = '';
+    const wrap = make('div', 'jiratack-filter-toggle');
+    const allButton = make('button', activeFilter === 'all' ? 'jiratack-filter-active' : '', 'All Tickets');
+    allButton.type = 'button';
+    allButton.addEventListener('click', () => {
+      if (options.onFilterChange) options.onFilterChange('all');
+    });
+    const pageButton = make(
+      'button',
+      activeFilter === 'page' ? 'jiratack-filter-active' : '',
+      'Current Page',
+    );
+    pageButton.type = 'button';
+    pageButton.addEventListener('click', () => {
+      if (options.onFilterChange) options.onFilterChange('page');
+    });
+    wrap.appendChild(allButton);
+    wrap.appendChild(pageButton);
+    container.appendChild(wrap);
+  }
+
+  const visiblePins = activeFilter === 'page' && pageUrl
+    ? (pins || []).filter((pin) => pin.url && normalizeUrl(pin.url) === normalizeUrl(pageUrl))
+    : (pins || []);
 
   const cards = new Map();
   const controllers = [];
 
-  if (!isUniversal || canvasName) {
-    if (!pins || pins.length === 0) {
-      list.appendChild(make('div', 'jiratack-empty', options.emptyMessage || 'No pins on this page.'));
-    } else {
-      pins.forEach((pin) => {
-        const card = make('div', 'jiratack-ticket-card');
-        card.dataset.key = pin.key;
+  function buildCard(pin) {
+    const card = make('div', 'jiratack-ticket-card');
+    card.dataset.key = pin.key;
 
-        const keyEl = make('div', 'jiratack-ticket-key', pin.key);
-        const summaryEl = make('div', 'jiratack-ticket-summary', pin.summary || '');
-        const metaEl = make('div', 'jiratack-ticket-meta');
-        const peopleEl = make('div', 'jiratack-ticket-people');
-        const inlineEl = make('div', 'jiratack-inline-container');
+    const keyEl = make('a', 'jiratack-ticket-key', pin.key);
+    keyEl.href = buildIssueUrl(config, session, pin.key);
+    keyEl.target = '_blank';
+    keyEl.rel = 'noopener noreferrer';
+    keyEl.addEventListener('click', (event) => event.stopPropagation());
 
-        card.appendChild(keyEl);
-        card.appendChild(summaryEl);
-        card.appendChild(metaEl);
-        card.appendChild(peopleEl);
-        card.appendChild(inlineEl);
+    const summaryEl = make('div', 'jiratack-ticket-summary', pin.summary || '');
+    const metaEl = make('div', 'jiratack-ticket-meta');
+    const peopleEl = make('div', 'jiratack-ticket-people');
+    const inlineEl = make('div', 'jiratack-inline-container');
 
-        let expanded = false;
-        let inlineController = null;
+    card.appendChild(keyEl);
+    card.appendChild(summaryEl);
+    card.appendChild(metaEl);
+    card.appendChild(peopleEl);
+    card.appendChild(inlineEl);
 
-        function renderDetails(includeDoneState) {
-          metaEl.innerHTML = '';
-          peopleEl.innerHTML = '';
+    let expanded = false;
+    let inlineController = null;
 
-          if (pin.status && pin.status.name) {
-            metaEl.appendChild(make('span', 'jiratack-chip jiratack-status', pin.status.name));
-          }
-          if (pin.priority && pin.priority.name) {
-            metaEl.appendChild(make('span', 'jiratack-chip jiratack-priority', pin.priority.name));
-          }
-          if (pin.issueType && pin.issueType.name) {
-            metaEl.appendChild(make('span', 'jiratack-chip jiratack-issuetype', pin.issueType.name));
-          }
-          if (includeDoneState && isDone(pin)) {
-            metaEl.appendChild(make('span', 'jiratack-chip jiratack-done-badge', 'Done'));
-            card.classList.add('jiratack-ticket-done');
-          }
+    function renderDetails(includeDoneState) {
+      metaEl.innerHTML = '';
+      peopleEl.innerHTML = '';
 
-          addPerson(peopleEl, 'Assignee', pin.assignee);
-          addPerson(peopleEl, 'Reporter', pin.reporter);
-        }
+      if (pin.status && pin.status.name) {
+        metaEl.appendChild(make('span', 'jiratack-chip jiratack-status', pin.status.name));
+      }
+      if (pin.priority && pin.priority.name) {
+        metaEl.appendChild(make('span', 'jiratack-chip jiratack-priority', pin.priority.name));
+      }
+      if (pin.issueType && pin.issueType.name) {
+        metaEl.appendChild(make('span', 'jiratack-chip jiratack-issuetype', pin.issueType.name));
+      }
+      if (includeDoneState && isDone(pin)) {
+        metaEl.appendChild(make('span', 'jiratack-chip jiratack-done-badge', 'Done'));
+        card.classList.add('jiratack-ticket-done');
+      }
 
-        renderDetails(true);
+      addPerson(peopleEl, 'Assignee', pin.assignee);
+      addPerson(peopleEl, 'Reporter', pin.reporter);
+    }
 
-        function collapse() {
-          expanded = false;
-          if (inlineController) {
-            controllers.push(inlineController);
-            inlineController = null;
-          }
-          inlineEl.innerHTML = '';
-        }
+    renderDetails(true);
 
-        card.addEventListener('click', (event) => {
-          if (event.target.closest && event.target.closest('.jiratack-inline-edit')) return;
+    function collapse() {
+      expanded = false;
+      if (inlineController) {
+        controllers.push(inlineController);
+        inlineController = null;
+      }
+      inlineEl.innerHTML = '';
+    }
 
-          select(pin.key);
-          if (onSelect) onSelect(pin);
+    card.addEventListener('click', (event) => {
+      if (event.target.closest && event.target.closest('.jiratack-inline-edit')) return;
 
-          if (session && session.scope === 'view') {
-            window.open(buildIssueUrl(config, session, pin.key), '_blank', 'noopener');
-            return;
-          }
+      const pinUrl = pin.url ? normalizeUrl(pin.url) : null;
+      const currentUrl = normalizeUrl(window.location.href);
+      if (pinUrl && pinUrl !== currentUrl) {
+        if (navigateToPin(pin, canvasName)) return;
+      }
 
-          if (isDone(pin)) return;
+      select(pin.key);
+      if (onSelect) onSelect(pin);
 
-          if (expanded) {
+      if (session && session.scope === 'view') {
+        window.open(buildIssueUrl(config, session, pin.key), '_blank', 'noopener');
+        return;
+      }
+
+      if (isDone(pin)) return;
+
+      if (expanded) {
+        collapse();
+        return;
+      }
+
+      expanded = true;
+      inlineController = renderInlineEdit(inlineEl, {
+        config,
+        session,
+        pin,
+        refresh: () => renderDetails(false),
+        onToast,
+        onDone: (changedPin) => {
+          if (onDone) onDone({ pin: changedPin, cardEl: card });
+          window.setTimeout(() => {
             collapse();
-            return;
-          }
-
-          expanded = true;
-          inlineController = renderInlineEdit(inlineEl, {
-            config,
-            session,
-            pin,
-            refresh: () => renderDetails(false),
-            onToast,
-            onDone: (changedPin) => {
-              if (onDone) onDone({ pin: changedPin, cardEl: card });
-              window.setTimeout(() => {
-                collapse();
-                renderDetails(true);
-              }, 2200);
-            },
-          });
-        });
-
-        cards.set(pin.key, card);
-        list.appendChild(card);
+            renderDetails(true);
+          }, 2200);
+        },
       });
+    });
+
+    cards.set(pin.key, card);
+    return card;
+  }
+
+  const universalHasCanvas = Boolean(canvasName && canvasName !== 'JiraTack Launcher');
+  if (options.loading && (!isUniversal || universalHasCanvas)) {
+    list.appendChild(loadingNode('Loading pins…'));
+  } else if (!isUniversal || universalHasCanvas) {
+    if (!visiblePins || visiblePins.length === 0) {
+      list.appendChild(make('div', 'jiratack-empty', options.emptyMessage || 'No pins on this page.'));
+    } else if (activeFilter === 'all') {
+      const groups = new Map();
+      visiblePins.forEach((pin) => {
+        const key = pin.url ? normalizeUrl(pin.url) : '__none__';
+        if (!groups.has(key)) {
+          groups.set(key, { url: pin.url || 'No URL', pins: [] });
+        }
+        groups.get(key).pins.push(pin);
+      });
+
+      Array.from(groups.values())
+        .sort((a, b) => a.url.localeCompare(b.url))
+        .forEach((group) => {
+          const groupEl = make('div', 'jiratack-url-group');
+          const header = make(
+            'button',
+            'jiratack-url-group-header',
+            `${group.url} (${group.pins.length})`,
+          );
+          header.type = 'button';
+          const cardsWrap = make('div', 'jiratack-url-group-cards');
+          group.pins.forEach((pin) => cardsWrap.appendChild(buildCard(pin)));
+          header.addEventListener('click', () => {
+            const collapsed = groupEl.classList.toggle('jiratack-url-group-collapsed');
+            cardsWrap.style.display = collapsed ? 'none' : '';
+          });
+          groupEl.appendChild(header);
+          groupEl.appendChild(cardsWrap);
+          list.appendChild(groupEl);
+        });
+    } else {
+      visiblePins.forEach((pin) => list.appendChild(buildCard(pin)));
     }
   }
 

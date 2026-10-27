@@ -45,7 +45,11 @@ export async function exchangeSession(config, options = {}) {
   const canvasId = config.canvasId;
   if (!options.force) {
     const cached = readSession(canvasId);
-    if (cached && cached.expiresAt > Date.now()) {
+    if (
+      cached
+      && cached.expiresAt > Date.now()
+      && Object.prototype.hasOwnProperty.call(cached, 'displayName')
+    ) {
       return cached;
     }
   }
@@ -79,6 +83,7 @@ export async function exchangeSession(config, options = {}) {
     scope: data.scope,
     permittedProjects: data.permittedProjects,
     jiraBaseUrl: data.jiraBaseUrl || null,
+    displayName: data.displayName || null,
   };
   writeSession(canvasId, session);
   return session;

@@ -46,6 +46,45 @@ function handleDone({ pin, cardEl }) {
   playDoneAnimation({ pinEl, cardEl });
 }
 
+function handleFilterChange(filter) {
+  if (!current) return;
+  current.filter = filter;
+  renderPinsAndSidebar();
+}
+
+function stripDeepLinkParams() {
+  try {
+    const url = new URL(window.location.href);
+    if (!url.searchParams.has('jiratack_ticket') && !url.searchParams.has('jiratack_canvas')) return;
+    url.searchParams.delete('jiratack_ticket');
+    url.searchParams.delete('jiratack_canvas');
+    window.history.replaceState({}, '', url.toString());
+  } catch (e) {
+    // ignore
+  }
+}
+
+function selectAndScroll(key) {
+  if (!current) return;
+  if (current.pinsController) current.pinsController.select(key);
+  if (current.sidebarController) current.sidebarController.select(key);
+
+  try {
+    const escaped = String(key).replace(/"/g, '\\"');
+    const card = document.querySelector(
+      `#jiratack-sidebar .jiratack-ticket-card[data-key="${escaped}"]`,
+    );
+    if (card) card.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+  } catch (e) {
+    // ignore
+  }
+
+  const pinEl = current.pinsController && current.pinsController.elementsByKey
+    ? current.pinsController.elementsByKey.get(key)
+    : null;
+  if (pinEl) pinEl.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+}
+
 function renderPinsAndSidebar() {
   if (!current) return;
   const { overlay, config, session } = current;
@@ -61,7 +100,12 @@ function renderPinsAndSidebar() {
     current.pinsController = null;
   }
 
-  current.pinsController = renderPins(overlay.pinsEl, current.pins, {
+  const pageUrl = normalizeUrl(window.location.href);
+  const pagePins = current.pins.filter(
+    (pin) => pin.url && normalizeUrl(pin.url) === pageUrl,
+  );
+
+  current.pinsController = renderPins(overlay.pinsEl, pagePins, {
     onSelect: (pin) => select(pin.key),
   });
 
@@ -91,9 +135,13 @@ function renderPinsAndSidebar() {
     onDone: handleDone,
     canvasSelector,
     emptyMessage: universal && !hasCanvas ? 'Select a canvas to start.' : undefined,
+    loading: Boolean(current.loading),
+    pageUrl,
+    filter: current.filter || 'all',
+    onFilterChange: handleFilterChange,
   });
 
-  if (!universal || hasCanvas) {
+  if (!current.loading && (!universal || hasCanvas)) {
     current.pinModeController = installPinMode({
       header: overlay.headerEl,
       session,
@@ -108,22 +156,30 @@ async function handleCanvasSelect(canvasName) {
   if (!canvasName) {
     current.canvasName = null;
     current.pins = [];
+    current.loading = false;
     window.__jiratackActiveCanvas = current.config.canvasId || 'universal';
     renderPinsAndSidebar();
     return;
   }
 
+  current.canvasName = canvasName;
+  current.loading = true;
   window.__jiratackActiveCanvas = canvasName;
+  renderPinsAndSidebar();
 
   try {
-    const data = await getPins(current.config, current.session, canvasName, window.location.href);
+    const data = await getPins(current.config, current.session, canvasName, window.location.href, true);
     if (!current) return;
     current.canvasName = (data && data.canvasName) || canvasName;
     current.pins = (data && data.pins) || [];
-    renderPinsAndSidebar();
   } catch (e) {
+    if (current) current.pins = [];
     showToast((e && e.message) || 'Failed to load canvas.');
   }
+
+  if (!current) return;
+  current.loading = false;
+  renderPinsAndSidebar();
 }
 
 async function handleCreateCanvas() {
@@ -185,12 +241,15 @@ async function handleCapture(capture) {
     onCancel: () => {
       if (current && current.overlay) current.overlay.formEl.innerHTML = '';
     },
-    onCreated: ({ result, capture: createdCapture, summary }) => {
+    onCreated: ({ result, capture: createdCapture, summary, projectKey, issueTypeId, priorityId }) => {
       if (!current) return;
       current.pins = current.pins.concat([
         {
           key: result.key,
           summary,
+          projectKey: projectKey || null,
+          issueTypeId: issueTypeId || null,
+          priorityId: priorityId || null,
           status: { name: '', category: '', colorName: '' },
           priority: null,
           assignee: null,
@@ -199,6 +258,7 @@ async function handleCapture(capture) {
           selector: createdCapture.selector || null,
           issueType: null,
           createdAt: new Date().toISOString(),
+          url: normalizeUrl(window.location.href),
         },
       ]);
       renderPinsAndSidebar();
@@ -269,87 +329,130 @@ async function init(config) {
   window.__jiratackActiveCanvas = config.canvasId || 'universal';
   injectStyles();
 
+  const deepParams = new URLSearchParams(window.location.search);
+  const deepCanvas = deepParams.get('jiratack_canvas');
+  const deepTicket = deepParams.get('jiratack_ticket');
+  if (deepCanvas || deepTicket) {
+    stripDeepLinkParams();
+  }
+
   try {
     let session = await exchangeSession(config);
 
     const isLauncher = config.canvasId === 'universal';
+    const overlay = createOverlay();
+
     if (isLauncher) {
+      current = {
+        config,
+        session,
+        overlay,
+        universal: true,
+        canvases: [],
+        pins: [],
+        canvasName: null,
+        filter: 'all',
+        loading: true,
+        pinsController: null,
+        sidebarController: null,
+        pinModeController: null,
+      };
+      renderPinsAndSidebar();
+
       let canvasList;
       try {
         canvasList = await listCanvasesForUser(config, session);
       } catch (e) {
         if (e.code === 'TOKEN_EXPIRED' || e.code === 'TOKEN_INVALID') {
           session = await exchangeSession(config, { force: true });
+          if (current) current.session = session;
           canvasList = await listCanvasesForUser(config, session);
         } else {
           throw e;
         }
       }
+      if (!current) return;
+      current.canvases = (canvasList && canvasList.canvases) || [];
 
-      const overlay = createOverlay();
-      current = {
-        config,
-        session,
-        overlay,
-        universal: true,
-        canvases: (canvasList && canvasList.canvases) || [],
-        pins: [],
-        canvasName: null,
-        pinsController: null,
-        sidebarController: null,
-        pinModeController: null,
-      };
-
-      const pageUrl = normalizeUrl(window.location.href);
-      const matchingCanvases = current.canvases.filter((canvas) =>
-        Array.isArray(canvas.urls) && canvas.urls.some((canvasUrl) => normalizeUrl(canvasUrl) === pageUrl),
-      );
-
-      if (matchingCanvases.length === 1) {
-        const autoCanvasName = matchingCanvases[0].canvasName;
-        window.__jiratackActiveCanvas = autoCanvasName;
+      if (deepCanvas) {
+        window.__jiratackActiveCanvas = deepCanvas;
+        current.canvasName = deepCanvas;
         try {
-          const data = await getPins(config, session, autoCanvasName, window.location.href);
-          current.canvasName = (data && data.canvasName) || autoCanvasName;
-          current.pins = (data && data.pins) || [];
+          const data = await getPins(config, session, deepCanvas, window.location.href, true);
+          if (current) {
+            current.canvasName = (data && data.canvasName) || deepCanvas;
+            current.pins = (data && data.pins) || [];
+          }
         } catch (e) {
-          console.error(`${LOG_PREFIX} Auto-select failed:`, e);
+          console.error(`${LOG_PREFIX} Deep-link canvas load failed:`, e);
+        }
+      } else {
+        const pageUrl = normalizeUrl(window.location.href);
+        const matchingCanvases = current.canvases.filter((canvas) =>
+          Array.isArray(canvas.urls) && canvas.urls.some((canvasUrl) => normalizeUrl(canvasUrl) === pageUrl),
+        );
+
+        if (matchingCanvases.length === 1) {
+          const autoCanvasName = matchingCanvases[0].canvasName;
+          window.__jiratackActiveCanvas = autoCanvasName;
+          try {
+            const data = await getPins(config, session, autoCanvasName, window.location.href, true);
+            if (current) {
+              current.canvasName = (data && data.canvasName) || autoCanvasName;
+              current.pins = (data && data.pins) || [];
+            }
+          } catch (e) {
+            console.error(`${LOG_PREFIX} Auto-select failed:`, e);
+          }
         }
       }
 
+      if (!current) return;
+      current.loading = false;
+      current.filter = 'all';
       renderPinsAndSidebar();
+      if (deepTicket) selectAndScroll(deepTicket);
       console.log(`${LOG_PREFIX} Universal launcher ready with ${current.canvases.length} canvas(es)`);
       return;
     }
 
     const canvasId = config.canvasId;
-    let data;
-    try {
-      data = await getPins(config, session, canvasId, window.location.href);
-    } catch (e) {
-      if (e.code === 'TOKEN_EXPIRED' || e.code === 'TOKEN_INVALID') {
-        session = await exchangeSession(config, { force: true });
-        data = await getPins(config, session, canvasId, window.location.href);
-      } else {
-        throw e;
-      }
-    }
-
-    const overlay = createOverlay();
     current = {
       config,
       session,
       overlay,
       universal: false,
       canvases: [],
-      pins: (data && data.pins) || [],
-      canvasName: (data && data.canvasName) || config.canvasName,
+      pins: [],
+      canvasName: config.canvasName || canvasId,
+      filter: 'all',
+      loading: true,
       pinsController: null,
       sidebarController: null,
       pinModeController: null,
     };
-
     renderPinsAndSidebar();
+
+    let data;
+    try {
+      data = await getPins(config, session, canvasId, window.location.href, true);
+    } catch (e) {
+      if (e.code === 'TOKEN_EXPIRED' || e.code === 'TOKEN_INVALID') {
+        session = await exchangeSession(config, { force: true });
+        if (current) current.session = session;
+        data = await getPins(config, session, canvasId, window.location.href, true);
+      } else {
+        throw e;
+      }
+    }
+
+    if (!current) return;
+    current.pins = (data && data.pins) || [];
+    current.canvasName = (data && data.canvasName) || config.canvasName || canvasId;
+    current.loading = false;
+    current.filter = deepTicket ? 'all' : current.filter;
+    renderPinsAndSidebar();
+    if (deepTicket) selectAndScroll(deepTicket);
     console.log(`${LOG_PREFIX} Init called with canvas: ${current.canvasName}`);
   } catch (e) {
     console.error(`${LOG_PREFIX} Init failed:`, e);

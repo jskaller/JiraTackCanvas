@@ -2,7 +2,7 @@ import crypto from 'crypto';
 import api, { route, getAppContext } from '@forge/api';
 import { WhereConditions } from '@forge/kvs';
 import { provisionFields } from '../../lib/fields.js';
-import { getInstallationConfig } from '../../lib/config.js';
+import { getInstallationConfig, setInstallationConfig } from '../../lib/config.js';
 import { kvsGet, kvsSet, kvs } from '../../lib/kvs.js';
 import { generateSessionJwt } from '../../lib/tokens.js';
 import { errorResponse, errorResult } from '../../lib/errors.js';
@@ -606,6 +606,39 @@ export async function deleteCanvas(context, payload) {
     );
   }
 
+  const archived = Array.isArray(config.archivedCanvases)
+    ? config.archivedCanvases.filter((name) => name !== canvasName)
+    : [];
+  config.archivedCanvases = archived;
+
+  const deleted = Array.isArray(config.deletedCanvases) ? config.deletedCanvases : [];
+  if (!deleted.includes(canvasName)) {
+    deleted.push(canvasName);
+  }
+  config.deletedCanvases = deleted;
+
+  try {
+    await setInstallationConfig(config);
+  } catch (e) {
+    return errorResult('INTERNAL', e && e.message ? e.message : String(e));
+  }
+
+  return { ok: true, data: { canvasName, deleted: true, ticketCount: canvasIssues.length } };
+}
+
+
+export async function archiveCanvas(context, payload) {
+  const isAdmin = await isJiraAdmin(context);
+  if (!isAdmin) {
+    return errorResult('INSUFFICIENT_SCOPE', 'Admin access is required.');
+  }
+
+  const canvasName = payload && payload.canvasName;
+  if (typeof canvasName !== 'string' || canvasName.trim().length === 0) {
+    return errorResult('BAD_REQUEST', 'canvasName is required.');
+  }
+
+  const config = await getInstallationConfig();
   const archived = Array.isArray(config.archivedCanvases) ? config.archivedCanvases : [];
   if (!archived.includes(canvasName)) {
     archived.push(canvasName);
@@ -618,5 +651,5 @@ export async function deleteCanvas(context, payload) {
     return errorResult('INTERNAL', e && e.message ? e.message : String(e));
   }
 
-  return { ok: true, data: { canvasName, archived: true, ticketCount: canvasIssues.length } };
+  return { ok: true, data: { canvasName, archived: true } };
 }

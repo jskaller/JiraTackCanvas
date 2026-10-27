@@ -51,6 +51,7 @@ export async function dashboardAggregate(context) {
   const config = await getInstallationConfig();
   const fieldRegistry = config.fieldRegistry || {};
   const archived = new Set(Array.isArray(config.archivedCanvases) ? config.archivedCanvases : []);
+  const deleted = new Set(Array.isArray(config.deletedCanvases) ? config.deletedCanvases : []);
 
   if (!fieldRegistry.canvasField) {
     return {
@@ -164,7 +165,7 @@ export async function dashboardAggregate(context) {
     } while (fetched < MAX_TICKETS);
 
     const summaries = Array.from(canvases.values())
-      .filter((entry) => !archived.has(entry.canvasName))
+      .filter((entry) => !deleted.has(entry.canvasName))
       .map((entry) => ({
         canvasName: entry.canvasName,
         ticketCount: entry.ticketCount,
@@ -179,6 +180,7 @@ export async function dashboardAggregate(context) {
         lastUpdated: entry.lastUpdated,
         projectKeys: Array.from(entry.projectKeys),
         participants: Array.from(entry.participants.values()),
+        archived: archived.has(entry.canvasName),
       }))
       .sort((a, b) => {
         if (a.lastUpdated === b.lastUpdated) return a.canvasName.localeCompare(b.canvasName);

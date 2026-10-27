@@ -7,6 +7,24 @@ import { resolveWebtriggerUrls } from '../../lib/webtriggerUrls.js';
 
 const SESSION_TTL_SECONDS = 8 * 60 * 60;
 let cachedJiraBaseUrl = null;
+const displayNameCache = new Map();
+
+async function getDisplayName(accountId) {
+  if (!accountId) return null;
+  if (displayNameCache.has(accountId)) return displayNameCache.get(accountId);
+  try {
+    const res = await api.asApp().requestJira(route`/rest/api/3/user?accountId=${accountId}`);
+    if (res.ok) {
+      const data = await res.json();
+      const name = data && data.displayName ? data.displayName : null;
+      displayNameCache.set(accountId, name);
+      return name;
+    }
+  } catch (e) {
+    return null;
+  }
+  return null;
+}
 
 async function getJiraBaseUrl() {
   if (cachedJiraBaseUrl) return cachedJiraBaseUrl;
@@ -83,6 +101,7 @@ export async function exchangeToken(payload) {
     });
 
     const config = await getInstallationConfig();
+    const displayName = await getDisplayName(userRecord.userId);
     return commonResponse(config, {
       sessionJwt,
       expiresAt: exp * 1000,
@@ -90,6 +109,7 @@ export async function exchangeToken(payload) {
       canvasName: null,
       scope,
       permittedProjects,
+      displayName,
     });
   }
 
@@ -128,6 +148,7 @@ export async function exchangeToken(payload) {
   });
 
   const config = await getInstallationConfig();
+  const displayName = await getDisplayName(record.userId);
   return commonResponse(config, {
     sessionJwt,
     expiresAt: exp * 1000,
@@ -135,5 +156,6 @@ export async function exchangeToken(payload) {
     canvasName: record.canvasName,
     scope: record.scope,
     permittedProjects,
+    displayName,
   });
 }
