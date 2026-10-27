@@ -51,6 +51,7 @@ export function renderPins(container, pins, options = {}) {
 
   const entries = [];
   const elementsByKey = new Map();
+  const entriesByKey = new Map();
   let detachedCount = 0;
 
   visiblePins.forEach((pin) => {
@@ -88,6 +89,7 @@ export function renderPins(container, pins, options = {}) {
 
     entries.push({ el, pin, placement });
     elementsByKey.set(pin.key, el);
+    entriesByKey.set(pin.key, { el, hover });
   });
 
   cluster.style.display = detachedCount > 0 ? 'flex' : 'none';
@@ -162,6 +164,16 @@ export function renderPins(container, pins, options = {}) {
     });
   }
 
+  function updatePin(pin) {
+    if (!pin) return false;
+    const entry = entriesByKey.get(pin.key);
+    if (!entry) return false;
+    entry.el.title = pin.key + (pin.summary ? ` — ${pin.summary}` : '');
+    entry.hover.textContent = `${pin.key}${pin.summary ? `: ${pin.summary}` : ''}`;
+    entry.el.classList.toggle('jiratack-pin-done', Boolean(pin.status && pin.status.category === 'done'));
+    return true;
+  }
+
   function destroy() {
     window.removeEventListener('scroll', scheduleUpdate, true);
     window.removeEventListener('resize', scheduleUpdate);
@@ -171,7 +183,7 @@ export function renderPins(container, pins, options = {}) {
     }
   }
 
-  return { select, update, destroy, elementsByKey };
+  return { select, update, updatePin, destroy, elementsByKey };
 }
 
 export function createPendingPin(container, capture) {

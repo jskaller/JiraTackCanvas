@@ -1,13 +1,79 @@
 import api, { route } from '@forge/api';
-import { getInstallationConfig } from '../../lib/config.js';
 import { errorResult } from '../../lib/errors.js';
+import { isLicensedUser } from '../../lib/license.js';
+import { loadJiraTackIssue } from '../../lib/issueContext.js';
+import { mergeDescription, splitDescription } from '../../lib/descriptionBlocks.js';
 
-export async function updateIssue(payload) {
+const MAX_SUMMARY = 215;
+const SUMMARY_PREFIX = '[JiraTack]';
+
+function hasField(input, name) {
+  return Object.prototype.hasOwnProperty.call(input, name);
+}
+
+export async function updateIssue(payload, claims) {
   const issueKey = payload && payload.issueKey;
   const input = (payload && payload.fields) || {};
 
   if (typeof issueKey !== 'string' || issueKey.length === 0) {
     return errorResult('BAD_REQUEST', 'issueKey is required.');
+  }
+
+  const supported = ['statusId', 'priorityId', 'assigneeAccountId', 'summary', 'descriptionText'];
+  if (!supported.some((name) => hasField(input, name))) {
+    return errorResult('BAD_REQUEST', 'No supported fields were provided.');
+  }
+
+  if (hasField(input, 'statusId') && (typeof input.statusId !== 'string' || input.statusId.length === 0)) {
+    return errorResult('BAD_REQUEST', 'statusId must be a non-empty string.');
+  }
+  if (hasField(input, 'summary') && typeof input.summary !== 'string') {
+    return errorResult('BAD_REQUEST', 'summary must be a string.');
+  }
+  if (hasField(input, 'descriptionText') && typeof input.descriptionText !== 'string') {
+    return errorResult('BAD_REQUEST', 'descriptionText must be a string.');
+  }
+
+  const context = await loadJiraTackIssue(issueKey, claims || {});
+  if (!context.ok) return context.error;
+
+  const updateFields = {};
+
+  if (hasField(input, 'priorityId')) {
+    updateFields.priority = input.priorityId ? { id: String(input.priorityId) } : null;
+  }
+
+  if (hasField(input, 'assigneeAccountId')) {
+    const accountId = input.assigneeAccountId ? String(input.assigneeAccountId) : null;
+    if (accountId && claims && claims.scope === 'guest_create' && !(await isLicensedUser(accountId))) {
+      return errorResult(
+        'VALIDATION_ERROR',
+        'Guest tickets must be assigned to a licensed JiraTack user.',
+      );
+    }
+    updateFields.assignee = accountId ? { accountId } : null;
+  }
+
+  if (hasField(input, 'summary')) {
+    const raw = input.summary.trim();
+    if (raw.length === 0) {
+      return errorResult('VALIDATION_ERROR', 'Summary cannot be empty.');
+    }
+    if (raw.length > MAX_SUMMARY) {
+      return errorResult('VALIDATION_ERROR', `Summary must be ${MAX_SUMMARY} characters or fewer.`);
+    }
+    updateFields.summary = raw.startsWith(SUMMARY_PREFIX) ? raw : `${SUMMARY_PREFIX} ${raw}`;
+  }
+
+  if (hasField(input, 'descriptionText')) {
+    const split = splitDescription(context.fields.description);
+    if (!split.marker) {
+      return errorResult(
+        'VALIDATION_ERROR',
+        'This description is missing the JiraTack pin marker. Edit it in Jira instead.',
+      );
+    }
+    updateFields.description = mergeDescription(input.descriptionText, split);
   }
 
   if (input.statusId) {
@@ -22,14 +88,6 @@ export async function updateIssue(payload) {
       }
       return errorResult('INTERNAL', `Jira transition failed with HTTP ${res.status}.`);
     }
-  }
-
-  const updateFields = {};
-  if (Object.prototype.hasOwnProperty.call(input, 'priorityId')) {
-    updateFields.priority = input.priorityId ? { id: input.priorityId } : null;
-  }
-  if (Object.prototype.hasOwnProperty.call(input, 'assigneeAccountId')) {
-    updateFields.assignee = input.assigneeAccountId ? { accountId: input.assigneeAccountId } : null;
   }
 
   if (Object.keys(updateFields).length > 0) {
@@ -48,7 +106,7 @@ export async function updateIssue(payload) {
       } catch (e) {
         detail = '';
       }
-      console.error('[JiraTack] updateIssue failed:', updateFields, res.status, detail);
+      console.error('[JiraTack] updateIssue failed:', issueKey, Object.keys(updateFields), res.status, detail);
       if (res.status === 400) {
         return errorResult('VALIDATION_ERROR', 'Jira rejected the issue update.', { raw: detail.slice(0, 500) });
       }
@@ -56,6 +114,8 @@ export async function updateIssue(payload) {
     }
   }
 
-  const config = await getInstallationConfig();
-  return { ok: true, data: { configVersion: config.configVersion || '' } };
+  return {
+    ok: true,
+    data: { configVersion: context.config.configVersion || '' },
+  };
 }

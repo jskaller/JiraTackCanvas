@@ -108,7 +108,7 @@ function makeCloseButton() {
 }
 
 export function renderSidebar(container, options) {
-  const { canvasName, session, pins, config, onSelect, onToast, onDone } = options;
+  const { canvasName, session, pins, config, onSelect, onToast, onDone, onEditStart } = options;
   const activeFilter = options.filter || 'all';
   const pageUrl = options.pageUrl || '';
   const loadingLabel = options.loadingLabel || '';
@@ -262,6 +262,7 @@ export function renderSidebar(container, options) {
     : (pins || []);
 
   const cards = new Map();
+  const cardControllers = new Map();
   const controllers = [];
 
   function buildCard(pin) {
@@ -288,6 +289,10 @@ export function renderSidebar(container, options) {
     let expanded = false;
     let inlineController = null;
 
+    function renderSummary() {
+      summaryEl.textContent = pin.summary || '';
+    }
+
     function renderDetails(includeDoneState) {
       metaEl.innerHTML = '';
       peopleEl.innerHTML = '';
@@ -310,6 +315,12 @@ export function renderSidebar(container, options) {
       addPerson(peopleEl, 'Reporter', pin.reporter);
     }
 
+    function renderCard() {
+      renderSummary();
+      renderDetails(false);
+    }
+
+    renderSummary();
     renderDetails(true);
 
     function collapse() {
@@ -333,10 +344,6 @@ export function renderSidebar(container, options) {
       select(pin.key);
       if (onSelect) onSelect(pin);
 
-      if (session && session.scope === 'guest_create') {
-        return;
-      }
-
       if (session && session.scope === 'view') {
         window.open(buildIssueUrl(config, session, pin.key), '_blank', 'noopener');
         return;
@@ -354,12 +361,14 @@ export function renderSidebar(container, options) {
         config,
         session,
         pin,
-        refresh: () => renderDetails(false),
+        refresh: renderCard,
         onToast,
+        onEditStart,
         onDone: (changedPin) => {
           if (onDone) onDone({ pin: changedPin, cardEl: card });
           window.setTimeout(() => {
             collapse();
+            renderSummary();
             renderDetails(true);
           }, 2200);
         },
@@ -367,6 +376,11 @@ export function renderSidebar(container, options) {
     });
 
     cards.set(pin.key, card);
+    cardControllers.set(pin.key, {
+      pin,
+      renderCard,
+      collapse,
+    });
     return card;
   }
 
@@ -420,6 +434,14 @@ export function renderSidebar(container, options) {
     });
   }
 
+  function updatePin(key, nextPin) {
+    const controller = cardControllers.get(key);
+    if (!controller) return false;
+    Object.assign(controller.pin, nextPin);
+    controller.renderCard();
+    return true;
+  }
+
   function destroy() {
     controllers.forEach((controller) => {
       try {
@@ -429,7 +451,8 @@ export function renderSidebar(container, options) {
       }
     });
     cards.clear();
+    cardControllers.clear();
   }
 
-  return { select, destroy };
+  return { select, updatePin, destroy };
 }

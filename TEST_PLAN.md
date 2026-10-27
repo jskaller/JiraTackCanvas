@@ -542,7 +542,7 @@ curl -s -X POST "$WT/api" \
 
 # each has: id, name, to.id, to.name, to.statusCategory.key
 
-### 2.16 `updateIssue` — status, priority, assignee
+### 2.16 `updateIssue` — status, priority, assignee, summary, description
 
 bash
 
@@ -563,6 +563,26 @@ curl ... updateIssue {"issueKey":"<KEY>","fields":{"priorityId":"3"}}
 curl ... updateIssue {"issueKey":"<KEY>","fields":{"assigneeAccountId":"<accountId>"}}
 
 # Assert: .ok == true
+
+# Summary (prefix re-added idempotently; empty → VALIDATION_ERROR; >215 chars → VALIDATION_ERROR)
+
+curl ... updateIssue {"issueKey":"<KEY>","fields":{"summary":"New title"}}
+
+# Assert: .ok == true; Jira summary == "[JiraTack] New title"
+
+# Description (only the user body is replaced; guest prefix, console block, pin marker preserved)
+
+curl ... updateIssue {"issueKey":"<KEY>","fields":{"descriptionText":"line one\n\nline two"}}
+
+# Assert: .ok == true; description still ends with the 📌 JiraTack pin marker paragraph
+
+# Authorization (all scopes, including create/universal):
+
+# - non-jiratack issueKey → 403 INSUFFICIENT_SCOPE
+# - issue in a project outside permittedProjects → 403 INSUFFICIENT_SCOPE
+# - issue on a canvas outside permittedCanvases (guest) → 403 INSUFFICIENT_SCOPE
+# - guest JWT + unlicensed assigneeAccountId → 422 VALIDATION_ERROR
+# - view JWT → 403 INSUFFICIENT_SCOPE
 
 ### 2.17 `searchUsers`
 
@@ -1178,11 +1198,17 @@ All of 6.1–6.14 pass. Commit: `feat(s6): epic panel, issue panel, field audit,
 
 - Expand card → change priority → assert optimistic update + server confirmation.
 
+- Assert: the priority dropdown is enabled after options load (regression: it must not stay disabled).
+
 ### 7.3 Inline edit — assignee
 
-- Expand card → type in assignee field → assert typeahead results.
+- Expand card → focus assignee field → assert typeahead results appear without typing.
 
-- Select user → assert card updates + ticket assignee changes.
+- Type to filter → assert results narrow; pick a user → assert card updates + ticket assignee changes.
+
+- With an assignee set, reopen → assert an "Unassign" item is present; select it → assert assignee clears.
+
+- Force search failure (disconnect network) while typing → assert inline error note, not a silent empty list.
 
 ### 7.4 Done animation
 
@@ -1289,6 +1315,34 @@ All of 6.1–6.14 pass. Commit: `feat(s6): epic panel, issue panel, field audit,
 - Assert: no console errors at any step.
 
 - Assert: `forge logs -e development` shows no `[JiraTack] ERROR`.
+
+### 7.14 Inline edit — summary and description (D15)
+
+- Expand card → edit summary → blur/Enter → assert card + Jira summary update with the `[JiraTack]` prefix intact.
+
+- Summary shorter than 3 chars → assert inline error and revert.
+
+- Edit description → Save button enables only when text differs → Save → assert Jira description keeps the guest prefix, console block, and pin marker; only the body changed.
+
+- Missing pin marker → assert description field shows "Edit it in Jira instead." and Save stays disabled.
+
+### 7.15 Silent post-create hydration (D15)
+
+- Create a ticket → assert the new card appears immediately with an empty status chip and no skeleton/loading flash or scroll jump.
+
+- Within ~2s → assert status/priority/assignee/reporter/type fill in on the same card (merged by key).
+
+- Switch canvas within 1s of creation → assert no late merge touches the new canvas.
+
+- Edit the new card before hydration lands → assert the edit is not overwritten by the hydration response.
+
+### 7.16 Guest inline editing (D15)
+
+- Open a guest link → expand a card on a permitted canvas → assert status, priority, assignee, summary, description all editable.
+
+- Guest assignee search → assert only licensed users appear.
+
+- Guest on a canvas outside the grant (crafted request) → assert `INSUFFICIENT_SCOPE`; guest assigning an unlicensed user → assert `VALIDATION_ERROR`.
 
 ### Sprint 7 exit criteria
 

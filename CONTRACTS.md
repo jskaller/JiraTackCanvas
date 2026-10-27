@@ -303,9 +303,14 @@ Server behavior:
 
 ```text
 Request:  { action: "getTransitions", payload: { issueKey } }
-Auth:     Bearer, scope create or view
-Success:  { transitions: [{ id, name, to: { id, name, statusCategory: { key } } }] }
+Auth:     Bearer, scope create, view, universal, or guest_create
+Success:  { transitions: [{ id, name, to: { id, name, statusCategory: { key } } }], descriptionText: string | null }
 ```
+
+Behavior:
+
+- Loads the issue and enforces JiraTack edit authorization (Part 3.5, rules 1–2). Non-JiraTack issues and issues outside the caller's canvas/project access return `INSUFFICIENT_SCOPE`.
+- Returns the user-authored description body as `descriptionText` alongside transitions (single round-trip for the inline editor). `null` when the description is missing the pin marker.
 
 ### 3.5 `updateIssue`
 
@@ -316,32 +321,44 @@ Request: {
     issueKey: string,
     fields: {
       statusId?: string,
-      priorityId?: string,
-      assigneeAccountId?: string | null
+      priorityId?: string | null,
+      assigneeAccountId?: string | null,
+      summary?: string,
+      descriptionText?: string
     }
   }
 }
-Auth:     Bearer, scope create only
+Auth:     Bearer, scope create, universal, or guest_create
 Success:  { configVersion }
 ```
+
+Authorization (applies to all scopes, including guests):
+
+1. The issue must carry the `jiratack` label, else `INSUFFICIENT_SCOPE`.
+2. The caller's `permittedProjects` must include the issue's project, and `canAccessCanvas` must allow the issue's canvas (stored custom field, falling back to the description marker), else `INSUFFICIENT_SCOPE`.
+3. Guest (`guest_create`) assignee targets must hold a JiraTack license, else `VALIDATION_ERROR`.
 
 Behavior:
 
 - `fields.statusId` → `POST /rest/api/3/issue/{key}/transitions` with `{ transition: { id } }`.
 
-- `fields.priorityId` or `fields.assigneeAccountId` → `PUT /rest/api/3/issue/{key}` with `{ fields: { priority: { id }, assignee: accountId ? { accountId } : null } }`.
+- `fields.priorityId`, `fields.assigneeAccountId`, `fields.summary`, or `fields.descriptionText` → single `PUT /rest/api/3/issue/{key}` with the corresponding `fields`:
+  - `priority: { id }` (or `null`),
+  - `assignee: { accountId }` (or `null`),
+  - `summary` re-adds the `[JiraTack]` prefix idempotently; empty or >215 chars → `VALIDATION_ERROR`,
+  - `description` replaces only the user-authored body, preserving the `[Guest: …]` prefix, console block, and `📌 JiraTack pin:` marker verbatim. Missing marker → `VALIDATION_ERROR`.
 
-- Jira 400 → 422 `VALIDATION_ERROR`.
+- Transition is applied before the field PUT. Jira 400 → 422 `VALIDATION_ERROR`.
 
 ### 3.6 `searchUsers`
 
 ```text
 Request:  { action: "searchUsers", payload: { projectKey, query } }
-Auth:     Bearer, scope create only
+Auth:     Bearer, scope create, universal, or guest_create
 Success:  { users: [{ accountId, displayName, avatarUrl }] }
 ```
 
-Proxies `GET /rest/api/3/user/assignable/search?project={projectKey}&query={query}&maxResults=10`. Handle both plain array and `{ values: [] }` response shapes.
+Proxies `GET /rest/api/3/user/assignable/search?project={projectKey}&query={query}&maxResults=10`. Handle both plain array and `{ values: [] }` response shapes. For `guest_create`, results are filtered to licensed JiraTack users (`maxResults=50` pre-filter).
 
 ### 3.7 `getIssueTypes`
 

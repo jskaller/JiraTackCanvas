@@ -1,5 +1,7 @@
 import { getTransitions, getPriorities, updateIssue, searchUsers } from './api.js';
 
+const SUMMARY_PREFIX = '[JiraTack]';
+
 function el(tag, className, text) {
   const node = document.createElement(tag);
   if (className) node.className = className;
@@ -14,8 +16,29 @@ function field(labelText, control) {
   return wrap;
 }
 
+function stripSummary(value) {
+  const text = typeof value === 'string' ? value : '';
+  return text.startsWith(SUMMARY_PREFIX) ? text.slice(SUMMARY_PREFIX.length).trim() : text;
+}
+
+function withSummaryPrefix(value) {
+  return value.startsWith(SUMMARY_PREFIX) ? value : `${SUMMARY_PREFIX} ${value}`;
+}
+
+function userAvatar(user, name) {
+  if (user && user.avatarUrl) {
+    const img = document.createElement('img');
+    img.className = 'jiratack-typeahead-avatar';
+    img.src = user.avatarUrl;
+    img.alt = '';
+    return img;
+  }
+  const initial = name && name.trim().length > 0 ? name.trim().charAt(0).toUpperCase() : '?';
+  return el('span', 'jiratack-typeahead-avatar jiratack-avatar-empty', initial);
+}
+
 export function renderInlineEdit(container, options) {
-  const { config, session, pin, refresh, onDone, onToast } = options;
+  const { config, session, pin, refresh, onDone, onToast, onEditStart } = options;
 
   container.innerHTML = '';
   const root = el('div', 'jiratack-inline-edit');
@@ -33,25 +56,76 @@ export function renderInlineEdit(container, options) {
   typeahead.appendChild(assigneeInput);
   typeahead.appendChild(typeaheadResults);
 
+  const summaryInput = el('input', 'jiratack-inline-input');
+  summaryInput.type = 'text';
+  summaryInput.maxLength = 215;
+  summaryInput.placeholder = 'Short summary';
+
+  const descriptionInput = el('textarea', 'jiratack-inline-input jiratack-inline-textarea');
+  descriptionInput.rows = 4;
+  descriptionInput.disabled = true;
+  descriptionInput.placeholder = 'Loading description…';
+
+  const descriptionActions = el('div', 'jiratack-inline-actions');
+  const descriptionSave = el('button', 'jiratack-inline-button', 'Save description');
+  descriptionSave.type = 'button';
+  descriptionSave.disabled = true;
+  descriptionActions.appendChild(descriptionSave);
+
+  const descriptionField = field('Description', descriptionInput);
+  const descriptionNote = el('div', 'jiratack-inline-note');
+  descriptionField.appendChild(descriptionActions);
+  descriptionField.appendChild(descriptionNote);
+
   statusSelect.disabled = true;
   prioritySelect.disabled = true;
 
   root.appendChild(field('Status', statusSelect));
   root.appendChild(field('Priority', prioritySelect));
   root.appendChild(field('Assignee', typeahead));
+  root.appendChild(field('Summary', summaryInput));
+  root.appendChild(descriptionField);
 
   const statusNote = el('div', 'jiratack-inline-note');
   root.appendChild(statusNote);
+  const errorNote = el('div', 'jiratack-inline-note jiratack-inline-error');
+  root.appendChild(errorNote);
 
   let transitions = [];
   let priorities = [];
   let disposed = false;
 
+  let descriptionInitial = '';
+  let descriptionLoaded = false;
+  let summaryInitial = stripSummary(pin.summary);
+  let summarySaving = false;
+  summaryInput.value = summaryInitial;
+
+  function markEdited() {
+    if (onEditStart) onEditStart(pin);
+  }
+
   function notify(message) {
+    errorNote.textContent = message || '';
     if (onToast) onToast(message);
   }
 
+  function showErrorNote(message) {
+    errorNote.textContent = message || '';
+  }
+
+  function clearErrorNote() {
+    errorNote.textContent = '';
+  }
+
+  function updateDescriptionButton() {
+    descriptionSave.disabled = !descriptionLoaded
+      || descriptionInput.value === descriptionInitial;
+  }
+
   async function applyUpdate(fields, optimistic, revert) {
+    markEdited();
+    clearErrorNote();
     optimistic();
     if (refresh) refresh();
 
@@ -76,6 +150,19 @@ export function renderInlineEdit(container, options) {
       if (disposed) return;
       transitions = (transitionsResult && transitionsResult.transitions) || [];
       priorities = (prioritiesResult && prioritiesResult.priorities) || [];
+
+      const descriptionText = transitionsResult ? transitionsResult.descriptionText : null;
+      if (typeof descriptionText === 'string') {
+        descriptionInitial = descriptionText;
+        descriptionInput.value = descriptionText;
+        descriptionInput.disabled = false;
+        descriptionInput.placeholder = 'Describe the issue…';
+        descriptionLoaded = true;
+        updateDescriptionButton();
+      } else {
+        descriptionInput.placeholder = 'Description editing is unavailable.';
+        descriptionNote.textContent = 'This description is missing the JiraTack pin marker. Edit it in Jira instead.';
+      }
     } catch (e) {
       if (disposed) return;
       statusNote.textContent = 'Could not load editing options.';
@@ -108,6 +195,7 @@ export function renderInlineEdit(container, options) {
     } else {
       prioritySelect.value = '';
     }
+    prioritySelect.disabled = priorities.length === 0;
 
     assigneeInput.value = pin.assignee
       ? (pin.assignee.displayName || pin.assignee.accountId || '')
@@ -151,7 +239,7 @@ export function renderInlineEdit(container, options) {
     const previous = pin.priority ? { ...pin.priority } : null;
     const selected = priorities.find((item) => item.id === priorityId);
 
-    await applyUpdate(
+    const ok = await applyUpdate(
       { priorityId: priorityId || null },
       () => {
         pin.priority = priorityId && selected ? { id: selected.id, name: selected.name } : null;
@@ -160,6 +248,78 @@ export function renderInlineEdit(container, options) {
         pin.priority = previous;
       },
     );
+
+    if (!ok) prioritySelect.value = previous && previous.id ? String(previous.id) : '';
+  });
+
+  async function saveSummary() {
+    if (summarySaving || disposed) return;
+    const raw = summaryInput.value.trim();
+    if (raw === summaryInitial) {
+      summaryInput.value = summaryInitial;
+      return;
+    }
+    if (raw.length < 3) {
+      notify('Summary must be at least 3 characters.');
+      summaryInput.value = summaryInitial;
+      return;
+    }
+
+    summarySaving = true;
+    const previous = pin.summary;
+    const ok = await applyUpdate(
+      { summary: raw },
+      () => {
+        pin.summary = withSummaryPrefix(raw);
+      },
+      () => {
+        pin.summary = previous;
+      },
+    );
+    summarySaving = false;
+
+    if (ok) {
+      summaryInitial = raw;
+      summaryInput.value = raw;
+    } else {
+      summaryInput.value = summaryInitial;
+    }
+  }
+
+  summaryInput.addEventListener('input', markEdited);
+  summaryInput.addEventListener('blur', saveSummary);
+  summaryInput.addEventListener('keydown', (event) => {
+    if (event.key === 'Enter') {
+      event.preventDefault();
+      summaryInput.blur();
+    }
+  });
+
+  descriptionInput.addEventListener('input', () => {
+    markEdited();
+    updateDescriptionButton();
+  });
+
+  descriptionSave.addEventListener('click', async () => {
+    if (!descriptionLoaded || disposed) return;
+    const next = descriptionInput.value;
+    if (next === descriptionInitial) return;
+
+    descriptionSave.disabled = true;
+    const ok = await applyUpdate(
+      { descriptionText: next },
+      () => {
+        pin.descriptionText = next;
+      },
+      () => {
+        pin.descriptionText = descriptionInitial;
+      },
+    );
+
+    if (ok) {
+      descriptionInitial = next;
+    }
+    updateDescriptionButton();
   });
 
   let assigneeAccountId = pin.assignee && pin.assignee.accountId ? pin.assignee.accountId : null;
@@ -173,13 +333,41 @@ export function renderInlineEdit(container, options) {
 
   function renderTypeahead(users) {
     typeaheadResults.innerHTML = '';
+    if (pin.assignee) {
+      const unassign = el('div', 'jiratack-typeahead-item jiratack-typeahead-unassign', 'Unassign');
+      unassign.addEventListener('mousedown', async (event) => {
+        event.preventDefault();
+        const previous = pin.assignee ? { ...pin.assignee } : null;
+        assigneeAccountId = null;
+        assigneeInput.value = '';
+        hideTypeahead();
+
+        await applyUpdate(
+          { assigneeAccountId: null },
+          () => {
+            pin.assignee = null;
+          },
+          () => {
+            pin.assignee = previous;
+            assigneeAccountId = previous && previous.accountId ? previous.accountId : null;
+            assigneeInput.value = previous ? (previous.displayName || previous.accountId || '') : '';
+          },
+        );
+      });
+      typeaheadResults.appendChild(unassign);
+    }
+
     if (!users || users.length === 0) {
-      hideTypeahead();
+      if (pin.assignee) typeaheadResults.style.display = 'block';
+      else hideTypeahead();
       return;
     }
     typeaheadResults.style.display = 'block';
     users.forEach((user) => {
-      const item = el('div', 'jiratack-typeahead-item', user.displayName || user.accountId);
+      const name = user.displayName || user.accountId;
+      const item = el('div', 'jiratack-typeahead-item');
+      item.appendChild(userAvatar(user, name));
+      item.appendChild(el('span', 'jiratack-typeahead-name', name));
       item.addEventListener('mousedown', async (event) => {
         event.preventDefault();
         const previous = pin.assignee ? { ...pin.assignee } : null;
@@ -208,7 +396,30 @@ export function renderInlineEdit(container, options) {
     });
   }
 
+  async function searchAssignees(query) {
+    if (!pin.projectKey) {
+      hideTypeahead();
+      return;
+    }
+
+    assigneeRequestId += 1;
+    const requestId = assigneeRequestId;
+    try {
+      const result = await searchUsers(config, session, pin.projectKey, query);
+      if (requestId !== assigneeRequestId || disposed) return;
+      clearErrorNote();
+      renderTypeahead((result && result.users) || []);
+    } catch (e) {
+      if (requestId !== assigneeRequestId || disposed) return;
+      hideTypeahead();
+      if (query.length > 0) {
+        showErrorNote((e && e.message) || 'Could not search users.');
+      }
+    }
+  }
+
   assigneeInput.addEventListener('input', () => {
+    markEdited();
     assigneeAccountId = null;
     if (assigneeDebounce) {
       window.clearTimeout(assigneeDebounce);
@@ -216,23 +427,20 @@ export function renderInlineEdit(container, options) {
     }
 
     const query = assigneeInput.value.trim();
-    if (query.length === 0 || !pin.projectKey) {
+    if (query.length === 0) {
       hideTypeahead();
       return;
     }
 
-    assigneeDebounce = window.setTimeout(async () => {
+    assigneeDebounce = window.setTimeout(() => {
       assigneeDebounce = null;
-      assigneeRequestId += 1;
-      const requestId = assigneeRequestId;
-      try {
-        const result = await searchUsers(config, session, pin.projectKey, query);
-        if (requestId !== assigneeRequestId || disposed) return;
-        renderTypeahead((result && result.users) || []);
-      } catch (e) {
-        hideTypeahead();
-      }
+      searchAssignees(query);
     }, 300);
+  });
+
+  assigneeInput.addEventListener('focus', () => {
+    if (typeaheadResults.style.display === 'block') return;
+    searchAssignees(assigneeInput.value.trim());
   });
 
   assigneeInput.addEventListener('blur', () => {
@@ -247,6 +455,11 @@ export function renderInlineEdit(container, options) {
   return {
     destroy() {
       disposed = true;
+      assigneeRequestId += 1;
+      if (assigneeDebounce) {
+        window.clearTimeout(assigneeDebounce);
+        assigneeDebounce = null;
+      }
       container.innerHTML = '';
     },
   };

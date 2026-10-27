@@ -46,6 +46,13 @@ Single decision log for JiraTack. Every open and resolved decision appears exact
 **Rejected alternative:** Per-call KVS read. Requires KVS schema change to expose token ID in JWT, adds cost and latency.
 **Applies to:** SPEC §18, CONTRACTS §3.3.
 
+### D15 — Inline editing scope and guest edit rights
+
+**Status:** Resolved (2026-10-27)
+**Resolution:** Card inline editing covers status, priority, assignee, summary, and description. Summary edits keep the `[JiraTack]` prefix (idempotent re-add). Description edits replace only the user-authored body; the server preserves the `[Guest: …]` prefix, console block, and `📌 JiraTack pin:` marker verbatim. Guest links (`guest_create`) may edit existing pins on their permitted canvases with the same field set; guest assignee targets must be licensed JiraTack users. All `updateIssue`/`getTransitions` calls first verify the issue carries the `jiratack` label and passes `canAccessProject` + `canAccessCanvas` for every scope. Post-create, the SDK silently refetches the canvas once (single retry) and merges the new key's full pin record in place, with no list rebuild; a pending hydration is cancelled if the user edits that card first.
+**Rejected alternatives:** Full-ADF replacement from the client (a bug could wipe the pin marker); summary/description read-only with "Edit in Jira" (weaker loop); guests create-only (rejected per user request).
+**Applies to:** CONTRACTS §3.4, §3.5, §3.6.
+
 ### D13 — SDK version source
 
 **Status:** Resolved (2026-10-23)

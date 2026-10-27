@@ -74,13 +74,13 @@ export const handler = async (req, context) => {
     }
 
     if (action === 'getTransitions') {
-      const auth = await authenticate(req, context, ['create', 'view', 'universal']);
+      const auth = await authenticate(req, context, ['create', 'view', 'universal', 'guest_create']);
       if (!auth.ok) return envelope(auth);
       return envelope(await getTransitions(payload, auth.claims));
     }
 
     if (action === 'updateIssue') {
-      const auth = await authenticate(req, context, ['create', 'universal']);
+      const auth = await authenticate(req, context, ['create', 'universal', 'guest_create']);
       if (!auth.ok) return envelope(auth);
       return envelope(await updateIssue(payload, auth.claims));
     }

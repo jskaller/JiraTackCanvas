@@ -91,6 +91,82 @@ function clearPendingPin() {
   }
 }
 
+const HYDRATION_RETRY_MS = 1500;
+
+function cancelHydration() {
+  if (!current) return;
+  if (typeof current.hydrationToken !== 'number') current.hydrationToken = 0;
+  if (!(current.hydrationKeys instanceof Set)) current.hydrationKeys = new Set();
+  current.hydrationToken += 1;
+  current.hydrationKeys.clear();
+  current.hydrationRunning = false;
+}
+
+function scheduleHydration(key) {
+  if (!current || !key) return;
+  if (!(current.hydrationKeys instanceof Set)) current.hydrationKeys = new Set();
+  current.hydrationKeys.add(key);
+  if (current.hydrationRunning) return;
+  runHydration();
+}
+
+async function runHydration() {
+  if (!current) return;
+  current.hydrationRunning = true;
+  const token = current.hydrationToken;
+  const canvasAtStart = current.canvasName;
+  const keys = current.hydrationKeys;
+
+  try {
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      if (!current || current.hydrationToken !== token) return;
+
+      let data = null;
+      try {
+        data = await getPins(current.config, current.session, canvasAtStart, getPageUrl(), true);
+      } catch (e) {
+        data = null;
+      }
+
+      if (!current || current.hydrationToken !== token || current.canvasName !== canvasAtStart) {
+        return;
+      }
+
+      if (data) {
+        const byKey = new Map(((data && data.pins) || []).map((pin) => [pin.key, pin]));
+        Array.from(keys).forEach((key) => {
+          const fresh = byKey.get(key);
+          if (!fresh) return;
+          const existing = (current.pins || []).find((pin) => pin.key === key);
+          if (!existing) return;
+          Object.assign(existing, fresh);
+          if (current.sidebarController && current.sidebarController.updatePin) {
+            current.sidebarController.updatePin(key, existing);
+          }
+          if (current.pinsController && current.pinsController.updatePin) {
+            current.pinsController.updatePin(existing);
+          }
+          keys.delete(key);
+        });
+      }
+
+      if (keys.size === 0) return;
+      if (attempt === 0) {
+        await new Promise((resolve) => window.setTimeout(resolve, HYDRATION_RETRY_MS));
+      }
+    }
+  } finally {
+    if (current && current.hydrationToken === token) {
+      current.hydrationRunning = false;
+    }
+  }
+}
+
+function handleEditStart(pin) {
+  if (!current || !pin || !(current.hydrationKeys instanceof Set)) return;
+  current.hydrationKeys.delete(pin.key);
+}
+
 function dismissTicketForm() {
   if (current && current.formController) {
     try {
@@ -151,6 +227,7 @@ function renderPinsAndSidebar() {
         onCreate: session && session.scope === 'view' ? undefined : handleCreateCanvas,
         onSwitch: () => {
           if (!current) return;
+          cancelHydration();
           dismissTicketForm();
           current.canvasName = null;
           current.pins = [];
@@ -179,6 +256,7 @@ function renderPinsAndSidebar() {
     onSelect: (pin) => select(pin.key),
     onToast: showToast,
     onDone: handleDone,
+    onEditStart: handleEditStart,
     canvasSelector,
     guestSelector,
     emptyMessage: universal && !hasCanvas ? 'Select a canvas to start.' : undefined,
@@ -202,6 +280,7 @@ function renderPinsAndSidebar() {
 async function handleCanvasSelect(canvasName) {
   if (!current || !current.universal) return;
 
+  cancelHydration();
   dismissTicketForm();
 
   if (!canvasName) {
@@ -237,6 +316,7 @@ async function handleGuestCanvasSelect(canvasName) {
   if (!current || !canvasName) return;
   if (!current.session || current.session.scope !== 'guest_create') return;
 
+  cancelHydration();
   dismissTicketForm();
   current.canvasName = canvasName;
   current.loading = true;
@@ -345,10 +425,13 @@ async function handleCapture(capture) {
     onCreated: ({ result, capture: createdCapture, summary, projectKey, issueTypeId, priorityId }) => {
       if (!current) return;
       dismissTicketForm();
+      const displaySummary = summary && summary.startsWith('[JiraTack]')
+        ? summary
+        : `[JiraTack] ${summary || ''}`.trim();
       current.pins = current.pins.concat([
         {
           key: result.key,
-          summary,
+          summary: displaySummary,
           projectKey: projectKey || null,
           issueTypeId: issueTypeId || null,
           priorityId: priorityId || null,
@@ -364,12 +447,14 @@ async function handleCapture(capture) {
         },
       ]);
       renderPinsAndSidebar();
+      scheduleHydration(result.key);
       showToast(`Created ${result.key}`);
     },
   });
 }
 
 function teardown(clearStoredSession) {
+  cancelHydration();
   clearPendingPin();
   if (current) {
     try {
@@ -469,6 +554,9 @@ async function init(config) {
       sidebarController: null,
       pinModeController: null,
       formController: null,
+      hydrationKeys: new Set(),
+      hydrationToken: 0,
+      hydrationRunning: false,
     };
     renderPinsAndSidebar();
 

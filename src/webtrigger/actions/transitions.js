@@ -1,11 +1,17 @@
 import api, { route } from '@forge/api';
 import { errorResult } from '../../lib/errors.js';
+import { loadJiraTackIssue } from '../../lib/issueContext.js';
+import { splitDescription } from '../../lib/descriptionBlocks.js';
+import { adfToText } from '../../shared/adfText.js';
 
-export async function getTransitions(payload) {
+export async function getTransitions(payload, claims) {
   const issueKey = payload && payload.issueKey;
   if (typeof issueKey !== 'string' || issueKey.length === 0) {
     return errorResult('BAD_REQUEST', 'issueKey is required.');
   }
+
+  const context = await loadJiraTackIssue(issueKey, claims || {});
+  if (!context.ok) return context.error;
 
   const res = await api.asApp().requestJira(route`/rest/api/3/issue/${issueKey}/transitions`);
   if (!res.ok) {
@@ -26,5 +32,10 @@ export async function getTransitions(payload) {
     },
   }));
 
-  return { ok: true, data: { transitions } };
+  const split = splitDescription(context.fields.description);
+  const descriptionText = split.marker
+    ? adfToText({ type: 'doc', content: split.body })
+    : null;
+
+  return { ok: true, data: { transitions, descriptionText } };
 }

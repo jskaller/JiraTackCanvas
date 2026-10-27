@@ -559,6 +559,42 @@ body.jiratack-pin-mode * {
   font-size: 12px;
 }
 
+.jiratack-inline-textarea {
+  min-height: 64px;
+  resize: vertical;
+  box-sizing: border-box;
+}
+
+.jiratack-inline-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 4px;
+}
+
+.jiratack-inline-button {
+  padding: 3px 8px;
+  border: 1px solid #dfe1e6;
+  border-radius: 3px;
+  background: #ffffff;
+  color: #172b4d;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.jiratack-inline-button:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.jiratack-inline-error {
+  color: #bf2600;
+}
+
+.jiratack-inline-error:empty {
+  display: none;
+}
+
 .jiratack-inline-note {
   font-size: 11px;
   color: #6b778c;
@@ -637,6 +673,33 @@ body.jiratack-pin-mode * {
 
 .jiratack-typeahead-item:hover {
   background: #deebff;
+}
+
+.jiratack-typeahead-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.jiratack-typeahead-avatar {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  flex: 0 0 auto;
+  object-fit: cover;
+  background: #dfe1e6;
+}
+
+.jiratack-typeahead-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.jiratack-typeahead-unassign {
+  font-style: italic;
+  color: #6b778c;
 }
 
 .jiratack-canvas-selector {
