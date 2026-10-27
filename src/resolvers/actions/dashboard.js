@@ -3,6 +3,7 @@ import { getInstallationConfig } from '../../lib/config.js';
 import { errorResult } from '../../lib/errors.js';
 import { normalizeUrl, stripDeepLinkParams } from '../../shared/urlNormalize.js';
 import { parsePinMarker } from '../../lib/pinMarker.js';
+import { trackLicensedUser } from '../../lib/license.js';
 
 const PAGE_SIZE = 100;
 const MAX_TICKETS = 2000;
@@ -48,6 +49,8 @@ function mapUser(user) {
 }
 
 export async function dashboardAggregate(context) {
+  await trackLicensedUser(context);
+
   const config = await getInstallationConfig();
   const fieldRegistry = config.fieldRegistry || {};
   const archived = new Set(Array.isArray(config.archivedCanvases) ? config.archivedCanvases : []);

@@ -4,6 +4,7 @@ import { WhereConditions } from '@forge/kvs';
 import { provisionFields } from '../../lib/fields.js';
 import { getInstallationConfig, setInstallationConfig } from '../../lib/config.js';
 import { kvsGet, kvsSet, kvs } from '../../lib/kvs.js';
+import { trackLicensedUser } from '../../lib/license.js';
 import { generateSessionJwt } from '../../lib/tokens.js';
 import { errorResponse, errorResult } from '../../lib/errors.js';
 import { resolveWebtriggerUrls } from '../../lib/webtriggerUrls.js';
@@ -12,6 +13,7 @@ import { parsePinMarker } from '../../lib/pinMarker.js';
 import { SDK_VERSION } from '../../lib/version.js';
 
 const CANVAS_TOKEN_TTL_SECONDS = 2592000;
+const GUEST_TOKEN_TTL_DAYS = 365;
 const SESSION_TTL_SECONDS = 8 * 60 * 60;
 
 export async function runProvisionFields(context) {
@@ -68,6 +70,8 @@ async function computePermittedProjects(mode, canvasName, canvasFieldId) {
 }
 
 export async function generateCanvasToken(context, payload) {
+  await trackLicensedUser(context);
+
   const canvasName = payload && payload.canvasName;
   const scope = payload && payload.scope;
 
@@ -154,6 +158,86 @@ export async function generateCanvasToken(context, payload) {
       scope,
       permittedProjects,
       fieldRegistry: config.fieldRegistry || {},
+    },
+  };
+}
+
+export async function generateGuestToken(context, payload) {
+  await trackLicensedUser(context);
+
+  if (context && context.userAccess && context.userAccess.hasAccess === false) {
+    return errorResult('LICENSE_INACTIVE', 'JiraTack license is not active.');
+  }
+
+  const rawCanvases = payload && payload.permittedCanvases;
+  if (!Array.isArray(rawCanvases) || rawCanvases.length === 0) {
+    return errorResult('VALIDATION_ERROR', 'permittedCanvases must be a non-empty array of canvas names.');
+  }
+  if (rawCanvases.length > 50) {
+    return errorResult('VALIDATION_ERROR', 'permittedCanvases cannot contain more than 50 canvases.');
+  }
+
+  const permittedCanvases = [];
+  for (const rawCanvas of rawCanvases) {
+    const name = typeof rawCanvas === 'string' ? rawCanvas.trim() : '';
+    if (name.length === 0 || name.length > 255) {
+      return errorResult('VALIDATION_ERROR', 'Each permitted canvas must be a string between 1 and 255 characters.');
+    }
+    if (!permittedCanvases.includes(name)) permittedCanvases.push(name);
+  }
+
+  const config = await getInstallationConfig();
+
+  let permitted;
+  try {
+    permitted = await computePermittedProjects(config.viewPermissionMode, null, null);
+  } catch (e) {
+    return errorResult('INTERNAL', e && e.message ? e.message : String(e));
+  }
+  if (!permitted.ok) return permitted;
+
+  const issuer = (context && (context.accountId || context.userId)) || '';
+  const installationId = resolveInstallationId(context);
+  const token = crypto.randomBytes(32).toString('hex');
+  const issuedAt = Date.now();
+  const expiresAt = issuedAt + GUEST_TOKEN_TTL_DAYS * 24 * 60 * 60 * 1000;
+
+  const record = {
+    scope: 'guest_create',
+    issuer: String(issuer),
+    permittedCanvases,
+    permittedProjectsJson: JSON.stringify(permitted.permittedProjects),
+    installationId: String(installationId),
+    issuedAt,
+    expiresAt,
+    revoked: false,
+  };
+
+  try {
+    await kvsSet(`canvasTokens:${token}`, record, { ttl: { value: GUEST_TOKEN_TTL_DAYS, unit: 'DAYS' } });
+  } catch (e) {
+    return errorResult('INTERNAL', `Failed to persist guest token: ${e && e.message ? e.message : e}`);
+  }
+
+  let installUrl = null;
+  try {
+    ({ installUrl } = await resolveWebtriggerUrls(config));
+  } catch (e) {
+    installUrl = null;
+  }
+  const installerUrl = installUrl
+    ? `${installUrl}${installUrl.includes('?') ? '&' : '?'}token=${encodeURIComponent(token)}`
+    : null;
+
+  return {
+    ok: true,
+    data: {
+      token,
+      installerUrl,
+      scope: 'guest_create',
+      permittedCanvases,
+      permittedProjects: permitted.permittedProjects,
+      expiresAt,
     },
   };
 }
@@ -468,6 +552,8 @@ export async function recoverPinsFromDescriptions(context, payload) {
 const USER_TOKEN_TTL_DAYS = 90;
 
 export async function generateUserToken(context) {
+  await trackLicensedUser(context);
+
   const scope = (context && context.userAccess && context.userAccess.hasAccess === false) ? 'view' : 'create';
 
   const config = await getInstallationConfig();

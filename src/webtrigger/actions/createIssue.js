@@ -2,12 +2,20 @@ import api, { route } from '@forge/api';
 import { getInstallationConfig } from '../../lib/config.js';
 import { errorResult } from '../../lib/errors.js';
 import { normalizeUrl } from '../../shared/urlNormalize.js';
-import { canAccessProject } from '../middleware/scope.js';
+import { canAccessCanvas, canAccessProject } from '../middleware/scope.js';
+import { isLicensedUser } from '../../lib/license.js';
 
-function buildDescription(descriptionAdf, consoleLog, marker) {
+function buildDescription(descriptionAdf, consoleLog, marker, guest) {
   const content = descriptionAdf && Array.isArray(descriptionAdf.content)
     ? [...descriptionAdf.content]
     : [];
+
+  if (guest) {
+    content.unshift({
+      type: 'paragraph',
+      content: [{ type: 'text', text: `[Guest: ${guest.name} <${guest.email}>]` }],
+    });
+  }
 
   if (typeof consoleLog === 'string' && consoleLog.length > 0) {
     content.push(
@@ -150,6 +158,36 @@ export async function createIssue(payload, claims) {
     return errorResult('BAD_REQUEST', 'projectKey is required.');
   }
 
+  const isGuest = Boolean(claims && claims.scope === 'guest_create');
+  let guest = null;
+  const assigneeAccountId = (payload && payload.assigneeAccountId) || null;
+
+  if (isGuest) {
+    if (!canAccessCanvas(claims, canvasName)) {
+      return errorResult('INSUFFICIENT_SCOPE', 'This canvas is not available to you.');
+    }
+
+    const guestName = payload && payload.guestName;
+    const guestEmail = payload && payload.guestEmail;
+    if (typeof guestName !== 'string' || guestName.trim().length === 0) {
+      return errorResult('VALIDATION_ERROR', 'guestName is required.');
+    }
+    if (typeof guestEmail !== 'string' || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(guestEmail.trim())) {
+      return errorResult('VALIDATION_ERROR', 'A valid guestEmail is required.');
+    }
+    guest = {
+      name: guestName.trim().slice(0, 200),
+      email: guestEmail.trim().slice(0, 320),
+    };
+
+    if (typeof assigneeAccountId !== 'string' || assigneeAccountId.length === 0) {
+      return errorResult('VALIDATION_ERROR', 'assigneeAccountId is required when creating guest tickets.');
+    }
+    if (!(await isLicensedUser(assigneeAccountId))) {
+      return errorResult('VALIDATION_ERROR', 'Guest tickets must be assigned to a licensed JiraTack user.');
+    }
+  }
+
   if (!canAccessProject(claims.permittedProjects, projectKey)) {
     return errorResult('INSUFFICIENT_SCOPE', 'You cannot create pins in this project.');
   }
@@ -168,7 +206,7 @@ export async function createIssue(payload, claims) {
   const normalizedUrl = normalizeUrl(rawUrl);
   const summary = rawSummary.startsWith('[JiraTack]') ? rawSummary : `[JiraTack] ${rawSummary}`;
   const marker = buildPinMarker(canvasName, normalizedUrl, pinPosition, selector);
-  const description = buildDescription(payload.descriptionAdf, payload.consoleLog, marker);
+  const description = buildDescription(payload.descriptionAdf, payload.consoleLog, marker, guest);
   console.log('[JiraTack] Sending ADF:', JSON.stringify(description));
 
   const fields = {
@@ -176,11 +214,13 @@ export async function createIssue(payload, claims) {
     description,
     issuetype: { id: issueTypeId },
     project: { key: projectKey },
-    reporter: { accountId: claims.sub },
     labels: ['jiratack'],
     [fieldRegistry.canvasField]: canvasName,
     [fieldRegistry.pinField]: pinPosition,
   };
+  if (!isGuest) {
+    fields.reporter = { accountId: claims.sub };
+  }
   if (fieldRegistry.urlField) {
     fields[fieldRegistry.urlField] = normalizedUrl;
   }
@@ -191,8 +231,8 @@ export async function createIssue(payload, claims) {
   if (payload.priorityId) {
     fields.priority = { id: payload.priorityId };
   }
-  if (payload.assigneeAccountId) {
-    fields.assignee = { accountId: payload.assigneeAccountId };
+  if (assigneeAccountId) {
+    fields.assignee = { accountId: assigneeAccountId };
   }
   if (payload.parentKey) {
     fields.parent = { key: payload.parentKey };

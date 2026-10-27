@@ -62,13 +62,13 @@ export const handler = async (req, context) => {
     }
 
     if (action === 'getPinsForCanvasAndUrl') {
-      const auth = await authenticate(req, context, ['create', 'view', 'universal']);
+      const auth = await authenticate(req, context, ['create', 'view', 'universal', 'guest_create']);
       if (!auth.ok) return envelope(auth);
       return envelope(await getPinsForCanvasAndUrl(payload, auth.claims));
     }
 
     if (action === 'createIssue') {
-      const auth = await authenticate(req, context, ['create', 'universal']);
+      const auth = await authenticate(req, context, ['create', 'universal', 'guest_create']);
       if (!auth.ok) return envelope(auth);
       return envelope(await createIssue(payload, auth.claims));
     }
@@ -86,19 +86,19 @@ export const handler = async (req, context) => {
     }
 
     if (action === 'searchUsers') {
-      const auth = await authenticate(req, context, ['create', 'universal']);
+      const auth = await authenticate(req, context, ['create', 'universal', 'guest_create']);
       if (!auth.ok) return envelope(auth);
       return envelope(await searchUsers(payload, auth.claims));
     }
 
     if (action === 'getPriorities') {
-      const auth = await authenticate(req, context, ['create', 'universal']);
+      const auth = await authenticate(req, context, ['create', 'universal', 'guest_create']);
       if (!auth.ok) return envelope(auth);
       return envelope(await getPriorities(payload, auth.claims));
     }
 
     if (action === 'getIssueTypes') {
-      const auth = await authenticate(req, context, ['create', 'universal']);
+      const auth = await authenticate(req, context, ['create', 'universal', 'guest_create']);
       if (!auth.ok) return envelope(auth);
       return envelope(await getIssueTypes(payload, auth.claims), { okStatus: true });
     }

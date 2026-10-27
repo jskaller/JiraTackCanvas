@@ -4,7 +4,7 @@ import { errorResult } from '../../lib/errors.js';
 import { normalizeUrl } from '../../shared/urlNormalize.js';
 import { getEffectiveRetirementDays } from '../../lib/jql.js';
 import { parsePinMarker } from '../../lib/pinMarker.js';
-import { canAccessProject } from '../middleware/scope.js';
+import { canAccessCanvas, canAccessProject } from '../middleware/scope.js';
 
 const PAGE_SIZE = 100;
 const MAX_SCANNED = 2000;
@@ -63,6 +63,10 @@ export async function getPinsForCanvasAndUrl(payload, claims) {
   }
   if (typeof url !== 'string' || url.length === 0) {
     return errorResult('BAD_REQUEST', 'url is required.');
+  }
+
+  if (!canAccessCanvas(claims, canvasName)) {
+    return errorResult('INSUFFICIENT_SCOPE', 'This canvas is not available to you.');
   }
 
   const config = await getInstallationConfig();

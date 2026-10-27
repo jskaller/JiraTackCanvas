@@ -124,6 +124,46 @@ export async function exchangeToken(payload) {
     return errorResult('TOKEN_EXPIRED', 'Canvas token has expired.');
   }
 
+  if (record.scope === 'guest_create') {
+    const permittedCanvases = Array.isArray(record.permittedCanvases) ? record.permittedCanvases : [];
+    const issuer = record.issuer || '';
+
+    let permittedProjects = '*';
+    if (typeof record.permittedProjectsJson === 'string') {
+      try {
+        permittedProjects = JSON.parse(record.permittedProjectsJson);
+      } catch (e) {
+        permittedProjects = [];
+      }
+    }
+
+    const sessionJwt = await generateSessionJwt({
+      iss: 'jiratack',
+      sub: issuer,
+      aud: record.installationId,
+      scope: 'guest_create',
+      issuer,
+      permittedCanvases,
+      permittedProjects,
+      iat,
+      exp,
+    });
+
+    const config = await getInstallationConfig();
+    const displayName = await getDisplayName(issuer);
+    return commonResponse(config, {
+      sessionJwt,
+      expiresAt: exp * 1000,
+      canvasId: null,
+      canvasName: null,
+      scope: 'guest_create',
+      issuer,
+      permittedCanvases,
+      permittedProjects,
+      displayName,
+    });
+  }
+
   let permittedProjects;
   if (typeof record.permittedProjectsJson === 'string') {
     try {

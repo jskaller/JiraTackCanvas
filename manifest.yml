@@ -61,11 +61,15 @@ modules:
       handler: webtrigger/api.handler
     - key: webtrigger-sdk
       handler: webtrigger/sdk.handler
+    - key: webtrigger-install
+      handler: webtrigger/install.handler
   webtrigger:
     - key: jiratack-api
       function: webtrigger-api
     - key: jiratack-sdk
       function: webtrigger-sdk
+    - key: jiratack-install
+      function: webtrigger-install
 resources:
   - key: dashboard-ui
     path: dist/dashboard

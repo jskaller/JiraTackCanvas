@@ -4,6 +4,7 @@ export async function resolveWebtriggerUrls(config) {
   const cached = (config && config.webtriggerUrls) || {};
   let apiUrl = cached.api || null;
   let sdkUrl = cached.sdk || null;
+  let installUrl = cached.install || null;
 
   if (!apiUrl) {
     try {
@@ -19,5 +20,12 @@ export async function resolveWebtriggerUrls(config) {
       sdkUrl = null;
     }
   }
-  return { apiUrl, sdkUrl };
+  if (!installUrl) {
+    try {
+      installUrl = await webTrigger.getUrl('jiratack-install');
+    } catch (e) {
+      installUrl = null;
+    }
+  }
+  return { apiUrl, sdkUrl, installUrl };
 }
