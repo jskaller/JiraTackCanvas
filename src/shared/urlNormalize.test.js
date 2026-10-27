@@ -6,12 +6,18 @@ const vectors = [
   ['https://example.com/page/', 'https://example.com/page'],
   ['https://example.com/page#section', 'https://example.com/page'],
   ['https://Example.COM/Page', 'https://example.com/Page'],
-  ['https://example.com/page?utm_source=x&id=42', 'https://example.com/page?id=42'],
-  ['https://example.com/page?id=42&ref=twitter', 'https://example.com/page?id=42'],
-  ['https://example.com/page?id=42&a=1', 'https://example.com/page?a=1&id=42'],
+  ['https://example.com/page?cat=x', 'https://example.com/page'],
+  ['https://example.com/page?cat=y', 'https://example.com/page'],
+  ['https://example.com/page?id=42', 'https://example.com/page'],
+  ['https://example.com/page?utm_source=x&id=42#section', 'https://example.com/page'],
+  ['https://example.com/page/?cat=x', 'https://example.com/page'],
+  ['https://example.com/A', 'https://example.com/A'],
+  ['https://example.com/a', 'https://example.com/a'],
+  ['https://example.com/a/', 'https://example.com/a'],
   ['http://example.com/page', 'http://example.com/page'],
   ['https://example.com/', 'https://example.com/'],
-  ['https://example.com/page?b=2&a=1&c=3', 'https://example.com/page?a=1&b=2&c=3'],
+  ['https://example.com/?cat=x', 'https://example.com/'],
+  ['https://example.com:8443/a?x=1', 'https://example.com:8443/a'],
 ];
 
 let passed = 0;
