@@ -97,7 +97,9 @@ export function computePinPosition(element, clientX, clientY) {
 
 export function installPinMode(options = {}) {
   const { header, session, onCapture } = options;
-  if (!header || !session || (session.scope !== 'create' && session.scope !== 'universal')) return null;
+  const canCreate = session
+    && (session.scope === 'create' || session.scope === 'universal' || session.scope === 'guest_create');
+  if (!header || !canCreate) return null;
 
   const button = document.createElement('button');
   button.type = 'button';
