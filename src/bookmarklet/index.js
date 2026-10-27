@@ -8,11 +8,15 @@ import { captureScreenshot } from './screenshot.js';
 import { renderTicketForm } from './form.js';
 import { playDoneAnimation } from './done.js';
 import { installConsoleProxy, restoreConsoleProxy, clearConsoleBuffer } from './consoleProxy.js';
-import { normalizeUrl } from '../shared/urlNormalize.js';
+import { normalizeUrl, stripDeepLinkParams } from '../shared/urlNormalize.js';
 import styles from './styles.css?inline';
 
 const LOG_PREFIX = '[JiraTack]';
 let current = null;
+
+function getPageUrl() {
+  return normalizeUrl(stripDeepLinkParams(window.location.href));
+}
 
 function injectStyles() {
   if (document.getElementById('jiratack-styles')) return;
@@ -73,13 +77,11 @@ function handleFilterChange(filter) {
   renderPinsAndSidebar();
 }
 
-function stripDeepLinkParams() {
+function stripLocationDeepLinks() {
   try {
     const url = new URL(window.location.href);
     if (!url.searchParams.has('jiratack_ticket') && !url.searchParams.has('jiratack_canvas')) return;
-    url.searchParams.delete('jiratack_ticket');
-    url.searchParams.delete('jiratack_canvas');
-    window.history.replaceState({}, '', url.toString());
+    window.history.replaceState({}, '', stripDeepLinkParams(url.toString()));
   } catch (e) {
     // ignore
   }
@@ -172,7 +174,7 @@ async function handleCanvasSelect(canvasName) {
   renderPinsAndSidebar();
 
   try {
-    const data = await getPins(current.config, current.session, canvasName, window.location.href, true);
+    const data = await getPins(current.config, current.session, canvasName, getPageUrl(), true);
     if (!current) return;
     current.canvasName = (data && data.canvasName) || canvasName;
     current.pins = (data && data.pins) || [];
@@ -194,7 +196,7 @@ async function handleCreateCanvas() {
   const canvasName = entered.trim();
 
   try {
-    await createCanvas(current.config, current.session, canvasName, window.location.href);
+    await createCanvas(current.config, current.session, canvasName, getPageUrl());
     if (!current) return;
     const list = await listCanvasesForUser(current.config, current.session);
     if (!current) return;
@@ -262,7 +264,7 @@ async function handleCapture(capture) {
           selector: createdCapture.selector || null,
           issueType: null,
           createdAt: new Date().toISOString(),
-          url: normalizeUrl(window.location.href),
+          url: getPageUrl(),
         },
       ]);
       renderPinsAndSidebar();
@@ -337,7 +339,7 @@ async function init(config) {
   const deepCanvas = deepParams.get('jiratack_canvas');
   const deepTicket = deepParams.get('jiratack_ticket');
   if (deepCanvas || deepTicket) {
-    stripDeepLinkParams();
+    stripLocationDeepLinks();
   }
 
   try {
@@ -382,7 +384,7 @@ async function init(config) {
         window.__jiratackActiveCanvas = deepCanvas;
         current.canvasName = deepCanvas;
         try {
-          const data = await getPins(config, session, deepCanvas, window.location.href, true);
+          const data = await getPins(config, session, deepCanvas, getPageUrl(), true);
           if (current) {
             current.canvasName = (data && data.canvasName) || deepCanvas;
             current.pins = (data && data.pins) || [];
@@ -391,7 +393,7 @@ async function init(config) {
           console.error(`${LOG_PREFIX} Deep-link canvas load failed:`, e);
         }
       } else {
-        const pageUrl = normalizeUrl(window.location.href);
+        const pageUrl = getPageUrl();
         const matchingCanvases = current.canvases.filter((canvas) =>
           Array.isArray(canvas.urls) && canvas.urls.some((canvasUrl) => normalizeUrl(canvasUrl) === pageUrl),
         );
@@ -400,7 +402,7 @@ async function init(config) {
           const autoCanvasName = matchingCanvases[0].canvasName;
           window.__jiratackActiveCanvas = autoCanvasName;
           try {
-            const data = await getPins(config, session, autoCanvasName, window.location.href, true);
+            const data = await getPins(config, session, autoCanvasName, getPageUrl(), true);
             if (current) {
               current.canvasName = (data && data.canvasName) || autoCanvasName;
               current.pins = (data && data.pins) || [];
@@ -439,12 +441,12 @@ async function init(config) {
 
     let data;
     try {
-      data = await getPins(config, session, canvasId, window.location.href, true);
+      data = await getPins(config, session, canvasId, getPageUrl(), true);
     } catch (e) {
       if (e.code === 'TOKEN_EXPIRED' || e.code === 'TOKEN_INVALID') {
         session = await exchangeSession(config, { force: true });
         if (current) current.session = session;
-        data = await getPins(config, session, canvasId, window.location.href, true);
+        data = await getPins(config, session, canvasId, getPageUrl(), true);
       } else {
         throw e;
       }

@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { normalizeUrl } from './urlNormalize.js';
+import { normalizeUrl, stripDeepLinkParams } from './urlNormalize.js';
 
 const vectors = [
   ['https://example.com/page', 'https://example.com/page'],
@@ -18,6 +18,16 @@ const vectors = [
   ['https://example.com/', 'https://example.com/'],
   ['https://example.com/?cat=x', 'https://example.com/'],
   ['https://example.com:8443/a?x=1', 'https://example.com:8443/a'],
+  ['https://example.com/?jiratack_ticket=KAN-15', 'https://example.com/'],
+  ['https://example.com/page?jiratack_ticket=KAN-15', 'https://example.com/page'],
+];
+
+const stripVectors = [
+  ['https://example.com/', 'https://example.com/'],
+  ['https://example.com/?jiratack_ticket=KAN-15', 'https://example.com/'],
+  ['https://example.com/page?jiratack_ticket=KAN-15&foo=bar', 'https://example.com/page?foo=bar'],
+  ['https://example.com/page?jiratack_canvas=Q3&foo=bar', 'https://example.com/page?foo=bar'],
+  ['https://example.com/page?foo=bar', 'https://example.com/page?foo=bar'],
 ];
 
 let passed = 0;
@@ -35,5 +45,17 @@ for (const [input, expected] of vectors) {
   }
 }
 
-console.log(`\n${passed}/${vectors.length} passed, ${failed} failed`);
+for (const [input, expected] of stripVectors) {
+  const actual = stripDeepLinkParams(input);
+  try {
+    assert.equal(actual, expected);
+    passed += 1;
+    console.log(`PASS  strip ${input} -> ${actual}`);
+  } catch (e) {
+    failed += 1;
+    console.error(`FAIL  strip ${input}\n  expected: ${expected}\n  actual:   ${actual}`);
+  }
+}
+
+console.log(`\n${passed}/${vectors.length + stripVectors.length} passed, ${failed} failed`);
 process.exit(failed === 0 ? 0 : 1);

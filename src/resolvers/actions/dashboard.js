@@ -1,7 +1,7 @@
 import api, { route } from '@forge/api';
 import { getInstallationConfig } from '../../lib/config.js';
 import { errorResult } from '../../lib/errors.js';
-import { normalizeUrl } from '../../shared/urlNormalize.js';
+import { normalizeUrl, stripDeepLinkParams } from '../../shared/urlNormalize.js';
 import { parsePinMarker } from '../../lib/pinMarker.js';
 
 const PAGE_SIZE = 100;
@@ -139,7 +139,7 @@ export async function dashboardAggregate(context) {
 
         const urlValue = storedUrl || (marker && marker.url) || null;
         if (urlValue) {
-          const normalized = normalizeUrl(urlValue);
+          const normalized = normalizeUrl(stripDeepLinkParams(urlValue));
           entry.urls.set(normalized, (entry.urls.get(normalized) || 0) + 1);
         }
 

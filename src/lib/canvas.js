@@ -2,6 +2,7 @@ import { route } from '@forge/api';
 import { getInstallationConfig } from './config.js';
 import { errorResult } from './errors.js';
 import { appendPinMarker } from './pinMarker.js';
+import { normalizeUrl, stripDeepLinkParams } from '../shared/urlNormalize.js';
 
 function chooseProject(config, permittedProjects, projectKey) {
   if (projectKey) return projectKey;
@@ -64,7 +65,7 @@ export async function createSeedTicket(options) {
   }
 
   const url = typeof targetUrl === 'string' && targetUrl.trim().length > 0
-    ? targetUrl.trim()
+    ? normalizeUrl(stripDeepLinkParams(targetUrl.trim()))
     : 'https://example.com';
 
   const fields = {

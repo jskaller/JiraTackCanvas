@@ -1,3 +1,13 @@
+export const DEEP_LINK_PARAMS = ['jiratack_ticket', 'jiratack_canvas'];
+
+export function stripDeepLinkParams(input) {
+  if (!input) return '';
+  let u;
+  try { u = new URL(input); } catch { return String(input).trim(); }
+  for (const param of DEEP_LINK_PARAMS) u.searchParams.delete(param);
+  return u.toString();
+}
+
 export function normalizeUrl(input) {
   if (!input) return '';
   let u;

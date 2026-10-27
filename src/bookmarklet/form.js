@@ -1,5 +1,6 @@
 import { createIssue, getIssueTypes, getPriorities, searchUsers } from './api.js';
 import { serializeToAdf } from '../shared/adfSerializer.js';
+import { normalizeUrl, stripDeepLinkParams } from '../shared/urlNormalize.js';
 import { formatConsoleLog } from './consoleProxy.js';
 
 const PARENT_KEY_RE = /^[A-Z][A-Z0-9_]+-\d+$/;
@@ -427,7 +428,7 @@ export function renderTicketForm(container, options) {
     try {
       const result = await createIssue(config, session, {
         canvasId: config.canvasId,
-        url: window.location.href,
+        url: normalizeUrl(stripDeepLinkParams(window.location.href)),
         pinPosition: capture.pinPosition,
         selector: capture.selector || null,
         summary,
