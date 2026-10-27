@@ -882,7 +882,7 @@ Key points:
 
 - `permissions` is a top-level key; it must not be nested under `app`.
 
-- `external.fetch.backend` uses object syntax: `- address: "*.atlassian.net"`.
+- No `external` egress is declared. The backend makes no external fetch calls (all Jira traffic is `requestJira`); the `*.atlassian.net` egress entry was removed 2026-10-27 as unused. (Dynamic webtriggers remain, so the app is still not Runs-on-Atlassian eligible — see D16.)
 
 - `function.handler` paths are relative to `src/` and omit the `src/` prefix (e.g., `resolvers/index.handler`).
 

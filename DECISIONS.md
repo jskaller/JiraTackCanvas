@@ -53,6 +53,13 @@ Single decision log for JiraTack. Every open and resolved decision appears exact
 **Rejected alternatives:** Full-ADF replacement from the client (a bug could wipe the pin marker); summary/description read-only with "Edit in Jira" (weaker loop); guests create-only (rejected per user request).
 **Applies to:** CONTRACTS §3.4, §3.5, §3.6.
 
+### D16 — Runs on Atlassian eligibility
+
+**Status:** Resolved (2026-10-27)
+**Resolution:** The app is intentionally not Runs-on-Atlassian eligible. The unused `external.fetch.backend` egress declaration (`*.atlassian.net`) was removed from the manifest since the backend makes no external fetch calls. The three webtrigger modules stay `type: dynamic` because the product requires per-request dynamic responses (pin JSON, session JWTs, SDK bundle, installer page); static webtriggers only return manifest-declared fixed bodies and cannot serve these. No further action; the badge only matters for a future Marketplace listing.
+**Rejected alternatives:** Migrating to static webtriggers (breaks the bookmarklet API/SDK/installer architecture and all existing bookmark URLs).
+**Applies to:** CONTRACTS §10.1.
+
 ### D13 — SDK version source
 
 **Status:** Resolved (2026-10-23)

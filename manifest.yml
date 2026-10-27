@@ -12,10 +12,6 @@ permissions:
     - read:jira-user
     - manage:jira-project
     - manage:jira-configuration
-  external:
-    fetch:
-      backend:
-        - address: "*.atlassian.net"
 modules:
   jira:globalPage:
     - key: jiratack-dashboard
