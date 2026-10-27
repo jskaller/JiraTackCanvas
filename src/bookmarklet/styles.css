@@ -44,6 +44,23 @@
   background: var(--jiratack-pin-selected);
 }
 
+.jiratack-pin-pending {
+  z-index: 6;
+  border-style: dashed;
+  opacity: 0.9;
+  animation: jiratack-pin-pulse 1.2s ease-in-out infinite;
+}
+
+@keyframes jiratack-pin-pulse {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 rgba(255, 107, 107, 0.45);
+  }
+  50% {
+    box-shadow: 0 0 0 6px rgba(255, 107, 107, 0);
+  }
+}
+
 .jiratack-detached-cluster {
   position: absolute;
   top: 12px;

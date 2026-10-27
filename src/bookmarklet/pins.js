@@ -173,3 +173,63 @@ export function renderPins(container, pins, options = {}) {
 
   return { select, update, destroy, elementsByKey };
 }
+
+export function createPendingPin(container, capture) {
+  const el = document.createElement('div');
+  el.className = 'jiratack-pin jiratack-pin-pending';
+  el.title = 'Creating ticket…';
+  container.appendChild(el);
+
+  const placement = resolvePlacement({
+    selector: capture && capture.selector ? capture.selector : null,
+    pinPosition: capture && capture.pinPosition ? capture.pinPosition : null,
+  });
+
+  function update() {
+    if (placement.mode === 'selector') {
+      const rect = placement.element.getBoundingClientRect();
+      const x = rect.left + (placement.relX / 100) * rect.width;
+      const y = rect.top + (placement.relY / 100) * rect.height;
+      el.style.left = `${Math.round(x)}px`;
+      el.style.top = `${Math.round(y)}px`;
+    } else if (placement.mode === 'absolute') {
+      el.style.left = `${Math.round(placement.x - window.scrollX)}px`;
+      el.style.top = `${Math.round(placement.y - window.scrollY)}px`;
+    } else if (capture) {
+      el.style.left = `${Math.round(capture.clientX)}px`;
+      el.style.top = `${Math.round(capture.clientY)}px`;
+    }
+  }
+
+  let frame = null;
+  function scheduleUpdate() {
+    if (frame !== null) return;
+    frame = window.requestAnimationFrame(() => {
+      frame = null;
+      update();
+    });
+  }
+
+  window.addEventListener('scroll', scheduleUpdate, true);
+  window.addEventListener('resize', scheduleUpdate);
+  update();
+
+  return {
+    el,
+    setKey(key) {
+      if (!key) return;
+      el.dataset.key = key;
+      el.title = key;
+      el.classList.remove('jiratack-pin-pending');
+    },
+    destroy() {
+      window.removeEventListener('scroll', scheduleUpdate, true);
+      window.removeEventListener('resize', scheduleUpdate);
+      if (frame !== null) {
+        window.cancelAnimationFrame(frame);
+        frame = null;
+      }
+      el.remove();
+    },
+  };
+}

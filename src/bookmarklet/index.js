@@ -1,7 +1,7 @@
 import { exchangeSession, clearSession } from './auth.js';
 import { getPins, listCanvasesForUser, createCanvas } from './api.js';
 import { createOverlay, removeOverlay } from './overlay.js';
-import { renderPins } from './pins.js';
+import { renderPins, createPendingPin } from './pins.js';
 import { renderSidebar } from './sidebar.js';
 import { installPinMode } from './pinMode.js';
 import { captureScreenshot } from './screenshot.js';
@@ -75,6 +75,13 @@ function handleFilterChange(filter) {
   if (!current) return;
   current.filter = filter;
   renderPinsAndSidebar();
+}
+
+function clearPendingPin() {
+  if (current && current.pendingPin) {
+    current.pendingPin.destroy();
+    current.pendingPin = null;
+  }
 }
 
 function stripLocationDeepLinks() {
@@ -211,6 +218,9 @@ async function handleCapture(capture) {
   const { config, session, overlay } = current;
   const activeAtStart = current.canvasName;
 
+  clearPendingPin();
+  current.pendingPin = createPendingPin(overlay.overlayEl, capture);
+
   const screenshotDataUrl = await captureScreenshot(capture.clientX, capture.clientY);
   if (screenshotDataUrl) {
     console.log(`${LOG_PREFIX} Screenshot captured successfully`);
@@ -218,7 +228,10 @@ async function handleCapture(capture) {
     console.log(`${LOG_PREFIX} Screenshot failed`);
   }
 
-  if (!current || window.__jiratackActiveCanvas !== activeAtStart) return;
+  if (!current || window.__jiratackActiveCanvas !== activeAtStart) {
+    clearPendingPin();
+    return;
+  }
 
   const sortedPins = (current.pins || []).slice().sort((a, b) => {
     const aTime = a && a.createdAt ? Date.parse(a.createdAt) : 0;
@@ -243,10 +256,12 @@ async function handleCapture(capture) {
     defaultIssueTypeId,
     defaultPriorityId,
     onCancel: () => {
+      clearPendingPin();
       if (current && current.overlay) current.overlay.formEl.innerHTML = '';
     },
     onCreated: ({ result, capture: createdCapture, summary, projectKey, issueTypeId, priorityId }) => {
       if (!current) return;
+      clearPendingPin();
       current.pins = current.pins.concat([
         {
           key: result.key,
@@ -272,6 +287,7 @@ async function handleCapture(capture) {
 }
 
 function teardown(clearStoredSession) {
+  clearPendingPin();
   if (current) {
     try {
       if (current.pinModeController) current.pinModeController.destroy();
