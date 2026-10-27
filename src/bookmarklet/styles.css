@@ -184,13 +184,51 @@
 
 .jiratack-ticket-people {
   display: flex;
-  flex-direction: column;
-  gap: 1px;
+  flex-direction: row;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
 }
 
 .jiratack-person {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex: 1 1 0;
+  min-width: 0;
   font-size: 11px;
   color: #6b778c;
+}
+
+.jiratack-person-label {
+  flex: 0 0 auto;
+  color: #6b778c;
+}
+
+.jiratack-avatar {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  flex: 0 0 auto;
+  object-fit: cover;
+  background: #dfe1e6;
+}
+
+.jiratack-avatar-empty {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: #42526e;
+  font-size: 9px;
+  font-weight: 600;
+}
+
+.jiratack-person-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: #42526e;
 }
 
 .jiratack-empty {

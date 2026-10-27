@@ -38,7 +38,23 @@ function navigateToPin(pin, canvasName) {
 
 function addPerson(container, label, user) {
   const name = user && user.displayName ? user.displayName : '—';
-  container.appendChild(make('span', 'jiratack-person', `${label}: ${name}`));
+  const row = make('span', 'jiratack-person');
+  row.title = `${label}: ${name}`;
+  row.appendChild(make('span', 'jiratack-person-label', `${label}:`));
+
+  if (user && user.avatarUrl) {
+    const avatar = document.createElement('img');
+    avatar.className = 'jiratack-avatar';
+    avatar.src = user.avatarUrl;
+    avatar.alt = '';
+    row.appendChild(avatar);
+  } else {
+    const initial = name !== '—' ? name.trim().charAt(0).toUpperCase() : '–';
+    row.appendChild(make('span', 'jiratack-avatar jiratack-avatar-empty', initial));
+  }
+
+  row.appendChild(make('span', 'jiratack-person-name', name));
+  container.appendChild(row);
 }
 
 function isDone(pin) {
