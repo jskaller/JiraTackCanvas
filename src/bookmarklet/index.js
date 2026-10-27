@@ -12,7 +12,60 @@ import { normalizeUrl, stripDeepLinkParams } from '../shared/urlNormalize.js';
 import styles from './styles.css?inline';
 
 const LOG_PREFIX = '[JiraTack]';
+const SIDEBAR_WIDTH_PX = 360;
 let current = null;
+
+let savedHtmlMarginRight = null;
+let savedHtmlTransition = null;
+let savedBodyWidth = null;
+let pushLayoutApplied = false;
+
+function applyPushLayout() {
+  if (pushLayoutApplied) return;
+  try {
+    const htmlEl = document.documentElement;
+    const bodyEl = document.body;
+    if (!htmlEl || !bodyEl) return;
+    savedHtmlMarginRight = htmlEl.style.marginRight;
+    savedHtmlTransition = htmlEl.style.transition;
+    savedBodyWidth = bodyEl.style.width;
+
+    // Fixed-width bodies would otherwise overflow once the margin reserves
+    // space for the sidebar. Measure before applying the margin, while the
+    // body width still reflects the unmodified viewport.
+    const bodyWidthPx = Number.parseFloat(window.getComputedStyle(bodyEl).width);
+    if (Number.isFinite(bodyWidthPx) && bodyWidthPx > htmlEl.clientWidth) {
+      bodyEl.style.width = `calc(100% - ${SIDEBAR_WIDTH_PX}px)`;
+    }
+
+    htmlEl.style.transition = 'margin-right 0.2s ease-in-out';
+    htmlEl.style.marginRight = `${SIDEBAR_WIDTH_PX}px`;
+    pushLayoutApplied = true;
+  } catch (e) {
+    // ignore — overlay still works, the sidebar just covers content
+  }
+}
+
+function restorePushLayout() {
+  if (!pushLayoutApplied) return;
+  try {
+    const htmlEl = document.documentElement;
+    const bodyEl = document.body;
+    if (htmlEl) {
+      htmlEl.style.marginRight = savedHtmlMarginRight || '';
+      htmlEl.style.transition = savedHtmlTransition || '';
+    }
+    if (bodyEl) {
+      bodyEl.style.width = savedBodyWidth || '';
+    }
+  } catch (e) {
+    // ignore
+  }
+  pushLayoutApplied = false;
+  savedHtmlMarginRight = null;
+  savedHtmlTransition = null;
+  savedBodyWidth = null;
+}
 
 function getPageUrl() {
   return normalizeUrl(stripDeepLinkParams(window.location.href));
@@ -454,6 +507,7 @@ async function handleCapture(capture) {
 }
 
 function teardown(clearStoredSession) {
+  restorePushLayout();
   cancelHydration();
   clearPendingPin();
   if (current) {
@@ -537,6 +591,7 @@ async function init(config) {
     const isLauncher = config.canvasId === 'universal';
     overlay = createOverlay();
     removeBootstrapLoading();
+    applyPushLayout();
 
     current = {
       config,
