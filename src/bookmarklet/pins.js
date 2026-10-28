@@ -37,7 +37,6 @@ function resolvePlacement(pin) {
 
 export function renderPins(container, pins, options = {}) {
   const onSelect = options.onSelect;
-  const zoom = Number.isFinite(options.zoom) && options.zoom > 0 ? options.zoom : 1;
   const currentUrl = normalizeUrl(stripDeepLinkParams(options.pageUrl || window.location.href));
   const visiblePins = (Array.isArray(pins) ? pins : []).filter(
     (pin) => pin && pin.url && normalizeUrl(pin.url) === currentUrl,
@@ -107,8 +106,8 @@ export function renderPins(container, pins, options = {}) {
       } else if (placement.mode === 'absolute') {
         positioned.push({
           el,
-          x: placement.x * zoom - window.scrollX,
-          y: placement.y * zoom - window.scrollY,
+          x: placement.x - window.scrollX,
+          y: placement.y - window.scrollY,
         });
       }
     });
@@ -187,12 +186,11 @@ export function renderPins(container, pins, options = {}) {
   return { select, update, updatePin, destroy, elementsByKey };
 }
 
-export function createPendingPin(container, capture, zoom = 1) {
+export function createPendingPin(container, capture) {
   const el = document.createElement('div');
   el.className = 'jiratack-pin jiratack-pin-pending';
   el.title = 'Creating ticket…';
   container.appendChild(el);
-  const factor = Number.isFinite(zoom) && zoom > 0 ? zoom : 1;
 
   const placement = resolvePlacement({
     selector: capture && capture.selector ? capture.selector : null,
@@ -207,8 +205,8 @@ export function createPendingPin(container, capture, zoom = 1) {
       el.style.left = `${Math.round(x)}px`;
       el.style.top = `${Math.round(y)}px`;
     } else if (placement.mode === 'absolute') {
-      el.style.left = `${Math.round(placement.x * factor - window.scrollX)}px`;
-      el.style.top = `${Math.round(placement.y * factor - window.scrollY)}px`;
+      el.style.left = `${Math.round(placement.x - window.scrollX)}px`;
+      el.style.top = `${Math.round(placement.y - window.scrollY)}px`;
     } else if (capture) {
       el.style.left = `${Math.round(capture.clientX)}px`;
       el.style.top = `${Math.round(capture.clientY)}px`;

@@ -80,9 +80,8 @@ export function generateSelector(element) {
   return isUniqueSelector(byPath, element) ? byPath : null;
 }
 
-export function computePinPosition(element, clientX, clientY, zoom = 1) {
+export function computePinPosition(element, clientX, clientY) {
   const selector = generateSelector(element);
-  const factor = Number.isFinite(zoom) && zoom > 0 ? zoom : 1;
 
   if (selector) {
     const rect = element.getBoundingClientRect();
@@ -91,13 +90,13 @@ export function computePinPosition(element, clientX, clientY, zoom = 1) {
     return { selector, pinPosition: `${relX.toFixed(1)},${relY.toFixed(1)}` };
   }
 
-  const absX = Math.round((clientX + window.scrollX) / factor);
-  const absY = Math.round((clientY + window.scrollY) / factor);
+  const absX = Math.round(clientX + window.scrollX);
+  const absY = Math.round(clientY + window.scrollY);
   return { selector: null, pinPosition: `${absX},${absY}` };
 }
 
 export function installPinMode(options = {}) {
-  const { header, session, onCapture, getZoom } = options;
+  const { header, session, onCapture } = options;
   const canCreate = session
     && (session.scope === 'create' || session.scope === 'universal' || session.scope === 'guest_create');
   if (!header || !canCreate) return null;
@@ -153,8 +152,7 @@ export function installPinMode(options = {}) {
     event.preventDefault();
     event.stopPropagation();
 
-    const zoom = typeof getZoom === 'function' ? getZoom() : 1;
-    const result = computePinPosition(target, event.clientX, event.clientY, zoom);
+    const result = computePinPosition(target, event.clientX, event.clientY);
     const consoleSnapshot = getBufferSnapshot();
     const elementTag = target.tagName.toLowerCase();
 

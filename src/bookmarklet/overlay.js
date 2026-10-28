@@ -29,7 +29,9 @@ export function createOverlay() {
   overlay.appendChild(sidebar);
   overlay.appendChild(toast);
 
-  document.body.appendChild(overlay);
+  // Mount on <html> rather than <body> so the Fit-page transform:scale on
+  // <body> never scales the overlay, and so position:fixed stays viewport-anchored.
+  document.documentElement.appendChild(overlay);
   overlayEl = overlay;
 
   return {

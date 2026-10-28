@@ -1347,7 +1347,7 @@ All of 6.1–6.14 pass. Commit: `feat(s6): epic panel, issue panel, field audit,
 ### 7.17 Layout toggle — Actual size vs Fit page (D17)
 
 - Default mode is Actual size; the "Fit to sidebar" switch in its own row above the ticket filter switches to Fit page and persists across reopen.
-- Fit on a rigid-header page (Montefiore): assert the "Call us today" button is visible beside the sidebar; assert page scrolls normally.
+- Fit on a rigid-header page (Montefiore): assert the "Call us today" button is visible beside the sidebar; assert page scrolls normally; assert no horizontal scrollbar.
 - Pin in Fit mode (selector + absolute), toggle to Actual size: assert pins stay on their targets; screenshot crop stays centered on the pin.
 - Narrow the window until zoom would drop below 0.5: assert automatic fallback to Actual size with a toast.
 - Close in each mode: assert exact original layout (no residual margin, zoom, translate, or style tag; `__jiratackLayoutDebug()` confirms).
