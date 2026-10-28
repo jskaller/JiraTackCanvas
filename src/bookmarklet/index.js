@@ -294,9 +294,61 @@ function scrollPairIntoView(key) {
 
 function select(key) {
   if (!current) return;
+  current.selectedKey = key;
   if (current.pinsController) current.pinsController.select(key);
   if (current.sidebarController) current.sidebarController.select(key);
   scrollPairIntoView(key);
+}
+
+function handlePinHover(pin) {
+  if (!current || !current.sidebarController || !current.sidebarController.setHover) return;
+  current.sidebarController.setHover(pin ? pin.key : null);
+}
+
+function handleCardHover(pin) {
+  if (!current || !current.pinsController || !current.pinsController.setHover) return;
+  current.pinsController.setHover(pin ? pin.key : null);
+}
+
+const WALK_DIRECTION = { ArrowDown: 1, ArrowUp: -1 };
+
+function isInteractiveTarget(el) {
+  if (!el || !el.closest) return false;
+  return Boolean(el.closest('input, textarea, select, a, button, [contenteditable="true"]'));
+}
+
+function handleSidebarMouseDown(event) {
+  if (isInteractiveTarget(event.target)) return;
+  const sidebar = event.currentTarget;
+  try {
+    sidebar.focus({ preventScroll: true });
+  } catch (e) {
+    sidebar.focus();
+  }
+}
+
+function handleSidebarKeydown(event) {
+  if (!current) return;
+  if (event.defaultPrevented) return;
+  if (event.altKey || event.ctrlKey || event.metaKey) return;
+  const direction = WALK_DIRECTION[event.key];
+  if (!direction) return;
+  if (isInteractiveTarget(event.target)) return;
+
+  const keys = current.sidebarController && current.sidebarController.getKeys
+    ? current.sidebarController.getKeys()
+    : [];
+  if (keys.length === 0) return;
+
+  event.preventDefault();
+  const index = keys.indexOf(current.selectedKey);
+  let next;
+  if (index === -1) {
+    next = direction > 0 ? 0 : keys.length - 1;
+  } else {
+    next = Math.min(keys.length - 1, Math.max(0, index + direction));
+  }
+  select(keys[next]);
 }
 
 function handleDone({ pin, cardEl }) {
@@ -445,6 +497,7 @@ function renderPinsAndSidebar() {
   current.pinsController = renderPins(overlay.pinsEl, current.pins, {
     pageUrl,
     onSelect: (pin) => select(pin.key),
+    onHover: handlePinHover,
   });
 
   const canvasSelector = universal
@@ -485,6 +538,7 @@ function renderPinsAndSidebar() {
     onToast: showToast,
     onDone: handleDone,
     onEditStart: handleEditStart,
+    onHover: handleCardHover,
     layoutMode: current.layoutMode || 'push',
     onLayoutModeChange: handleLayoutModeChange,
     canvasSelector,
@@ -678,6 +732,9 @@ async function handleCapture(capture) {
       ]);
       renderPinsAndSidebar();
       scheduleHydration(result.key);
+      if (current.pinsController && current.pinsController.flash) {
+        current.pinsController.flash(result.key);
+      }
       showToast(`Created ${result.key}`);
     },
   });
@@ -770,6 +827,9 @@ async function init(config) {
     removeBootstrapLoading();
     debugConfig = config;
     console.log(`${LOG_PREFIX} SDK ${config.sdkVersion || 'unknown'} ready`);
+    overlay.sidebarEl.tabIndex = -1;
+    overlay.sidebarEl.addEventListener('mousedown', handleSidebarMouseDown);
+    overlay.sidebarEl.addEventListener('keydown', handleSidebarKeydown);
 
     current = {
       config,
@@ -790,6 +850,7 @@ async function init(config) {
       fixedShift: null,
       fitScale: null,
       layoutMode: null,
+      selectedKey: null,
       hydrationKeys: new Set(),
       hydrationToken: 0,
       hydrationRunning: false,

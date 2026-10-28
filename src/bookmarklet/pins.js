@@ -1,7 +1,11 @@
 import { normalizeUrl, stripDeepLinkParams } from '../shared/urlNormalize.js';
 
 const SELECTED_CLASS = 'jiratack-pin-selected';
+const HOVERED_CLASS = 'jiratack-pin-hovered';
+const PING_CLASS = 'jiratack-pin-ping';
+const ARRIVE_CLASS = 'jiratack-pin-arrive';
 const COLLISION_RADIUS = 14;
+const SELECTED_Z_INDEX = 9999;
 
 function parsePair(value) {
   if (typeof value !== 'string') return null;
@@ -37,6 +41,7 @@ function resolvePlacement(pin) {
 
 export function renderPins(container, pins, options = {}) {
   const onSelect = options.onSelect;
+  const onHover = options.onHover;
   const currentUrl = normalizeUrl(stripDeepLinkParams(options.pageUrl || window.location.href));
   const visiblePins = (Array.isArray(pins) ? pins : []).filter(
     (pin) => pin && pin.url && normalizeUrl(pin.url) === currentUrl,
@@ -53,6 +58,7 @@ export function renderPins(container, pins, options = {}) {
   const elementsByKey = new Map();
   const entriesByKey = new Map();
   let detachedCount = 0;
+  let selectedKey = null;
 
   visiblePins.forEach((pin) => {
     const placement = resolvePlacement(pin);
@@ -70,9 +76,11 @@ export function renderPins(container, pins, options = {}) {
     el.appendChild(hover);
     el.addEventListener('mouseenter', () => {
       hover.classList.add('jiratack-pin-hover-visible');
+      if (onHover) onHover(pin);
     });
     el.addEventListener('mouseleave', () => {
       hover.classList.remove('jiratack-pin-hover-visible');
+      if (onHover) onHover(null);
     });
     el.addEventListener('click', (event) => {
       event.stopPropagation();
@@ -97,15 +105,16 @@ export function renderPins(container, pins, options = {}) {
   function update() {
     const positioned = [];
 
-    entries.forEach(({ el, placement }) => {
+    entries.forEach(({ el, pin, placement }) => {
       if (placement.mode === 'selector') {
         const rect = placement.element.getBoundingClientRect();
         const x = rect.left + (placement.relX / 100) * rect.width;
         const y = rect.top + (placement.relY / 100) * rect.height;
-        positioned.push({ el, x, y });
+        positioned.push({ el, pin, x, y });
       } else if (placement.mode === 'absolute') {
         positioned.push({
           el,
+          pin,
           x: placement.x - window.scrollX,
           y: placement.y - window.scrollY,
         });
@@ -124,7 +133,7 @@ export function renderPins(container, pins, options = {}) {
         const item = bucket[0];
         item.el.style.left = `${Math.round(item.x)}px`;
         item.el.style.top = `${Math.round(item.y)}px`;
-        item.el.style.zIndex = '';
+        item.el.style.zIndex = item.pin.key === selectedKey ? String(SELECTED_Z_INDEX) : '';
         return;
       }
 
@@ -132,7 +141,7 @@ export function renderPins(container, pins, options = {}) {
         if (index === 0) {
           item.el.style.left = `${Math.round(item.x)}px`;
           item.el.style.top = `${Math.round(item.y)}px`;
-          item.el.style.zIndex = '1';
+          item.el.style.zIndex = item.pin.key === selectedKey ? String(SELECTED_Z_INDEX) : '1';
           return;
         }
 
@@ -140,7 +149,9 @@ export function renderPins(container, pins, options = {}) {
         const ring = COLLISION_RADIUS + Math.floor((index - 1) / 6) * COLLISION_RADIUS;
         item.el.style.left = `${Math.round(item.x + Math.cos(angle) * ring)}px`;
         item.el.style.top = `${Math.round(item.y + Math.sin(angle) * ring)}px`;
-        item.el.style.zIndex = String(index + 1);
+        item.el.style.zIndex = item.pin.key === selectedKey
+          ? String(SELECTED_Z_INDEX)
+          : String(index + 1);
       });
     });
   }
@@ -158,10 +169,48 @@ export function renderPins(container, pins, options = {}) {
   window.addEventListener('resize', scheduleUpdate);
   update();
 
+  function triggerPing(el) {
+    el.classList.remove(PING_CLASS);
+    // Force a reflow so re-selecting replays the one-shot animation.
+    void el.offsetWidth;
+    el.classList.add(PING_CLASS);
+    window.setTimeout(() => {
+      el.classList.remove(PING_CLASS);
+    }, 700);
+  }
+
   function select(key) {
+    const changed = key !== selectedKey;
+    selectedKey = key;
     elementsByKey.forEach((el, elKey) => {
-      el.classList.toggle(SELECTED_CLASS, elKey === key);
+      const isSelected = elKey === key;
+      el.classList.toggle(SELECTED_CLASS, isSelected);
+      if (!isSelected) el.classList.remove(PING_CLASS);
     });
+    if (changed && key && elementsByKey.has(key)) {
+      triggerPing(elementsByKey.get(key));
+    }
+    scheduleUpdate();
+  }
+
+  function setHover(key) {
+    entriesByKey.forEach((entry, elKey) => {
+      const on = elKey === key;
+      entry.el.classList.toggle(HOVERED_CLASS, on);
+      entry.hover.classList.toggle('jiratack-pin-hover-visible', on);
+    });
+  }
+
+  function flash(key) {
+    const entry = entriesByKey.get(key);
+    if (!entry) return false;
+    entry.el.classList.remove(ARRIVE_CLASS);
+    void entry.el.offsetWidth;
+    entry.el.classList.add(ARRIVE_CLASS);
+    window.setTimeout(() => {
+      entry.el.classList.remove(ARRIVE_CLASS);
+    }, 1200);
+    return true;
   }
 
   function updatePin(pin) {
@@ -183,7 +232,7 @@ export function renderPins(container, pins, options = {}) {
     }
   }
 
-  return { select, update, updatePin, destroy, elementsByKey };
+  return { select, update, updatePin, setHover, flash, destroy, elementsByKey };
 }
 
 export function createPendingPin(container, capture) {

@@ -108,7 +108,7 @@ function makeCloseButton() {
 }
 
 export function renderSidebar(container, options) {
-  const { canvasName, session, pins, config, onSelect, onToast, onDone, onEditStart } = options;
+  const { canvasName, session, pins, config, onSelect, onToast, onDone, onEditStart, onHover } = options;
   const activeFilter = options.filter || 'all';
   const pageUrl = options.pageUrl || '';
   const loadingLabel = options.loadingLabel || '';
@@ -301,6 +301,13 @@ export function renderSidebar(container, options) {
     keyEl.rel = 'noopener noreferrer';
     keyEl.addEventListener('click', (event) => event.stopPropagation());
 
+    card.addEventListener('mouseenter', () => {
+      if (onHover) onHover(pin);
+    });
+    card.addEventListener('mouseleave', () => {
+      if (onHover) onHover(null);
+    });
+
     const summaryEl = make('div', 'jiratack-ticket-summary', pin.summary || '');
     const metaEl = make('div', 'jiratack-ticket-meta');
     const peopleEl = make('div', 'jiratack-ticket-people');
@@ -468,6 +475,18 @@ export function renderSidebar(container, options) {
     return true;
   }
 
+  function setHover(key) {
+    cards.forEach((card, cardKey) => {
+      card.classList.toggle('jiratack-ticket-hovered', cardKey === key);
+    });
+  }
+
+  function getKeys() {
+    return Array.from(container.querySelectorAll('.jiratack-ticket-card'))
+      .map((el) => el.dataset.key)
+      .filter(Boolean);
+  }
+
   function destroy() {
     controllers.forEach((controller) => {
       try {
@@ -480,5 +499,5 @@ export function renderSidebar(container, options) {
     cardControllers.clear();
   }
 
-  return { select, updatePin, destroy };
+  return { select, updatePin, setHover, getKeys, destroy };
 }
