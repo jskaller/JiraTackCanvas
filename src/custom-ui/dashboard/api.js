@@ -38,9 +38,14 @@ export function formatDate(value) {
   return date.toLocaleString();
 }
 
-export function buildJqlUrl(jiraBaseUrl, canvasName) {
+export function buildJqlUrl(jiraBaseUrl, canvasName, projectKeys) {
   if (!jiraBaseUrl) return null;
-  const escapedCanvas = String(canvasName).replace(/\\/g, '\\\\').replace(/"/g, '\\"');
-  const jql = `labels = "jiratack" AND text ~ "${escapedCanvas}"`;
+  const keys = Array.isArray(projectKeys)
+    ? projectKeys.filter((key) => typeof key === 'string' && key.length > 0)
+    : [];
+  let jql = 'labels = "jiratack"';
+  if (keys.length > 0) {
+    jql += ` AND project in (${keys.map((key) => `"${key.replace(/"/g, '\\"')}"`).join(', ')})`;
+  }
   return `${String(jiraBaseUrl).replace(/\/$/, '')}/issues/?jql=${encodeURIComponent(jql)}`;
 }

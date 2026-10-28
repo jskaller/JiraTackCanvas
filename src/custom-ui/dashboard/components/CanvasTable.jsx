@@ -132,7 +132,7 @@ export default function CanvasTable({ canvases, onOpenJira, onDelete, onArchive,
                   <Participants participants={canvas.participants} />
                 </td>
                 <td className="jt-actions">
-                  <button type="button" className="jt-button" onClick={() => onOpenJira(canvas.canvasName)}>
+                  <button type="button" className="jt-button" onClick={() => onOpenJira(canvas)}>
                     Review All Tickets
                   </button>
                   {archivedView ? (

@@ -83,6 +83,13 @@ export async function updateIssue(payload, claims) {
       body: JSON.stringify({ transition: { id: input.statusId } }),
     });
     if (!res.ok) {
+      let detail = '';
+      try {
+        detail = await res.text();
+      } catch (e) {
+        detail = '';
+      }
+      console.error('[JiraTack] transition failed:', issueKey, input.statusId, res.status, detail.slice(0, 400));
       if (res.status === 400) {
         return errorResult('VALIDATION_ERROR', 'Jira rejected the transition.');
       }
@@ -91,21 +98,42 @@ export async function updateIssue(payload, claims) {
   }
 
   if (Object.keys(updateFields).length > 0) {
-    const res = await api.asApp().requestJira(
+    const headers = { 'Content-Type': 'application/json' };
+    const body = JSON.stringify({ fields: updateFields });
+
+    let res = await api.asApp().requestJira(
       route`/rest/api/3/issue/${issueKey}?overrideScreenSecurity=true&overrideEditableFlag=true`,
-      {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ fields: updateFields }),
-      },
+      { method: 'PUT', headers, body },
     );
+
+    let detail = '';
     if (!res.ok) {
-      let detail = '';
       try {
         detail = await res.text();
       } catch (e) {
         detail = '';
       }
+    }
+
+    // Team-managed projects reject the override flags; retry a plain update.
+    if (!res.ok && (res.status === 400 || res.status === 403)) {
+      console.error('[JiraTack] updateIssue override failed, retrying plain:', issueKey, res.status, detail.slice(0, 300));
+      res = await api.asApp().requestJira(route`/rest/api/3/issue/${issueKey}`, {
+        method: 'PUT',
+        headers,
+        body,
+      });
+      detail = '';
+      if (!res.ok) {
+        try {
+          detail = await res.text();
+        } catch (e) {
+          detail = '';
+        }
+      }
+    }
+
+    if (!res.ok) {
       console.error('[JiraTack] updateIssue failed:', issueKey, Object.keys(updateFields), res.status, detail);
       if (res.status === 400) {
         return errorResult('VALIDATION_ERROR', 'Jira rejected the issue update.', { raw: detail.slice(0, 500) });

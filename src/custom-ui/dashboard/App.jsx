@@ -74,10 +74,10 @@ export default function App() {
     setUniversalLoading(false);
   }
 
-  function handleOpenJira(canvasName) {
-    const url = buildJqlUrl(jiraBaseUrl, canvasName);
+  function handleOpenJira(canvas) {
+    const url = buildJqlUrl(jiraBaseUrl, canvas && canvas.canvasName, canvas && canvas.projectKeys);
     if (!url) {
-      setActionError({ canvasName, message: 'Jira base URL is unavailable.' });
+      setActionError({ canvasName: canvas && canvas.canvasName, message: 'Jira base URL is unavailable.' });
       return;
     }
     router.open(url);
