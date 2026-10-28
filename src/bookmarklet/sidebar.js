@@ -384,13 +384,22 @@ export function renderSidebar(container, options) {
       const pinUrl = pin.url ? normalizeUrl(pin.url) : null;
       const currentUrl = normalizeUrl(window.location.href);
       if (pinUrl && pinUrl !== currentUrl) {
-        const delay = options.onBeforeNavigate ? options.onBeforeNavigate(pin) : 0;
-        if (delay > 0) {
-          window.setTimeout(() => {
-            navigateToPin(pin, canvasName);
-          }, delay);
-        } else {
+        let timer = null;
+        let navigated = false;
+        const proceed = () => {
+          if (navigated) return;
+          navigated = true;
+          if (timer) {
+            window.clearTimeout(timer);
+            timer = null;
+          }
           navigateToPin(pin, canvasName);
+        };
+        const delay = options.onBeforeNavigate ? options.onBeforeNavigate(pin, proceed) : 0;
+        if (delay > 0) {
+          timer = window.setTimeout(proceed, delay);
+        } else {
+          proceed();
         }
         return;
       }

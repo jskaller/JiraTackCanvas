@@ -347,26 +347,44 @@ function restoreNavFilter(canvasName) {
   return state.filter === 'page' ? 'page' : 'all';
 }
 
-const CROSS_PAGE_NOTICE_MS = 1500;
+const CROSS_PAGE_NOTICE_MS = 3000;
 
-function showPageNotice(message, durationMs) {
+function showPageNotice(message, durationMs, onProceed) {
   if (!message) return null;
   const host = document.getElementById('jiratack-overlay') || document.body;
   if (!host) return null;
   const notice = document.createElement('div');
   notice.className = 'jiratack-page-notice';
-  notice.setAttribute('role', 'status');
-  notice.setAttribute('aria-live', 'polite');
   notice.textContent = message;
+  if (typeof onProceed === 'function') {
+    notice.classList.add('jiratack-page-notice-clickable');
+    notice.setAttribute('role', 'button');
+    notice.tabIndex = 0;
+    notice.addEventListener('click', (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      onProceed();
+    });
+    notice.addEventListener('keydown', (event) => {
+      if (event.key === 'Enter' || event.key === ' ') {
+        event.preventDefault();
+        event.stopPropagation();
+        onProceed();
+      }
+    });
+  } else {
+    notice.setAttribute('role', 'status');
+    notice.setAttribute('aria-live', 'polite');
+  }
   host.appendChild(notice);
-  const lifetime = (typeof durationMs === 'number' ? durationMs : CROSS_PAGE_NOTICE_MS) + 700;
+  const lifetime = (typeof durationMs === 'number' ? durationMs : CROSS_PAGE_NOTICE_MS) + 800;
   window.setTimeout(() => {
     notice.remove();
   }, lifetime);
   return notice;
 }
 
-function handleBeforeNavigate(pin) {
+function handleBeforeNavigate(pin, proceed) {
   if (!current) return 0;
   saveNavState({
     canvasName: current.canvasName,
@@ -377,6 +395,7 @@ function handleBeforeNavigate(pin) {
   showPageNotice(
     `Opening ${label}. This is on another page. You will need to re-open the JiraTack bookmark to continue.`,
     CROSS_PAGE_NOTICE_MS,
+    proceed,
   );
   return CROSS_PAGE_NOTICE_MS;
 }
