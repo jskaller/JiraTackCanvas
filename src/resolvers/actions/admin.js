@@ -166,11 +166,10 @@ export async function generateCanvasToken(context, payload) {
 }
 
 export async function generateGuestToken(context, payload) {
-  const denied = await requireAdmin(context, 'Only Jira admins can create guest links.');
-  if (denied) return denied;
-
   await trackLicensedUser(context);
 
+  // A guest link is mintable by any user holding a JiraTack seat, not just
+  // site admins; the seat is the authorisation boundary.
   if (context && context.userAccess && context.userAccess.hasAccess === false) {
     return errorResult('LICENSE_INACTIVE', 'JiraTack license is not active.');
   }

@@ -395,8 +395,8 @@ Resolvers are invoked from app UI that **any logged-in site user can open**, so 
 
 | Resolver | Caller |
 | --- | --- |
-| `getInstallationConfig`, `setInstallationConfig`, `getProjectConfig`, `setProjectConfig`, `generateGuestToken`, `listCanvasTokens`, `revokeCanvasToken`, `deleteCanvas`, `archiveCanvas` | **Jira admin only** → else `INSUFFICIENT_SCOPE` |
-| `generateCanvasToken`, `generateUserToken`, `createCanvas`, `dashboardAggregate`, `epicPanelData`, `issuePanelData` | Any licensed user (Jira's own browse/create permissions still apply, since these run `asUser()` or per-canvas checks) |
+| `getInstallationConfig`, `setInstallationConfig`, `getProjectConfig`, `setProjectConfig`, `listCanvasTokens`, `revokeCanvasToken`, `deleteCanvas`, `archiveCanvas` | **Jira admin only** → else `INSUFFICIENT_SCOPE` |
+| `generateCanvasToken`, `generateUserToken`, `generateGuestToken`, `createCanvas`, `dashboardAggregate`, `epicPanelData`, `issuePanelData` | Any user holding a **JiraTack seat** (Jira's own project permissions still apply). A missing seat returns `LICENSE_INACTIVE` where enforced |
 
 Canvas **creation** is deliberately open (it is additive, and Jira enforces project create permission); **deletion/archival** is admin-only.
 
@@ -508,14 +508,16 @@ Payload: { tokenRef?: string, token?: string }
 - `revokeCanvasToken` resolves `tokenRef` back to the KVS key by scanning `canvasTokens:*` (cap 1000); `token` is still accepted for programmatic callers.
 - Revoking deletes the record, so new `exchangeToken` calls fail immediately; live session JWTs remain valid until expiry (Part 2.2). The SDK now re-exchanges on `TOKEN_EXPIRED`/`TOKEN_INVALID` (§5.x), which bounds the practical window.
 
-### 4.5c `generateGuestToken` — admin only (D19)
+### 4.5c `generateGuestToken` — seat-licensed (D19)
 
 ```text
 generateGuestToken(context, payload) → { ok, data: { token, installerUrl, scope: "guest_create", permittedCanvases, permittedProjects, expiresAt } }
 Payload: { permittedCanvases: string[] }   // 1–50 entries, each ≤255 chars
 ```
 
-Requires Jira admin: a guest link is a 365-day bearer credential whose session JWT carries the **issuer's** browse access, so it cannot be mintable by any user. `permittedProjects` is frozen at issuance (Part 4.1 step 2 with `canvasName = null`).
+Requires a **JiraTack seat** (`userAccess.hasAccess !== false`), not site-admin rights; a missing seat returns `LICENSE_INACTIVE`. `permittedProjects` is frozen at issuance (Part 4.1 step 2 with `canvasName = null`).
+
+Accepted trade-off (D19): the guest session inherits the **issuer's** browse access for the selected canvases, so a seat holder can grant an external reviewer visibility into projects that holder can see. Seat gating is deliberate; link expiry (365 days) and canvas scoping are the compensating controls.
 
 ### 4.6 `recoverPinsFromDescriptions` — retired (D18)
 

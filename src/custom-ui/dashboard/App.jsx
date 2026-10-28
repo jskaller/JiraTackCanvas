@@ -13,6 +13,7 @@ export default function App() {
   const [actionError, setActionError] = useState(null);
   const [canvases, setCanvases] = useState([]);
   const [isAdmin, setIsAdmin] = useState(false);
+  const [hasAccess, setHasAccess] = useState(true);
   const [jiraBaseUrl, setJiraBaseUrl] = useState(null);
   const [search, setSearch] = useState('');
   const [modal, setModal] = useState(null);
@@ -32,6 +33,7 @@ export default function App() {
       if (aggregateResult && aggregateResult.ok && aggregateResult.data) {
         setCanvases(aggregateResult.data.canvases || []);
         setIsAdmin(Boolean(aggregateResult.data.isAdmin));
+        setHasAccess(aggregateResult.data.hasAccess !== false);
         setJiraBaseUrl(aggregateResult.data.jiraBaseUrl || null);
       } else {
         setError(
@@ -158,7 +160,7 @@ export default function App() {
           >
             {universalLoading ? 'Generating…' : 'Get JiraTack Bookmarklet'}
           </button>
-          {isAdmin && (
+          {hasAccess && (
             <button
               type="button"
               className="jt-button"
