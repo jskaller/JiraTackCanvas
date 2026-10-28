@@ -2,7 +2,7 @@ import api, { route } from '@forge/api';
 import { getInstallationConfig } from './config.js';
 import { errorResult } from './errors.js';
 import { canAccessCanvas, canAccessProject } from '../webtrigger/middleware/scope.js';
-import { readMetadata } from './metadata.js';
+import { readMetadataBySearch } from './metadata.js';
 
 /**
  * Loads an issue and verifies the caller may edit it as a JiraTack pin.
@@ -48,7 +48,7 @@ export async function loadJiraTackIssue(issueKey, claims) {
     };
   }
 
-  const metadata = await readMetadata(issueKey);
+  const metadata = await readMetadataBySearch(issueKey);
   if (!metadata) {
     return {
       ok: false,

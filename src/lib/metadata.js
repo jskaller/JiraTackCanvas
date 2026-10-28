@@ -66,6 +66,34 @@ export async function readMetadata(issueKey) {
   }
 }
 
+/**
+ * Reads metadata through the same enhanced-search path used by getPins.
+ * This is the reliable route: the standalone issue-property endpoint can
+ * reject property keys that contain dots.
+ */
+export async function readMetadataBySearch(issueKey) {
+  if (typeof issueKey !== 'string' || issueKey.length === 0) return null;
+  const escaped = issueKey.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+  try {
+    const res = await api.asApp().requestJira(route`/rest/api/3/search/jql`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        jql: `key = "${escaped}"`,
+        fields: ['key'],
+        properties: [METADATA_PROPERTY_KEY],
+        maxResults: 1,
+      }),
+    });
+    if (!res.ok) return null;
+    const data = await res.json();
+    const issue = data && data.issues && data.issues[0];
+    return metadataFromIssue(issue);
+  } catch (e) {
+    return null;
+  }
+}
+
 export async function writeMetadata(issueKey, metadata) {
   const normalized = normalizeMetadata(metadata);
   if (!normalized) {

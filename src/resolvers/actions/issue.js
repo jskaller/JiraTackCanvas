@@ -1,6 +1,6 @@
 import api, { route } from '@forge/api';
 import { errorResult } from '../../lib/errors.js';
-import { METADATA_PROPERTY_KEY, metadataFromIssue, readMetadata } from '../../lib/metadata.js';
+import { METADATA_PROPERTY_KEY, metadataFromIssue, readMetadataBySearch } from '../../lib/metadata.js';
 
 const MAX_RELATED = 20;
 const MAX_SCANNED = 2000;
@@ -111,7 +111,7 @@ export async function issuePanelData(context, payload) {
     return errorResult('BAD_REQUEST', 'issueKey is required.');
   }
 
-  const metadata = await readMetadata(issueKey);
+  const metadata = await readMetadataBySearch(issueKey);
   if (!metadata) {
     return { ok: true, data: { isJiraTack: false } };
   }
