@@ -36,7 +36,7 @@ function restoreInline(el, prop, saved) {
 }
 
 export function installFitScale(options = {}) {
-  const sidebarWidth = options.sidebarWidth || 360;
+  const sidebarWidth = options.sidebarWidth || 320;
   const minScale = typeof options.minScale === 'number' ? options.minScale : 0.5;
   const { onBelowFloor, onScaleChange } = options;
 
@@ -49,6 +49,7 @@ export function installFitScale(options = {}) {
   const previous = {
     transform: getInline(bodyEl, 'transform'),
     transformOrigin: getInline(bodyEl, 'transform-origin'),
+    marginBottom: getInline(bodyEl, 'margin-bottom'),
   };
 
   let disposed = false;
@@ -58,6 +59,19 @@ export function installFitScale(options = {}) {
     scale = next;
     setInline(bodyEl, 'transform', `scale(${next})`, 'important');
     setInline(bodyEl, 'transform-origin', '0 0', 'important');
+
+    // Transform scales visually but not layout, so the document's scroll
+    // area would stay at full height and leave empty space below the scaled
+    // content. A negative margin-bottom pulls the document height down to
+    // match the visually scaled content.
+    let height = 0;
+    try {
+      height = bodyEl.scrollHeight;
+    } catch (e) {
+      height = 0;
+    }
+    const compensation = Math.round(height * (1 - next));
+    setInline(bodyEl, 'margin-bottom', `-${compensation}px`, 'important');
   }
 
   apply(scale);
@@ -94,6 +108,7 @@ export function installFitScale(options = {}) {
       window.removeEventListener('resize', handleResize);
       restoreInline(bodyEl, 'transform', previous.transform);
       restoreInline(bodyEl, 'transform-origin', previous.transformOrigin);
+      restoreInline(bodyEl, 'margin-bottom', previous.marginBottom);
     },
   };
 }

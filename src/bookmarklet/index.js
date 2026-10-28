@@ -14,7 +14,7 @@ import { normalizeUrl, stripDeepLinkParams } from '../shared/urlNormalize.js';
 import styles from './styles.css?inline';
 
 const LOG_PREFIX = '[JiraTack]';
-const SIDEBAR_WIDTH_PX = 360;
+const SIDEBAR_WIDTH_PX = 320;
 const LAYOUT_FIX_STYLE_ID = 'jiratack-layout-fix';
 let current = null;
 let debugConfig = null;

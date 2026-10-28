@@ -1,4 +1,4 @@
-const SHIFT_PX = 360;
+const SHIFT_PX = 320;
 const RESCAN_MS = 350;
 const SCAN_BUDGET_MS = 12;
 const SCAN_CHECK_EVERY = 128;
@@ -44,7 +44,7 @@ export function installFixedShift() {
   try {
     supported = typeof CSS !== 'undefined'
       && typeof CSS.supports === 'function'
-      && CSS.supports('translate: -360px 0');
+      && CSS.supports(`translate: -${SHIFT_PX}px 0`);
   } catch (e) {
     supported = false;
   }
