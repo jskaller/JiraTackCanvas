@@ -56,6 +56,8 @@ export const handler = async (req, context) => {
     return envelope(errorResponse('BAD_REQUEST', 'Missing action.'));
   }
 
+  console.log(`[JiraTack] api action: ${action}`);
+
   try {
     if (action === 'exchangeToken') {
       return envelope(await exchangeToken(payload));

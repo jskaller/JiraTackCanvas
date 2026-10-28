@@ -35,7 +35,12 @@ export async function updateIssue(payload, claims) {
   }
 
   const context = await loadJiraTackIssue(issueKey, claims || {});
-  if (!context.ok) return context.error;
+  if (!context.ok) {
+    console.error('[JiraTack] updateIssue rejected by context:', issueKey, context.error && context.error.error && context.error.error.code);
+    return context.error;
+  }
+
+  console.log('[JiraTack] updateIssue:', issueKey, Object.keys(input));
 
   const updateFields = {};
 
@@ -95,6 +100,7 @@ export async function updateIssue(payload, claims) {
       }
       return errorResult('INTERNAL', `Jira transition failed with HTTP ${res.status}.`);
     }
+    console.log('[JiraTack] transition ok:', issueKey, input.statusId);
   }
 
   if (Object.keys(updateFields).length > 0) {
@@ -140,6 +146,7 @@ export async function updateIssue(payload, claims) {
       }
       return errorResult('INTERNAL', `Jira issue update failed with HTTP ${res.status}.`, { raw: detail.slice(0, 500) });
     }
+    console.log('[JiraTack] updateIssue applied:', issueKey, Object.keys(updateFields), res.status);
   }
 
   return {
