@@ -535,6 +535,20 @@ function handleEditStart(pin) {
   current.hydrationKeys.delete(pin.key);
 }
 
+function schedulePinReposition(delay) {
+  if (!current) return;
+  if (current.pinRepositionTimer) {
+    window.clearTimeout(current.pinRepositionTimer);
+  }
+  current.pinRepositionTimer = window.setTimeout(() => {
+    if (!current) return;
+    current.pinRepositionTimer = null;
+    if (current.pinsController && current.pinsController.update) {
+      current.pinsController.update();
+    }
+  }, typeof delay === 'number' ? delay : 320);
+}
+
 function dismissTicketForm() {
   if (current && current.formController) {
     try {
@@ -587,6 +601,9 @@ function renderPinsAndSidebar() {
     onSelect: (pin) => select(pin.key),
     onHover: handlePinHover,
   });
+  // The push margin animates; re-read element rects once it settles so pins
+  // stay on their targets when toggling layout modes.
+  schedulePinReposition(320);
 
   const canvasSelector = universal
     ? {
@@ -830,6 +847,10 @@ async function handleCapture(capture) {
 }
 
 function teardown(clearStoredSession) {
+  if (current && current.pinRepositionTimer) {
+    window.clearTimeout(current.pinRepositionTimer);
+    current.pinRepositionTimer = null;
+  }
   teardownLayout();
   cancelHydration();
   clearPendingPin();
@@ -940,6 +961,7 @@ async function init(config) {
       fitScale: null,
       layoutMode: null,
       selectedKey: null,
+      pinRepositionTimer: null,
       hydrationKeys: new Set(),
       hydrationToken: 0,
       hydrationRunning: false,
