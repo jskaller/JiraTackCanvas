@@ -1352,6 +1352,13 @@ All of 6.1–6.14 pass. Commit: `feat(s6): epic panel, issue panel, field audit,
 - Narrow the window until zoom would drop below 0.5: assert automatic fallback to Actual size with a toast.
 - Close in each mode: assert exact original layout (no residual margin, zoom, translate, or style tag; `__jiratackLayoutDebug()` confirms).
 
+### 7.18 Cross-page card navigation (reopen loop)
+
+- Canvas has tickets on page A and page B. On page A, click a card whose URL is page B.
+- Assert: browser navigates to page B (same tab); card shows the "click your JiraTack bookmark" hint while on page A.
+- Click the bookmark on page B → assert the same canvas loads, the ticket is selected and scrolled into view, and the ticket-list filter matches what was active on page A (no re-auth prompt).
+- Assert no stale `jiratack_nav_state` remains after the restore (subsequent manual reload keeps the default 'All Tickets' filter).
+
 ### Sprint 7 exit criteria
 
 All of 7.1–7.13 pass. Commit: `feat(s7): inline edit, done animation, retirement, license, marketplace`.

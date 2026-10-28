@@ -295,6 +295,10 @@ export function renderSidebar(container, options) {
     const card = make('div', 'jiratack-ticket-card');
     card.dataset.key = pin.key;
 
+    const pinUrlNorm = pin.url ? normalizeUrl(pin.url) : null;
+    const pageUrlNorm = normalizeUrl(window.location.href);
+    const isCrossPage = Boolean(pinUrlNorm && pinUrlNorm !== pageUrlNorm);
+
     const keyEl = make('a', 'jiratack-ticket-key', pin.key);
     keyEl.href = buildIssueUrl(config, session, pin.key);
     keyEl.target = '_blank';
@@ -317,6 +321,15 @@ export function renderSidebar(container, options) {
     card.appendChild(summaryEl);
     card.appendChild(metaEl);
     card.appendChild(peopleEl);
+    if (isCrossPage) {
+      card.appendChild(
+        make(
+          'div',
+          'jiratack-ticket-hint',
+          'Opens this page — click your JiraTack bookmark there to keep the sidebar open.',
+        ),
+      );
+    }
     card.appendChild(inlineEl);
 
     let expanded = false;
@@ -371,6 +384,7 @@ export function renderSidebar(container, options) {
       const pinUrl = pin.url ? normalizeUrl(pin.url) : null;
       const currentUrl = normalizeUrl(window.location.href);
       if (pinUrl && pinUrl !== currentUrl) {
+        if (options.onBeforeNavigate) options.onBeforeNavigate(pin);
         if (navigateToPin(pin, canvasName)) return;
       }
 

@@ -311,6 +311,50 @@ function handleCardHover(pin) {
 }
 
 const WALK_DIRECTION = { ArrowDown: 1, ArrowUp: -1 };
+const NAV_STATE_KEY = 'jiratack_nav_state';
+
+function saveNavState(state) {
+  try {
+    window.sessionStorage.setItem(NAV_STATE_KEY, JSON.stringify(state));
+  } catch (e) {
+    // ignore
+  }
+}
+
+function readNavState() {
+  try {
+    const raw = window.sessionStorage.getItem(NAV_STATE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === 'object' ? parsed : null;
+  } catch (e) {
+    return null;
+  }
+}
+
+function clearNavState() {
+  try {
+    window.sessionStorage.removeItem(NAV_STATE_KEY);
+  } catch (e) {
+    // ignore
+  }
+}
+
+function restoreNavFilter(canvasName) {
+  const state = readNavState();
+  clearNavState();
+  if (!state || state.canvasName !== canvasName) return null;
+  return state.filter === 'page' ? 'page' : 'all';
+}
+
+function handleBeforeNavigate(pin) {
+  if (!current) return;
+  saveNavState({
+    canvasName: current.canvasName,
+    filter: current.filter || 'all',
+    selectedKey: pin ? pin.key : null,
+  });
+}
 
 function isInteractiveTarget(el) {
   if (!el || !el.closest) return false;
@@ -539,6 +583,7 @@ function renderPinsAndSidebar() {
     onDone: handleDone,
     onEditStart: handleEditStart,
     onHover: handleCardHover,
+    onBeforeNavigate: handleBeforeNavigate,
     layoutMode: current.layoutMode || 'push',
     onLayoutModeChange: handleLayoutModeChange,
     canvasSelector,
@@ -898,6 +943,7 @@ async function init(config) {
       }
 
       if (!current || current.overlay !== overlay) return;
+      current.filter = restoreNavFilter(current.canvasName) || current.filter;
       current.loading = false;
       renderPinsAndSidebar();
       if (deepTicket) selectAndScroll(deepTicket);
@@ -962,7 +1008,7 @@ async function init(config) {
       if (!current || current.overlay !== overlay) return;
       current.loading = false;
       current.loadError = null;
-      current.filter = 'all';
+      current.filter = restoreNavFilter(current.canvasName) || 'all';
       renderPinsAndSidebar();
       if (deepTicket) selectAndScroll(deepTicket);
       console.log(`${LOG_PREFIX} Universal launcher ready with ${current.canvases.length} canvas(es)`);
@@ -988,7 +1034,7 @@ async function init(config) {
     current.canvasName = (data && data.canvasName) || config.canvasName || canvasId;
     current.loading = false;
     current.loadError = null;
-    current.filter = deepTicket ? 'all' : current.filter;
+    current.filter = restoreNavFilter(current.canvasName) || (deepTicket ? 'all' : current.filter);
     renderPinsAndSidebar();
     if (deepTicket) selectAndScroll(deepTicket);
     console.log(`${LOG_PREFIX} Init called with canvas: ${current.canvasName}`);
