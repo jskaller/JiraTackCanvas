@@ -614,9 +614,23 @@ curl -s -X POST "$WT/api" \
 
 3. Assert: `NO_CANVAS_ACCESS`.
 
+### 2.20 Resolver authorisation (D19)
+
+Run each as a **non-admin** Jira user from the dashboard/project-settings page, then repeat as admin.
+
+1. `setInstallationConfig { viewPermissionMode: "open" }` → non-admin: `INSUFFICIENT_SCOPE`, and the mode on disk is unchanged; admin: succeeds.
+2. `getInstallationConfig` → non-admin: `INSUFFICIENT_SCOPE` (config contents must not be readable).
+3. `getProjectConfig` / `setProjectConfig` → non-admin: `INSUFFICIENT_SCOPE`, project settings page shows the permission message rather than silently rendering defaults.
+4. `generateGuestToken` → non-admin: `INSUFFICIENT_SCOPE`, and the "Generate Guest Link" button is not rendered.
+5. `listCanvasTokens` → admin only; assert the payload contains **`tokenRef`** and contains **no `token` field** anywhere in the response.
+6. `revokeCanvasToken { tokenRef }` → admin only; after revoking, `exchangeToken` with that token returns `TOKEN_INVALID`, but a session JWT issued **before** revocation still works until `exp` (known D19 limitation).
+7. `createCanvas` as a non-admin licensed user → still succeeds (intentional: additive, Jira enforces project create permission).
+8. KVS failure handling: with a stale/absent config, assert `getInstallationConfig` returns defaults, but a read error surfaces as `INTERNAL` and does **not** write defaults over an existing config.
+9. SDK auto-reauth: let a session JWT expire, trigger any authenticated action, and assert it self-heals (one re-exchange + retry) instead of surfacing `TOKEN_EXPIRED`.
+
 ### Sprint 2 exit criteria
 
-All of 2.1–2.19 pass. Commit: `feat(s2): token issuance, webtrigger API, pin marker`.
+All of 2.1–2.20 pass. Commit: `feat(s2): token issuance, webtrigger API, authorisation`.
 
 ---
 

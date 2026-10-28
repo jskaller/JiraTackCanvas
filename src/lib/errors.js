@@ -19,7 +19,6 @@ export function errorResponse(code, message, details = null) {
 export function errorResult(code, message, details = null) {
   return { ok: false, error: errorResponse(code, message, details) };
 }
-
 export const STATUS_BY_CODE = {
   BAD_REQUEST: 400,
   TOKEN_INVALID: 401,
@@ -33,7 +32,3 @@ export const STATUS_BY_CODE = {
   VALIDATION_ERROR: 422,
   INTERNAL: 500,
 };
-
-export function successResponse(data) {
-  return { ok: true, data };
-}

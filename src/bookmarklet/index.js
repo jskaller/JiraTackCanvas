@@ -841,7 +841,11 @@ async function handleCapture(capture) {
       if (current.pinsController && current.pinsController.flash) {
         current.pinsController.flash(result.key);
       }
-      showToast(`Created ${result.key}`);
+      if (result.warning === 'metadata-not-stored') {
+        showToast(`${result.key} was created but its pin could not be saved. Recreate it or contact an admin.`);
+      } else {
+        showToast(`Created ${result.key}`);
+      }
     },
   });
 }

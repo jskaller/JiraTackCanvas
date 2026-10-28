@@ -1,6 +1,7 @@
 import { normalizeUrl } from '../shared/urlNormalize.js';
+import { exchangeSession } from './auth.js';
 
-async function postAction(config, session, action, payload, authenticated) {
+export async function postAction(config, session, action, payload, authenticated, attempt) {
   const headers = { 'Content-Type': 'application/json' };
   if (authenticated && session && session.jwt) {
     headers.Authorization = `Bearer ${session.jwt}`;
@@ -20,8 +21,24 @@ async function postAction(config, session, action, payload, authenticated) {
   }
 
   if (!body || body.ok !== true) {
+    const code = body && body.error && body.error.code;
+    // A stale session should self-heal rather than surface an error the user
+    // cannot act on; this also bounds the practical revocation window.
+    if (authenticated && !attempt && (code === 'TOKEN_EXPIRED' || code === 'TOKEN_INVALID') && config.token) {
+      try {
+        const fresh = await exchangeSession(config, { force: true });
+        if (session) {
+          session.jwt = fresh.jwt;
+          session.expiresAt = fresh.expiresAt;
+          session.displayName = fresh.displayName;
+        }
+        return postAction(config, session, action, payload, authenticated, true);
+      } catch (refreshError) {
+        // fall through to the original error
+      }
+    }
     const error = new Error((body && body.error && body.error.message) || `${action} failed.`);
-    error.code = body && body.error && body.error.code;
+    error.code = code;
     error.details = body && body.error && body.error.details;
     throw error;
   }

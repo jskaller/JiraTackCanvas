@@ -111,7 +111,11 @@ export async function issuePanelData(context, payload) {
     return errorResult('BAD_REQUEST', 'issueKey is required.');
   }
 
-  const metadata = await readMetadataBySearch(issueKey);
+  const metadataResult = await readMetadataBySearch(issueKey);
+  if (metadataResult.lookupFailed) {
+    return errorResult('INTERNAL', 'Could not load this ticket from Jira right now.');
+  }
+  const metadata = metadataResult.metadata;
   if (!metadata) {
     return { ok: true, data: { isJiraTack: false } };
   }

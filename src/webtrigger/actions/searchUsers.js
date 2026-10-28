@@ -1,6 +1,6 @@
 import api, { route } from '@forge/api';
 import { errorResult } from '../../lib/errors.js';
-import { isLicensedUser } from '../../lib/license.js';
+import { findLicensedUsers } from '../../lib/license.js';
 
 export async function searchUsers(payload, claims) {
   const projectKey = payload && payload.projectKey;
@@ -33,8 +33,8 @@ export async function searchUsers(payload, claims) {
 
   if (guest) {
     // Guests may only assign tickets to users known to hold a JiraTack license.
-    const licensed = await Promise.all(users.map((user) => isLicensedUser(user.accountId)));
-    users = users.filter((user, index) => licensed[index]);
+    const licensed = await findLicensedUsers(users.map((user) => user.accountId));
+    users = users.filter((user) => licensed.has(user.accountId));
   }
 
   return { ok: true, data: { users } };

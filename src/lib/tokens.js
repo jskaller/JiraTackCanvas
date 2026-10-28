@@ -10,9 +10,18 @@ let secretPromise = null;
 async function loadOrCreateSecret() {
   const existing = await kvsGet(SECRET_KEY);
   if (existing) return existing;
+
   const secret = crypto.randomBytes(32).toString('hex');
-  await kvsSet(SECRET_KEY, secret);
-  return secret;
+  try {
+    // Compare-and-set: only create when absent, so two cold-starting
+    // instances cannot each mint a secret and orphan each other's JWTs.
+    await kvsSet(SECRET_KEY, secret, { version: { type: 'must_be_missing' } });
+    return secret;
+  } catch (e) {
+    const winner = await kvsGet(SECRET_KEY);
+    if (winner) return winner;
+    throw e;
+  }
 }
 
 export async function getSigningSecret() {

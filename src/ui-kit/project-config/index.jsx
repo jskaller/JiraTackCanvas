@@ -8,22 +8,32 @@ const ProjectConfig = () => {
   const projectKey = (context && context.extension && context.extension.project && context.extension.project.key) || '';
   const [cfg, setCfg] = useState({ enabled: true, retirementDays: 0, captureConsoleLogs: false, consoleLogsDefaultChecked: false });
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
 
   useEffect(() => {
     if (!projectKey) return;
     invoke('getProjectConfig', { projectKey }).then((res) => {
-      if (res && res.ok) setCfg(res.data);
-    }).catch(() => {});
+      if (res && res.ok) {
+        setCfg(res.data);
+        setError(null);
+      } else {
+        setError((res && res.error && res.error.message) || 'You do not have permission to view project settings.');
+      }
+    }).catch(() => {
+      setError('Unable to load project settings.');
+    });
   }, [projectKey]);
 
   const save = async () => {
     if (!projectKey) return;
     setLoading(true);
+    setError(null);
     try {
       const res = await invoke('setProjectConfig', { projectKey, settings: cfg });
       if (res && res.ok) setCfg(res.data);
+      else setError((res && res.error && res.error.message) || 'Unable to save project settings.');
     } catch (e) {
-      // ignore
+      setError(e && e.message ? e.message : 'Unable to save project settings.');
     }
     setLoading(false);
   };
@@ -32,6 +42,7 @@ const ProjectConfig = () => {
     <Form onSubmit={save}>
       <Stack space="space.200">
         <Text>Project configuration{projectKey ? `: ${projectKey}` : ''}</Text>
+        {error && <Text>{error}</Text>}
         <Checkbox label="Enabled" isChecked={cfg.enabled} onChange={(e) => setCfg({ ...cfg, enabled: !!(e && e.target ? e.target.checked : e) })} />
         <Textfield label="Retirement Days (0 = never)" type="number" value={String(cfg.retirementDays || 0)} onChange={(e) => setCfg({ ...cfg, retirementDays: Number((e && e.target ? e.target.value : e) || 0) })} />
         <Checkbox label="Capture console logs" isChecked={cfg.captureConsoleLogs} onChange={(e) => setCfg({ ...cfg, captureConsoleLogs: !!(e && e.target ? e.target.checked : e) })} />

@@ -32,3 +32,26 @@ export async function isLicensedUser(accountId) {
     return false;
   }
 }
+
+/**
+ * One batched KVS read instead of one per candidate. Returns a Set so callers
+ * avoid N individual round-trips in search hot paths.
+ */
+export async function findLicensedUsers(accountIds) {
+  const ids = (Array.isArray(accountIds) ? accountIds : [])
+    .filter((id) => typeof id === 'string' && id.length > 0);
+  const licensed = new Set();
+  if (ids.length === 0) return licensed;
+
+  try {
+    const values = await kvsGet(ids.map(licensedUserKey));
+    ids.forEach((id, index) => {
+      if (Array.isArray(values) ? values[index] : values) licensed.add(id);
+    });
+  } catch (e) {
+    console.error('[JiraTack] Batched licensed-user read failed, falling back:', e);
+    const results = await Promise.all(ids.map(async (id) => ({ id, ok: await isLicensedUser(id) })));
+    results.forEach(({ id, ok }) => { if (ok) licensed.add(id); });
+  }
+  return licensed;
+}

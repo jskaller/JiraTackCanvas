@@ -74,6 +74,14 @@ Single decision log for JiraTack. Every open and resolved decision appears exact
 **Rejected alternatives:** Keeping the marker as a recovery backup (unnecessary once the property is authoritative); custom fields for JQL (dropped in favour of in-memory filtering); lazy regex migration (removed per the dev-only decision); exclusive `jiratack-guest` label (would break every read query).
 **Applies to:** CONTRACTS §3.2, §3.3, §3.5, §4.6, §7.6, §8.4; AGENTS.md; TEST_PLAN §7.19. Canvas-exact JQL (dashboard "Review All Tickets") is enabled by a `jira:entityProperty` module indexing `com.jiratack.metadata.pin.canvas` as the `jiratackCanvas` search alias.
 
+### D19 — Per-operation authorisation (security review remediation)
+
+**Status:** Resolved (2026-10-28)
+**Resolution:** Because `jira:globalPage` and the project-settings page are open to every logged-in site user, hiding a control is not authorisation — every privileged resolver now enforces `requireAdmin(context)` server-side (`src/lib/access.js`, which prefers `context.userAccess.isAdmin` and falls back to an `ADMINISTER` permission lookup). Admin-only: `get/setInstallationConfig`, `get/setProjectConfig`, `generateGuestToken`, `list/revokeCanvasToken`, `delete/archiveCanvas`. Any licensed user (with Jira enforcing its own permissions): `generateCanvasToken`, `generateUserToken`, `createCanvas`, `dashboardAggregate`, panel reads. A guest link is a 365-day bearer credential carrying the issuer's browse access, so minting it is admin-only; the dashboard hides the control and the resolver enforces it. Token listings return a non-reversible `tokenRef` (SHA-256 prefix) instead of the raw token. `installationConfig` reads now distinguish "not provisioned yet" (defaults) from "unreadable" (throws), so a KVS blip can no longer be persisted back as a default config; writes go through `mutateInstallationConfig` (read and write in one narrow window, with retries) rather than a client round-trip. The signing secret is created with a `must_be_missing` compare-and-set so concurrent cold starts cannot orphan each other's JWTs.
+**Rejected alternatives:** Page-level Forge `access` scopes as the only control (the dashboard is legitimately a licensed-user surface, not an admin surface — scopes alone would break it); keeping canvas creation admin-only (it is additive and Jira already enforces project create permission).
+**Known limitation:** revocation is still eventual — a deleted token record blocks new exchanges but a live session JWT remains valid until `exp` (8 h). Mitigated by the SDK auto re-exchanging on `TOKEN_EXPIRED`/`TOKEN_INVALID`; true instant revocation needs a per-request session allowlist (KVS read per call), deferred with D11.
+**Applies to:** CONTRACTS §4.0, §4.5b, §4.5c, §3.2, §3.3; TEST_PLAN §2.20.
+
 ### D13 — SDK version source
 
 **Status:** Resolved (2026-10-23)

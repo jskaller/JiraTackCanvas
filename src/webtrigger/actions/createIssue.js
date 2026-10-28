@@ -221,6 +221,8 @@ export async function createIssue(payload, claims) {
     version: 1,
   });
   if (!metadataResult.ok) {
+    // The ticket exists but is invisible to JiraTack; surface it rather than
+    // letting it become a silent orphan.
     console.error('[JiraTack] Created issue without metadata:', created.key);
   }
 
@@ -238,6 +240,7 @@ export async function createIssue(payload, claims) {
       key: created.key,
       id: created.id,
       configVersion: config.configVersion || '',
+      warning: metadataResult.ok ? undefined : 'metadata-not-stored',
     },
   };
 }

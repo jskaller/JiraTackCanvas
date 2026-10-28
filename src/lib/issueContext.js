@@ -48,7 +48,14 @@ export async function loadJiraTackIssue(issueKey, claims) {
     };
   }
 
-  const metadata = await readMetadataBySearch(issueKey);
+  const metadataResult = await readMetadataBySearch(issueKey);
+  if (metadataResult.lookupFailed) {
+    return {
+      ok: false,
+      error: errorResult('INTERNAL', 'Could not verify this issue against JiraTack. Try again.'),
+    };
+  }
+  const metadata = metadataResult.metadata;
   if (!metadata) {
     return {
       ok: false,

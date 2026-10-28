@@ -1,4 +1,5 @@
-import { getInstallationConfig, setInstallationConfig } from '../../lib/config.js';
+import { getInstallationConfig, mutateInstallationConfig } from '../../lib/config.js';
+import { requireAdmin } from '../../lib/access.js';
 
 const PROJECT_DEFAULTS = {
   enabled: true,
@@ -11,6 +12,9 @@ const PROJECT_DEFAULTS = {
 };
 
 export async function getProjectConfig(context, payload) {
+  const denied = await requireAdmin(context, 'Only Jira admins can view project settings.');
+  if (denied) return denied;
+
   const config = await getInstallationConfig();
   const projectKey = payload && payload.projectKey;
   const existing = (config.projects && config.projects[projectKey]) || {};
@@ -18,11 +22,23 @@ export async function getProjectConfig(context, payload) {
 }
 
 export async function setProjectConfig(context, payload) {
-  const config = await getInstallationConfig();
+  const denied = await requireAdmin(context, 'Only Jira admins can change project settings.');
+  if (denied) return denied;
+
   const projectKey = payload && payload.projectKey;
+  if (typeof projectKey !== 'string' || projectKey.length === 0) {
+    return { ok: false, error: { code: 'BAD_REQUEST', message: 'projectKey is required.' } };
+  }
+
   const settings = (payload && payload.settings) || {};
-  if (!config.projects) config.projects = {};
-  config.projects[projectKey] = { ...PROJECT_DEFAULTS, ...(config.projects[projectKey] || {}), ...settings };
-  const updated = await setInstallationConfig(config);
+  const updated = await mutateInstallationConfig((draft) => {
+    draft.projects[projectKey] = {
+      ...PROJECT_DEFAULTS,
+      ...(draft.projects[projectKey] || {}),
+      ...settings,
+    };
+    return draft;
+  });
+
   return { ok: true, data: updated.projects[projectKey] };
 }

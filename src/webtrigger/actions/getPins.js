@@ -155,6 +155,8 @@ export async function getPinsForCanvasAndUrl(payload, claims) {
       pins,
       canvasName: claims.canvasName || canvasName,
       configVersion: config.configVersion || '',
+      // Scan caps can silently drop pins; tell the client the list may be partial.
+      truncated: scanned >= MAX_SCANNED && Boolean(nextPageToken),
     },
   };
 }

@@ -39,7 +39,11 @@ export async function getCanvasProjectKey(canvasName) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
       });
-      if (!res.ok) return null;
+      if (!res.ok) {
+        // Surfaced explicitly: a failed lookup silently disables retirement.
+        console.error('[JiraTack] canvas→project lookup failed for', canvasName, 'HTTP', res.status);
+        return null;
+      }
 
       const data = await res.json();
       const issues = (data && data.issues) || [];
@@ -84,6 +88,8 @@ export async function getEffectiveRetirementDays(canvasName, config) {
   try {
     projectKey = await getCanvasProjectKey(canvasName);
   } catch (e) {
+    // Fail visible rather than silent: a KVS error here must not look like "retirement disabled".
+    console.error('[JiraTack] Could not resolve canvas project for retirement:', e && e.message ? e.message : e);
     return 0;
   }
   if (!projectKey) return 0;

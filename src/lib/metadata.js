@@ -53,26 +53,11 @@ export function metadataFromIssue(issue, key = METADATA_PROPERTY_KEY) {
   return null;
 }
 
-export async function readMetadata(issueKey) {
-  if (typeof issueKey !== 'string' || issueKey.length === 0) return null;
-  try {
-    const res = await api.asApp().requestJira(
-      route`/rest/api/3/issue/${issueKey}/properties/${METADATA_PROPERTY_KEY}`,
-    );
-    if (!res.ok) return null;
-    return normalizeMetadata(await res.json());
-  } catch (e) {
-    return null;
-  }
-}
-
-/**
- * Reads metadata through the same enhanced-search path used by getPins.
- * This is the reliable route: the standalone issue-property endpoint can
- * reject property keys that contain dots.
- */
+/** Reads metadata through the same enhanced-search path used by getPins. */
 export async function readMetadataBySearch(issueKey) {
-  if (typeof issueKey !== 'string' || issueKey.length === 0) return null;
+  if (typeof issueKey !== 'string' || issueKey.length === 0) {
+    return { metadata: null, lookupFailed: false };
+  }
   const escaped = issueKey.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
   try {
     const res = await api.asApp().requestJira(route`/rest/api/3/search/jql`, {
@@ -85,12 +70,16 @@ export async function readMetadataBySearch(issueKey) {
         maxResults: 1,
       }),
     });
-    if (!res.ok) return null;
+    if (!res.ok) {
+      console.error('[JiraTack] metadata search HTTP', res.status, 'for', issueKey);
+      return { metadata: null, lookupFailed: true };
+    }
     const data = await res.json();
     const issue = data && data.issues && data.issues[0];
-    return metadataFromIssue(issue);
+    return { metadata: metadataFromIssue(issue), lookupFailed: false };
   } catch (e) {
-    return null;
+    console.error('[JiraTack] metadata search threw for', issueKey, e && e.message ? e.message : e);
+    return { metadata: null, lookupFailed: true };
   }
 }
 

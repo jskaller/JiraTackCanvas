@@ -158,13 +158,15 @@ export default function App() {
           >
             {universalLoading ? 'Generating…' : 'Get JiraTack Bookmarklet'}
           </button>
-          <button
-            type="button"
-            className="jt-button"
-            onClick={() => setGuestOpen(true)}
-          >
-            Generate Guest Link
-          </button>
+          {isAdmin && (
+            <button
+              type="button"
+              className="jt-button"
+              onClick={() => setGuestOpen(true)}
+            >
+              Generate Guest Link
+            </button>
+          )}
         </div>
       </header>
 

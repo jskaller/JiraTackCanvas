@@ -1,13 +1,14 @@
 import crypto from 'crypto';
 import api, { route, getAppContext } from '@forge/api';
 import { WhereConditions } from '@forge/kvs';
-import { getInstallationConfig, setInstallationConfig } from '../../lib/config.js';
-import { kvsGet, kvsSet } from '../../lib/kvs.js';
+import { getInstallationConfig, mutateInstallationConfig } from '../../lib/config.js';
+import { kvsSet } from '../../lib/kvs.js';
 import { trackLicensedUser } from '../../lib/license.js';
 import { generateSessionJwt } from '../../lib/tokens.js';
 import { errorResponse, errorResult } from '../../lib/errors.js';
 import { resolveWebtriggerUrls } from '../../lib/webtriggerUrls.js';
 import { createSeedTicket } from '../../lib/canvas.js';
+import { isJiraAdmin, requireAdmin } from '../../lib/access.js';
 import { METADATA_PROPERTY_KEY, metadataFromIssue } from '../../lib/metadata.js';
 import { SDK_VERSION } from '../../lib/version.js';
 
@@ -71,21 +72,6 @@ async function computePermittedProjects(mode, canvasName) {
   }
 
   return { ok: true, permittedProjects };
-}
-
-async function isJiraAdmin(context) {
-  if (context && context.userAccess && typeof context.userAccess.isAdmin === 'boolean') {
-    return context.userAccess.isAdmin;
-  }
-  try {
-    const res = await api.asUser().requestJira(route`/rest/api/3/mypermissions?permissions=ADMINISTER`);
-    if (!res.ok) return false;
-    const data = await res.json();
-    const permission = data && data.permissions && data.permissions.ADMINISTER;
-    return Boolean(permission && permission.havePermission);
-  } catch (e) {
-    return false;
-  }
 }
 
 export async function generateCanvasToken(context, payload) {
@@ -180,6 +166,9 @@ export async function generateCanvasToken(context, payload) {
 }
 
 export async function generateGuestToken(context, payload) {
+  const denied = await requireAdmin(context, 'Only Jira admins can create guest links.');
+  if (denied) return denied;
+
   await trackLicensedUser(context);
 
   if (context && context.userAccess && context.userAccess.hasAccess === false) {
@@ -259,18 +248,31 @@ export async function generateGuestToken(context, payload) {
   };
 }
 
-export async function listCanvasTokens() {
-  try {
-    const result = await kvs
-      .query()
-      .where('key', WhereConditions.beginsWith('canvasTokens:'))
-      .limit(100)
-      .getMany();
+/**
+ * Tokens are credentials. The admin surface never needs the raw value, so
+ * records are identified by a short non-reversible reference instead.
+ */
+function tokenReference(token) {
+  return crypto.createHash('sha256').update(String(token)).digest('hex').slice(0, 12);
+}
 
-    const entries = (result && result.results) || [];
-    const tokens = entries
+async function queryCanvasTokenEntries() {
+  const result = await kvs
+    .query()
+    .where('key', WhereConditions.beginsWith('canvasTokens:'))
+    .limit(1000)
+    .getMany();
+  return (result && result.results) || [];
+}
+
+export async function listCanvasTokens(context) {
+  const denied = await requireAdmin(context, 'Only Jira admins can list tokens.');
+  if (denied) return denied;
+
+  try {
+    const tokens = (await queryCanvasTokenEntries())
       .map(({ key, value }) => ({
-        token: String(key).replace('canvasTokens:', ''),
+        tokenRef: tokenReference(String(key).replace('canvasTokens:', '')),
         canvasName: value.canvasName,
         userId: value.userId,
         scope: value.scope,
@@ -286,20 +288,33 @@ export async function listCanvasTokens() {
   }
 }
 
-export async function revokeCanvasToken(payload) {
-  const token = payload && payload.token;
-  if (typeof token !== 'string' || token.length === 0) {
-    return errorResult('BAD_REQUEST', 'token is required.');
-  }
+export async function revokeCanvasToken(context, payload) {
+  const denied = await requireAdmin(context, 'Only Jira admins can revoke tokens.');
+  if (denied) return denied;
 
-  const key = `canvasTokens:${token}`;
+  const token = payload && payload.token;
+  const ref = payload && payload.tokenRef;
+
   try {
-    const existing = await kvsGet(key);
-    if (!existing) {
+    let key = null;
+    if (typeof token === 'string' && token.length > 0) {
+      key = `canvasTokens:${token}`;
+    } else if (typeof ref === 'string' && ref.length > 0) {
+      const entries = await queryCanvasTokenEntries();
+      const match = entries.find(({ key: entryKey }) => (
+        tokenReference(String(entryKey).replace('canvasTokens:', '')) === ref
+      ));
+      key = match ? match.key : null;
+    } else {
+      return errorResult('BAD_REQUEST', 'tokenRef is required.');
+    }
+
+    if (!key) {
       return errorResult('NOT_FOUND', 'Canvas token not found.');
     }
+
     await kvs.delete(key);
-    return { ok: true, data: { token, revoked: true } };
+    return { ok: true, data: { revoked: true } };
   } catch (e) {
     return errorResult('INTERNAL', e && e.message ? e.message : String(e));
   }
@@ -390,8 +405,6 @@ export async function deleteCanvas(context, payload) {
     return errorResult('BAD_REQUEST', 'canvasName is required.');
   }
 
-  const config = await getInstallationConfig();
-
   const jql = `labels = "jiratack" ORDER BY created ASC`;
   const issues = [];
   let nextPageToken = null;
@@ -445,19 +458,14 @@ export async function deleteCanvas(context, payload) {
     );
   }
 
-  const archived = Array.isArray(config.archivedCanvases)
-    ? config.archivedCanvases.filter((name) => name !== canvasName)
-    : [];
-  config.archivedCanvases = archived;
-
-  const deleted = Array.isArray(config.deletedCanvases) ? config.deletedCanvases : [];
-  if (!deleted.includes(canvasName)) {
-    deleted.push(canvasName);
-  }
-  config.deletedCanvases = deleted;
-
   try {
-    await setInstallationConfig(config);
+    await mutateInstallationConfig((draft) => {
+      draft.archivedCanvases = draft.archivedCanvases.filter((name) => name !== canvasName);
+      if (!draft.deletedCanvases.includes(canvasName)) {
+        draft.deletedCanvases.push(canvasName);
+      }
+      return draft;
+    });
   } catch (e) {
     return errorResult('INTERNAL', e && e.message ? e.message : String(e));
   }
@@ -477,15 +485,13 @@ export async function archiveCanvas(context, payload) {
     return errorResult('BAD_REQUEST', 'canvasName is required.');
   }
 
-  const config = await getInstallationConfig();
-  const archived = Array.isArray(config.archivedCanvases) ? config.archivedCanvases : [];
-  if (!archived.includes(canvasName)) {
-    archived.push(canvasName);
-  }
-  config.archivedCanvases = archived;
-
   try {
-    await setInstallationConfig(config);
+    await mutateInstallationConfig((draft) => {
+      if (!draft.archivedCanvases.includes(canvasName)) {
+        draft.archivedCanvases.push(canvasName);
+      }
+      return draft;
+    });
   } catch (e) {
     return errorResult('INTERNAL', e && e.message ? e.message : String(e));
   }

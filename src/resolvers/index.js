@@ -1,5 +1,6 @@
 import Resolver from '@forge/resolver';
-import { getInstallationConfig, setInstallationConfig } from '../lib/config.js';
+import { getInstallationConfig, mutateInstallationConfig } from '../lib/config.js';
+import { requireAdmin } from '../lib/access.js';
 import { generateCanvasToken, generateGuestToken, generateUserToken, listCanvasTokens, revokeCanvasToken, createCanvas, deleteCanvas, archiveCanvas } from './actions/admin.js';
 import { getProjectConfig, setProjectConfig } from './actions/config.js';
 import { dashboardAggregate } from './actions/dashboard.js';
@@ -56,8 +57,10 @@ resolver.define('archiveCanvas', async (req) => {
   }
 });
 
-resolver.define('getInstallationConfig', async () => {
+resolver.define('getInstallationConfig', async (req) => {
   try {
+    const denied = await requireAdmin(req.context);
+    if (denied) return denied;
     const config = await getInstallationConfig();
     return { ok: true, data: config };
   } catch (e) {
@@ -67,12 +70,16 @@ resolver.define('getInstallationConfig', async () => {
 
 resolver.define('setInstallationConfig', async (req) => {
   try {
-    const current = await getInstallationConfig();
-    const merged = { ...current, ...(req.payload || {}) };
-    if (req.payload && req.payload.projects) {
-      merged.projects = { ...(current.projects || {}), ...req.payload.projects };
-    }
-    const updated = await setInstallationConfig(merged);
+    const denied = await requireAdmin(req.context);
+    if (denied) return denied;
+    const updated = await mutateInstallationConfig((draft) => {
+      const payload = req.payload || {};
+      Object.assign(draft, payload);
+      if (payload.projects) {
+        draft.projects = { ...(draft.projects || {}), ...payload.projects };
+      }
+      return draft;
+    });
     return { ok: true, data: updated };
   } catch (e) {
     return { ok: false, error: { code: 'INTERNAL', message: e && e.message ? e.message : String(e) } };
@@ -103,9 +110,9 @@ resolver.define('dashboardAggregate', async (req) => {
   }
 });
 
-resolver.define('listCanvasTokens', async () => {
+resolver.define('listCanvasTokens', async (req) => {
   try {
-    return await listCanvasTokens();
+    return await listCanvasTokens(req.context);
   } catch (e) {
     return { ok: false, error: { code: 'INTERNAL', message: e && e.message ? e.message : String(e) } };
   }
@@ -113,7 +120,7 @@ resolver.define('listCanvasTokens', async () => {
 
 resolver.define('revokeCanvasToken', async (req) => {
   try {
-    return await revokeCanvasToken(req.payload);
+    return await revokeCanvasToken(req.context, req.payload);
   } catch (e) {
     return { ok: false, error: { code: 'INTERNAL', message: e && e.message ? e.message : String(e) } };
   }

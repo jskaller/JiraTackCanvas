@@ -190,7 +190,7 @@ Errors: `TOKEN_INVALID`, `TOKEN_EXPIRED`, `LICENSE_INACTIVE`.
 ```text
 Request:  { action: "getPinsForCanvasAndUrl", payload: { canvasId, url } }
 Auth:     Bearer, scope create or view
-Success:  { pins: [PinRecord], canvasName, configVersion }
+Success:  { pins: [PinRecord], canvasName, configVersion, truncated }
 ```
 
 Server behavior:
@@ -205,28 +205,33 @@ Server behavior:
    
    - Else: keep only pins whose project key is in `permittedProjects`.
 
-4. Return filtered list.
+4. Return filtered list. `truncated: true` means the scan hit its 2,000-issue cap and the list may be incomplete.
 
 Filtering happens server-side; hidden pins never reach the client. The client cannot distinguish between "no pins on this page" and "no pins you can see" — both return an empty list, which is the intended behavior.
 
-`PinRecord` (same shape regardless of mode):
+`PinRecord` (same shape regardless of mode). `url`, `pinPosition`, `selector` and `guest` come from the issue property (D18); the rest from Jira fields:
 
 ```json
 {
   "key": "MM-1234",
   "summary": "...",
+  "projectKey": "MM",
   "status": { "name": "In Progress", "category": "indeterminate", "colorName": "yellow" },
   "priority": { "id": "3", "name": "Medium" },
+  "priorityId": "3",
+  "issueTypeId": "10037",
   "assignee": { "accountId": "...", "displayName": "...", "avatarUrl": "..." },
   "reporter": { "accountId": "...", "displayName": "...", "avatarUrl": "..." },
   "pinPosition": "45.2,32.8",
   "selector": "#hero-image",
   "issueType": { "name": "Bug" },
-  "createdAt": "2026-01-15T10:30:00.000Z"
+  "createdAt": "2026-01-15T10:30:00.000Z",
+  "url": "https://example.com/page",
+  "guest": { "name": "Ann", "email": "a@b.c" }
 }
 ```
 
-`priority`, `assignee`, `reporter`, `selector` may be `null`. JQL: Part 7.1.
+`priority`, `assignee`, `reporter`, `selector` and `guest` may be `null`.
 
 ### 3.3 `createIssue`
 
@@ -250,7 +255,7 @@ Request: {
   }
 }
 Auth:     Bearer, scope create only
-Success:  { key, id, configVersion }
+Success:  { key, id, configVersion, warning? }
 ```
 
 Server behavior:
@@ -295,7 +300,7 @@ Server behavior:
 
 7. If `screenshotDataUrl`: attach via `/rest/api/3/issue/{key}/attachments` with `X-Atlassian-Token: no-check`. On failure: log, proceed.
 
-8. Return.
+8. Return. If the property write failed after both attempts the call still succeeds (the ticket exists in Jira) but includes `warning: "metadata-not-stored"`; the SDK surfaces a distinct message because the ticket will not appear in any canvas until the property is written.
 
 9. Jira 400 → 422 `VALIDATION_ERROR` with `details.fieldErrors`.
 
@@ -384,6 +389,17 @@ Queries `labels = "jiratack" ORDER BY created DESC` (paginated up to 2,000), ski
 
 ## Part 4 — Resolver contracts
 
+### 4.0 Access model (per D19)
+
+Resolvers are invoked from app UI that **any logged-in site user can open**, so hiding a control is not authorisation. Enforcement is per-operation, server-side, via `requireAdmin(context)` (`src/lib/access.js`) which reads `context.userAccess.isAdmin` and falls back to an `ADMINISTER` permission lookup.
+
+| Resolver | Caller |
+| --- | --- |
+| `getInstallationConfig`, `setInstallationConfig`, `getProjectConfig`, `setProjectConfig`, `generateGuestToken`, `listCanvasTokens`, `revokeCanvasToken`, `deleteCanvas`, `archiveCanvas` | **Jira admin only** → else `INSUFFICIENT_SCOPE` |
+| `generateCanvasToken`, `generateUserToken`, `createCanvas`, `dashboardAggregate`, `epicPanelData`, `issuePanelData` | Any licensed user (Jira's own browse/create permissions still apply, since these run `asUser()` or per-canvas checks) |
+
+Canvas **creation** is deliberately open (it is additive, and Jira enforces project create permission); **deletion/archival** is admin-only.
+
 ### 4.1 `generateCanvasToken`
 
 ```text
@@ -471,23 +487,35 @@ issuePanelData(context, payload) → { ok, data: { canvasName, url, relatedTicke
 Payload: { issueKey: string }
 ```
 
-Reads current issue via `asApp().requestJira('/rest/api/3/issue/{key}?fields=<canvasField>,<urlField>')`. If canvas empty → `{ ok: true, data: { isJiraTack: false } }`. Else run related query via `asUser()` so project permissions apply.
+Reads the issue property `com.jiratack.metadata` (via `readMetadataBySearch`, Part 3.x) — if absent → `{ ok: true, data: { isJiraTack: false } }`. Related tickets are found by scanning `labels = "jiratack"` with `properties` and matching `pin.canvas` + `pin.url` in memory via `asUser()` so project permissions apply. The screenshot is fetched with `asApp().requestJira('/rest/api/3/attachment/content/{id}')` and returned as a **base64 `data:` URL**, because Forge UI Kit cannot authenticate a raw Jira attachment URL.
 
-### 4.5 `fieldMappingAudit`
+A failed metadata lookup returns `INTERNAL` rather than `isJiraTack: false`, so "could not verify" is never reported as "not a JiraTack ticket".
+
+### 4.5 `fieldMappingAudit` — retired (D18/D19)
+
+Removed with custom-field provisioning; there is no field mapping left to audit.
+
+### 4.5b Token management
 
 ```text
-fieldMappingAudit(context) → { ok, data: { projects: [{ key, name, missingFields: [string], fixUrl: string }] } }
+listCanvasTokens(context) → { ok, data: { tokens: [{ tokenRef, canvasName, userId, scope, issuedAt, expiresAt, revoked }] } }
+revokeCanvasToken(context, payload) → { ok, data: { revoked: true } }
+Payload: { tokenRef?: string, token?: string }
 ```
 
-Behavior:
+- Both require Jira admin (Part 4.0).
+- **`tokenRef` is a non-reversible SHA-256 prefix (12 hex chars) of the token.** Raw bearer tokens are never returned by any resolver — they are credentials, and the admin UI only needs to identify records.
+- `revokeCanvasToken` resolves `tokenRef` back to the KVS key by scanning `canvasTokens:*` (cap 1000); `token` is still accepted for programmatic callers.
+- Revoking deletes the record, so new `exchangeToken` calls fail immediately; live session JWTs remain valid until expiry (Part 2.2). The SDK now re-exchanges on `TOKEN_EXPIRED`/`TOKEN_INVALID` (§5.x), which bounds the practical window.
 
-1. JQL `<canvasField> is not EMPTY`, aggregate distinct project keys (cap 20).
+### 4.5c `generateGuestToken` — admin only (D19)
 
-2. For each project, call `/rest/api/3/issue/createmeta/{projectKey}/issuetypes/{issueTypeId}`; get field list.
+```text
+generateGuestToken(context, payload) → { ok, data: { token, installerUrl, scope: "guest_create", permittedCanvases, permittedProjects, expiresAt } }
+Payload: { permittedCanvases: string[] }   // 1–50 entries, each ≤255 chars
+```
 
-3. Check each of the four field IDs present. Missing → `missingFields`.
-
-4. `fixUrl` = `/secure/admin/ConfigureFieldScreen.jspa?id=<screenId>`.
+Requires Jira admin: a guest link is a 365-day bearer credential whose session JWT carries the **issuer's** browse access, so it cannot be mintable by any user. `permittedProjects` is frozen at issuance (Part 4.1 step 2 with `canvasName = null`).
 
 ### 4.6 `recoverPinsFromDescriptions` — retired (D18)
 
@@ -526,7 +554,7 @@ Called by bookmarklet bootstrap after SDK script loads. If `window.__jiratackAct
 #jiratack-overlay            position: fixed; inset: 0; pointer-events: none; z-index: 2147483647
   #jiratack-pins             position: absolute; inset: 0; pointer-events: none
     .jiratack-pin[data-key]  position: absolute; pointer-events: auto
-  #jiratack-sidebar          position: fixed; right: 0; top: 0; width: 360px; height: 100vh; pointer-events: auto
+  #jiratack-sidebar          position: fixed; right: 0; top: 0; width: 320px; height: 100vh; pointer-events: auto
     .jiratack-sidebar-header
     .jiratack-ticket-list
     .jiratack-new-ticket-form
