@@ -347,7 +347,24 @@ function restoreNavFilter(canvasName) {
   return state.filter === 'page' ? 'page' : 'all';
 }
 
-const CROSS_PAGE_NOTICE_MS = 1200;
+const CROSS_PAGE_NOTICE_MS = 1500;
+
+function showPageNotice(message, durationMs) {
+  if (!message) return null;
+  const host = document.getElementById('jiratack-overlay') || document.body;
+  if (!host) return null;
+  const notice = document.createElement('div');
+  notice.className = 'jiratack-page-notice';
+  notice.setAttribute('role', 'status');
+  notice.setAttribute('aria-live', 'polite');
+  notice.textContent = message;
+  host.appendChild(notice);
+  const lifetime = (typeof durationMs === 'number' ? durationMs : CROSS_PAGE_NOTICE_MS) + 700;
+  window.setTimeout(() => {
+    notice.remove();
+  }, lifetime);
+  return notice;
+}
 
 function handleBeforeNavigate(pin) {
   if (!current) return 0;
@@ -356,7 +373,11 @@ function handleBeforeNavigate(pin) {
     filter: current.filter || 'all',
     selectedKey: pin ? pin.key : null,
   });
-  showToast(`Opening ${pin && pin.key ? pin.key : 'another page'} — click your JiraTack bookmark there to reopen the sidebar.`);
+  const label = pin && pin.key ? pin.key : 'the ticket';
+  showPageNotice(
+    `Opening ${label}. This is on another page. You will need to re-open the JiraTack bookmark to continue.`,
+    CROSS_PAGE_NOTICE_MS,
+  );
   return CROSS_PAGE_NOTICE_MS;
 }
 
