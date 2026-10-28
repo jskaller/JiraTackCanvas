@@ -67,10 +67,10 @@ export async function updateIssue(payload, claims) {
 
   if (hasField(input, 'descriptionText')) {
     const split = splitDescription(context.fields.description);
-    if (!split.marker) {
+    if (!split.header) {
       return errorResult(
         'VALIDATION_ERROR',
-        'This description is missing the JiraTack pin marker. Edit it in Jira instead.',
+        'This description is missing the JiraTack header. Edit it in Jira instead.',
       );
     }
     updateFields.description = mergeDescription(input.descriptionText, split);

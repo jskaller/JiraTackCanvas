@@ -21,32 +21,12 @@ function descriptionToAdf(text) {
   return serializeToAdf({ type: 'doc', content });
 }
 
-function withPageUrl(descriptionAdf, pageUrl, include) {
-  if (!include) return descriptionAdf;
-  const source = descriptionAdf && Array.isArray(descriptionAdf.content)
-    ? descriptionAdf.content
-    : [];
-  return {
-    type: 'doc',
-    version: 1,
-    content: [
-      { type: 'paragraph', content: [{ type: 'text', text: `Page: ${pageUrl}` }] },
-      { type: 'paragraph' },
-      ...source,
-    ],
-  };
-}
-
 export function renderTicketForm(container, options) {
   const { config, session, capture, onCancel, onCreated, defaultProject, defaultAssignee, defaultIssueTypeId, defaultPriorityId, pins } = options;
   const isGuest = Boolean(session && session.scope === 'guest_create');
   let screenshotDataUrl = options.screenshotDataUrl || null;
   let submitting = false;
   const pageUrl = normalizeUrl(stripDeepLinkParams(window.location.href));
-  const urlFieldId = config && (
-    (config.fieldRegistry && config.fieldRegistry.urlField)
-    || config.urlField
-  );
 
   container.innerHTML = '';
 
@@ -470,11 +450,7 @@ export function renderTicketForm(container, options) {
     submitButton.textContent = 'Creating…';
 
     try {
-      const descriptionAdf = withPageUrl(
-        descriptionToAdf(descriptionInput.value),
-        pageUrl,
-        !urlFieldId,
-      );
+      const descriptionAdf = descriptionToAdf(descriptionInput.value);
       const result = await createIssue(config, session, {
         canvasId: config.canvasId,
         url: pageUrl,

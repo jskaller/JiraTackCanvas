@@ -4,7 +4,6 @@ import { kvsGet, kvsSet } from './kvs.js';
 const KEY = 'installationConfig';
 
 const DEFAULT_CONFIG = {
-  fieldRegistry: {},
   viewPermissionMode: 'per_user_projects',
   projects: {},
   archivedCanvases: [],
@@ -29,7 +28,6 @@ export async function getInstallationConfig() {
 function computeConfigVersion(config) {
   const canonical = JSON.stringify({
     projects: config.projects || {},
-    fieldRegistry: config.fieldRegistry || {},
     viewPermissionMode: config.viewPermissionMode,
   });
   return crypto.createHash('sha256').update(canonical).digest('hex');

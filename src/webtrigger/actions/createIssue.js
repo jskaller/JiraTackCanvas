@@ -4,45 +4,8 @@ import { errorResult } from '../../lib/errors.js';
 import { normalizeUrl } from '../../shared/urlNormalize.js';
 import { canAccessCanvas, canAccessProject } from '../middleware/scope.js';
 import { isLicensedUser } from '../../lib/license.js';
-
-function buildDescription(descriptionAdf, consoleLog, marker, guest) {
-  const content = descriptionAdf && Array.isArray(descriptionAdf.content)
-    ? [...descriptionAdf.content]
-    : [];
-
-  if (guest) {
-    content.unshift({
-      type: 'paragraph',
-      content: [{ type: 'text', text: `[Guest: ${guest.name} <${guest.email}>]` }],
-    });
-  }
-
-  if (typeof consoleLog === 'string' && consoleLog.length > 0) {
-    content.push(
-      { type: 'paragraph', content: [{ type: 'text', text: 'Console output:' }] },
-      { type: 'codeBlock', attrs: {}, content: [{ type: 'text', text: consoleLog }] },
-    );
-  }
-
-  content.push({
-    type: 'paragraph',
-    content: [{ type: 'text', text: `📌 JiraTack pin: ${JSON.stringify(marker)}` }],
-  });
-
-  return { type: 'doc', version: 1, content };
-}
-
-function buildPinMarker(canvasName, normalizedUrl, pinPosition, selector) {
-  const marker = {
-    canvas: canvasName,
-    url: normalizedUrl,
-    position: pinPosition,
-  };
-  if (typeof selector === 'string' && selector.length > 0) {
-    marker.selector = selector;
-  }
-  return marker;
-}
+import { buildIssueDescription } from '../../lib/issueDescription.js';
+import { writeMetadata } from '../../lib/metadata.js';
 
 function buildMultipartBody(fileBuffer, filename, mimeType) {
   const boundary = `----JiraTack${Date.now().toString(16)}${Math.random().toString(16).slice(2)}`;
@@ -94,11 +57,14 @@ async function attachScreenshot(issueKey, screenshotDataUrl) {
 }
 
 async function requestCreateIssue(fields) {
-  const res = await api.asApp().requestJira(route`/rest/api/3/issue?overrideScreenSecurity=true&overrideEditableFlag=true`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ fields }),
-  });
+  const res = await api.asApp().requestJira(
+    route`/rest/api/3/issue?overrideScreenSecurity=true&overrideEditableFlag=true`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ fields }),
+    },
+  );
 
   if (res.ok) {
     return { ok: true, created: await res.json() };
@@ -193,11 +159,6 @@ export async function createIssue(payload, claims) {
   }
 
   const config = await getInstallationConfig();
-  const fieldRegistry = config.fieldRegistry || {};
-  if (!fieldRegistry.canvasField || !fieldRegistry.pinField) {
-    return errorResult('INTERNAL', 'Custom fields are not provisioned.');
-  }
-
   const projectConfig = (config.projects && config.projects[projectKey]) || null;
   if (projectConfig && projectConfig.enabled === false) {
     return errorResult('PROJECT_DISABLED', 'JiraTack is disabled for this project.');
@@ -205,28 +166,25 @@ export async function createIssue(payload, claims) {
 
   const normalizedUrl = normalizeUrl(rawUrl);
   const summary = rawSummary.startsWith('[JiraTack]') ? rawSummary : `[JiraTack] ${rawSummary}`;
-  const marker = buildPinMarker(canvasName, normalizedUrl, pinPosition, selector);
-  const description = buildDescription(payload.descriptionAdf, payload.consoleLog, marker, guest);
-  console.log('[JiraTack] Sending ADF:', JSON.stringify(description));
+  const description = buildIssueDescription({
+    guest,
+    bodyAdf: payload.descriptionAdf,
+    pageUrl: normalizedUrl,
+    consoleLog: payload.consoleLog,
+  });
+
+  const labels = ['jiratack'];
+  if (isGuest) labels.push('jiratack-guest');
 
   const fields = {
     summary,
     description,
     issuetype: { id: issueTypeId },
     project: { key: projectKey },
-    labels: ['jiratack'],
-    [fieldRegistry.canvasField]: canvasName,
-    [fieldRegistry.pinField]: pinPosition,
+    labels,
   };
   if (!isGuest) {
     fields.reporter = { accountId: claims.sub };
-  }
-  if (fieldRegistry.urlField) {
-    fields[fieldRegistry.urlField] = normalizedUrl;
-  }
-
-  if (fieldRegistry.selectorField && typeof selector === 'string' && selector.length > 0) {
-    fields[fieldRegistry.selectorField] = selector;
   }
   if (payload.priorityId) {
     fields.priority = { id: payload.priorityId };
@@ -238,51 +196,32 @@ export async function createIssue(payload, claims) {
     fields.parent = { key: payload.parentKey };
   }
 
-  const customFieldIds = [
-    fieldRegistry.canvasField,
-    fieldRegistry.urlField,
-    fieldRegistry.pinField,
-    fieldRegistry.selectorField,
-  ].filter(Boolean);
-
-  let created = null;
-  const firstAttempt = await requestCreateIssue(fields);
-
-  if (firstAttempt.ok) {
-    created = firstAttempt.created;
-  } else if (firstAttempt.status === 400 || firstAttempt.status === 422) {
-    const errorFields = Object.keys((firstAttempt.details && firstAttempt.details.errors) || {});
-    const rejectedCustomFields = errorFields.filter((fieldId) => customFieldIds.includes(fieldId));
-
-    if (rejectedCustomFields.length > 0) {
-      console.log('[JiraTack] Jira rejected custom fields. Retrying without them:', rejectedCustomFields);
-
-      const retryFields = { ...fields };
-      rejectedCustomFields.forEach((fieldId) => {
-        delete retryFields[fieldId];
-      });
-
-      const retryAttempt = await requestCreateIssue(retryFields);
-      if (retryAttempt.ok) {
-        created = retryAttempt.created;
-      } else {
-        console.error('[JiraTack] Jira createIssue retry rejected:', retryAttempt.details);
-        if (retryAttempt.status === 400 || retryAttempt.status === 422) {
-          return errorResult('VALIDATION_ERROR', 'Jira rejected the issue payload.', retryAttempt.details);
-        }
-        return errorResult('INTERNAL', `Jira issue creation failed with HTTP ${retryAttempt.status}.`, retryAttempt.details);
-      }
-    } else {
-      console.error('[JiraTack] Jira createIssue rejected:', firstAttempt.details);
-      return errorResult('VALIDATION_ERROR', 'Jira rejected the issue payload.', firstAttempt.details);
+  const attempt = await requestCreateIssue(fields);
+  if (!attempt.ok) {
+    console.error('[JiraTack] Jira createIssue rejected:', attempt.details);
+    if (attempt.status === 400 || attempt.status === 422) {
+      return errorResult('VALIDATION_ERROR', 'Jira rejected the issue payload.', attempt.details);
     }
-  } else {
-    console.error('[JiraTack] Jira createIssue rejected:', firstAttempt.details);
-    return errorResult('INTERNAL', `Jira issue creation failed with HTTP ${firstAttempt.status}.`, firstAttempt.details);
+    return errorResult('INTERNAL', `Jira issue creation failed with HTTP ${attempt.status}.`, attempt.details);
   }
 
-  if (!created) {
+  const created = attempt.created;
+  if (!created || !created.key) {
     return errorResult('INTERNAL', 'Issue creation failed with an unknown response.');
+  }
+
+  const metadataResult = await writeMetadata(created.key, {
+    guest: guest || undefined,
+    pin: {
+      canvas: canvasName,
+      url: normalizedUrl,
+      position: pinPosition,
+      selector,
+    },
+    version: 1,
+  });
+  if (!metadataResult.ok) {
+    console.error('[JiraTack] Created issue without metadata:', created.key);
   }
 
   if (typeof payload.screenshotDataUrl === 'string' && payload.screenshotDataUrl.length > 0) {

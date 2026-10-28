@@ -1,10 +1,9 @@
 import api, { route } from '@forge/api';
-import { getInstallationConfig } from '../../lib/config.js';
 import { errorResult } from '../../lib/errors.js';
+import { METADATA_PROPERTY_KEY, metadataFromIssue, readMetadata } from '../../lib/metadata.js';
 
-function escapeJql(value) {
-  return String(value).replace(/\\/g, '\\\\').replace(/"/g, '\\"');
-}
+const MAX_RELATED = 20;
+const MAX_SCANNED = 2000;
 
 function appendTicketParam(url, issueKey) {
   if (!url) return null;
@@ -31,23 +30,97 @@ async function fetchJiraBaseUrl() {
   return null;
 }
 
+async function loadScreenshot(attachments) {
+  const list = Array.isArray(attachments) ? attachments : [];
+  const image = list.find((item) => item && typeof item.mimeType === 'string' && item.mimeType.startsWith('image/'));
+  if (!image || !image.id) return null;
+
+  try {
+    const res = await api.asApp().requestJira(
+      route`/rest/api/3/attachment/content/${image.id}`,
+    );
+    if (!res.ok) return null;
+    const buffer = Buffer.from(await res.arrayBuffer());
+    const mimeType = image.mimeType || 'image/png';
+    return {
+      filename: image.filename || null,
+      mimeType,
+      dataUrl: `data:${mimeType};base64,${buffer.toString('base64')}`,
+    };
+  } catch (e) {
+    return null;
+  }
+}
+
+async function loadRelatedTickets(issueKey, canvasName, url) {
+  if (!url) return [];
+  const results = [];
+  let nextPageToken = null;
+  let scanned = 0;
+
+  try {
+    do {
+      const body = {
+        jql: 'labels = "jiratack" ORDER BY created ASC',
+        fields: ['summary', 'status', 'issuetype'],
+        properties: [METADATA_PROPERTY_KEY],
+        maxResults: 100,
+      };
+      if (nextPageToken) body.nextPageToken = nextPageToken;
+
+      const res = await api.asUser().requestJira(route`/rest/api/3/search/jql`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      if (!res.ok) break;
+
+      const data = await res.json();
+      const issues = (data && data.issues) || [];
+
+      for (const issue of issues) {
+        if (issue.key === issueKey) continue;
+        const metadata = metadataFromIssue(issue);
+        if (!metadata) continue;
+        if (metadata.pin.canvas !== canvasName) continue;
+        if (metadata.pin.url !== url) continue;
+        const fields = issue.fields || {};
+        results.push({
+          key: issue.key,
+          summary: fields.summary || '',
+          status: { name: (fields.status && fields.status.name) || '' },
+          issueType: { name: (fields.issuetype && fields.issuetype.name) || '' },
+        });
+        if (results.length >= MAX_RELATED) return results;
+      }
+
+      scanned += issues.length;
+      nextPageToken = data && !data.isLast ? data.nextPageToken : null;
+      if (!nextPageToken || issues.length === 0) break;
+    } while (scanned < MAX_SCANNED);
+  } catch (e) {
+    return results;
+  }
+
+  return results;
+}
+
 export async function issuePanelData(context, payload) {
   const issueKey = payload && payload.issueKey;
   if (typeof issueKey !== 'string' || issueKey.length === 0) {
     return errorResult('BAD_REQUEST', 'issueKey is required.');
   }
 
-  const config = await getInstallationConfig();
-  const fieldRegistry = config.fieldRegistry || {};
-  if (!fieldRegistry.canvasField) {
+  const metadata = await readMetadata(issueKey);
+  if (!metadata) {
     return { ok: true, data: { isJiraTack: false } };
   }
 
-  const fieldsParam = [fieldRegistry.canvasField, fieldRegistry.urlField].filter(Boolean).join(',');
-
   let issue;
   try {
-    const res = await api.asApp().requestJira(route`/rest/api/3/issue/${issueKey}?fields=${fieldsParam}`);
+    const res = await api.asApp().requestJira(
+      route`/rest/api/3/issue/${issueKey}?fields=summary,status,issuetype,attachment,project`,
+    );
     if (!res.ok) {
       if (res.status === 404) {
         return errorResult('NOT_FOUND', 'Issue not found.');
@@ -60,50 +133,19 @@ export async function issuePanelData(context, payload) {
   }
 
   const issueFields = (issue && issue.fields) || {};
-  const canvasName = issueFields[fieldRegistry.canvasField];
-  if (!canvasName) {
-    return { ok: true, data: { isJiraTack: false } };
-  }
-
-  const url = fieldRegistry.urlField ? (issueFields[fieldRegistry.urlField] || null) : null;
-  let relatedTickets = [];
-
-  if (url && fieldRegistry.urlField) {
-    const jql = `"${fieldRegistry.canvasField}" = "${escapeJql(canvasName)}" AND "${fieldRegistry.urlField}" = "${escapeJql(url)}" AND key != ${issueKey} ORDER BY created ASC`;
-    try {
-      const res = await api.asUser().requestJira(route`/rest/api/3/search/jql`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          jql,
-          fields: ['summary', 'status', 'issuetype'],
-          maxResults: 20,
-        }),
-      });
-      if (res.ok) {
-        const data = await res.json();
-        relatedTickets = ((data && data.issues) || []).map((related) => ({
-          key: related.key,
-          summary: (related.fields && related.fields.summary) || '',
-          status: {
-            name: (related.fields && related.fields.status && related.fields.status.name) || '',
-          },
-          issueType: {
-            name: (related.fields && related.fields.issuetype && related.fields.issuetype.name) || '',
-          },
-        }));
-      }
-    } catch (e) {
-      relatedTickets = [];
-    }
-  }
+  const canvasName = metadata.pin.canvas;
+  const url = metadata.pin.url;
 
   return {
     ok: true,
     data: {
+      isJiraTack: true,
       canvasName,
       url,
-      relatedTickets,
+      guest: metadata.guest || null,
+      pin: metadata.pin,
+      screenshot: await loadScreenshot(issueFields.attachment),
+      relatedTickets: await loadRelatedTickets(issueKey, canvasName, url),
       deepLink: appendTicketParam(url, issueKey),
       jiraBaseUrl: await fetchJiraBaseUrl(),
     },

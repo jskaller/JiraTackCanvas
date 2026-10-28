@@ -3,7 +3,6 @@ import { router } from '@forge/bridge';
 import { aggregate, generateUserToken, buildJqlUrl, deleteCanvas, archiveCanvas } from './api';
 import CanvasTable from './components/CanvasTable';
 import BookmarkletModal from './components/BookmarkletModal';
-import RecoveryPanel from './components/RecoveryPanel';
 import ConfirmDialog from './components/ConfirmDialog';
 import CreateCanvasModal from './components/CreateCanvasModal';
 import GuestLinkModal from './components/GuestLinkModal';
@@ -211,12 +210,6 @@ export default function App() {
                 ? 'No archived canvases.'
                 : 'No canvases yet. Use Create New Canvas to make your first one.'}
             </div>
-            {!viewArchived && isAdmin && (
-              <div className="jt-empty-hint">
-                If older JiraTack tickets are missing their canvas fields, use Maintenance below to recover
-                them.
-              </div>
-            )}
           </div>
         ) : (
           <CanvasTable
@@ -228,8 +221,6 @@ export default function App() {
           />
         )}
       </section>
-
-      {isAdmin && <RecoveryPanel onRecovered={load} />}
 
       {modal && (
         <BookmarkletModal data={modal.data} scope={modal.scope} onClose={() => setModal(null)} />

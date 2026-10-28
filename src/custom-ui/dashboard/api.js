@@ -31,10 +31,6 @@ export function archiveCanvas(canvasName) {
   return invoke('archiveCanvas', { canvasName });
 }
 
-export function recoverPins(dryRun) {
-  return invoke('recoverPinsFromDescriptions', { dryRun });
-}
-
 export function formatDate(value) {
   if (!value) return '—';
   const date = new Date(typeof value === 'number' ? value : String(value));

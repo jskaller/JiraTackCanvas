@@ -33,7 +33,7 @@ export async function getTransitions(payload, claims) {
   }));
 
   const split = splitDescription(context.fields.description);
-  const descriptionText = split.marker
+  const descriptionText = split.header
     ? adfToText({ type: 'doc', content: split.body })
     : null;
 

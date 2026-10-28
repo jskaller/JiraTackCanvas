@@ -1,15 +1,14 @@
 import api, { route } from '@forge/api';
 import { kvsGet, kvsSet } from './kvs.js';
+import { METADATA_PROPERTY_KEY, metadataFromIssue } from './metadata.js';
 
 const CACHE_PREFIX = 'canvasProjectCache:';
 const CACHE_TTL_SECONDS = 300;
+const PAGE_SIZE = 100;
+const MAX_SCANNED = 2000;
 
-function escapeJql(value) {
-  return String(value).replace(/\\/g, '\\\\').replace(/"/g, '\\"');
-}
-
-export async function getCanvasProjectKey(canvasName, canvasFieldId) {
-  if (!canvasFieldId) return null;
+export async function getCanvasProjectKey(canvasName) {
+  if (typeof canvasName !== 'string' || canvasName.length === 0) return null;
   const cacheKey = `${CACHE_PREFIX}${canvasName}`;
 
   try {
@@ -21,18 +20,50 @@ export async function getCanvasProjectKey(canvasName, canvasFieldId) {
     // ignore cache read errors
   }
 
-  const jql = `"${canvasFieldId}" = "${escapeJql(canvasName)}" ORDER BY created ASC`;
-  const res = await api.asApp().requestJira(route`/rest/api/3/search/jql`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ jql, fields: ['project'], maxResults: 1 }),
-  });
+  let projectKey = null;
+  let nextPageToken = null;
+  let scanned = 0;
 
-  if (!res.ok) return null;
+  try {
+    do {
+      const body = {
+        jql: 'labels = "jiratack" ORDER BY created ASC',
+        fields: ['project'],
+        properties: [METADATA_PROPERTY_KEY],
+        maxResults: PAGE_SIZE,
+      };
+      if (nextPageToken) body.nextPageToken = nextPageToken;
 
-  const data = await res.json();
-  const issue = data && data.issues && data.issues[0];
-  const projectKey = issue && issue.fields && issue.fields.project && issue.fields.project.key;
+      const res = await api.asApp().requestJira(route`/rest/api/3/search/jql`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      if (!res.ok) return null;
+
+      const data = await res.json();
+      const issues = (data && data.issues) || [];
+
+      for (const issue of issues) {
+        const metadata = metadataFromIssue(issue);
+        if (!metadata || metadata.pin.canvas !== canvasName) continue;
+        const fields = issue.fields || {};
+        if (fields.project && fields.project.key) {
+          projectKey = fields.project.key;
+          break;
+        }
+      }
+
+      if (projectKey) break;
+
+      scanned += issues.length;
+      nextPageToken = data && !data.isLast ? data.nextPageToken : null;
+      if (!nextPageToken || issues.length === 0) break;
+    } while (scanned < MAX_SCANNED);
+  } catch (e) {
+    return null;
+  }
+
   if (!projectKey) return null;
 
   try {
@@ -49,31 +80,18 @@ export async function getCanvasProjectKey(canvasName, canvasFieldId) {
 }
 
 export async function getEffectiveRetirementDays(canvasName, config) {
-  const fieldRegistry = (config && config.fieldRegistry) || {};
-  if (!fieldRegistry.canvasField) return 0;
-
   let projectKey = null;
   try {
-    projectKey = await getCanvasProjectKey(canvasName, fieldRegistry.canvasField);
+    projectKey = await getCanvasProjectKey(canvasName);
   } catch (e) {
     return 0;
   }
   if (!projectKey) return 0;
 
-  const projectConfig = config.projects && config.projects[projectKey];
+  const projectConfig = config && config.projects && config.projects[projectKey];
   const days = projectConfig && typeof projectConfig.retirementDays === 'number'
     ? projectConfig.retirementDays
     : 0;
 
   return days > 0 ? days : 0;
-}
-
-export function buildOverlayJql({ canvasFieldId, urlFieldId, canvasName, normalizedUrl, retirementDays }) {
-  const base = `"${canvasFieldId}" = "${escapeJql(canvasName)}" AND "${urlFieldId}" = "${escapeJql(normalizedUrl)}"`;
-
-  if (retirementDays > 0) {
-    return `${base} AND (statusCategory != Done OR (statusCategory = Done AND statusCategoryChangedDate >= -${retirementDays}d)) ORDER BY created ASC`;
-  }
-
-  return `${base} AND statusCategory != Done ORDER BY created ASC`;
 }

@@ -2,23 +2,18 @@ import api, { route } from '@forge/api';
 import { getInstallationConfig } from '../../lib/config.js';
 import { errorResult } from '../../lib/errors.js';
 import { normalizeUrl } from '../../shared/urlNormalize.js';
-import { parsePinMarker } from '../../lib/pinMarker.js';
+import { METADATA_PROPERTY_KEY, metadataFromIssue } from '../../lib/metadata.js';
 
 const PAGE_SIZE = 100;
 const MAX_TICKETS = 2000;
 
 export async function listCanvasesForUser(payload, claims) {
   const config = await getInstallationConfig();
-  const fieldRegistry = config.fieldRegistry || {};
   const archived = new Set(Array.isArray(config.archivedCanvases) ? config.archivedCanvases : []);
   const deleted = new Set(Array.isArray(config.deletedCanvases) ? config.deletedCanvases : []);
 
-  if (!fieldRegistry.canvasField) {
-    return { ok: true, data: { canvases: [] } };
-  }
-
-  const jql = `labels = "jiratack" ORDER BY created DESC`;
-  const fields = [fieldRegistry.canvasField, fieldRegistry.urlField, 'description', 'project'].filter(Boolean);
+  const jql = 'labels = "jiratack" ORDER BY created DESC';
+  const fields = ['project'];
 
   const canvases = new Map();
   let nextPageToken = null;
@@ -26,7 +21,12 @@ export async function listCanvasesForUser(payload, claims) {
 
   try {
     do {
-      const body = { jql, fields, maxResults: PAGE_SIZE };
+      const body = {
+        jql,
+        fields,
+        properties: [METADATA_PROPERTY_KEY],
+        maxResults: PAGE_SIZE,
+      };
       if (nextPageToken) body.nextPageToken = nextPageToken;
 
       const res = await api.asApp().requestJira(route`/rest/api/3/search/jql`, {
@@ -43,11 +43,9 @@ export async function listCanvasesForUser(payload, claims) {
       const issues = (data && data.issues) || [];
 
       for (const issue of issues) {
-        const issueFields = issue.fields || {};
-        const storedCanvas = issueFields[fieldRegistry.canvasField];
-        const storedUrl = fieldRegistry.urlField ? issueFields[fieldRegistry.urlField] : null;
-        const marker = !storedCanvas || !storedUrl ? parsePinMarker(issueFields.description) : null;
-        const canvasName = storedCanvas || (marker && marker.canvas) || null;
+        const metadata = metadataFromIssue(issue);
+        if (!metadata) continue;
+        const canvasName = metadata.pin.canvas;
         if (!canvasName) continue;
 
         let entry = canvases.get(canvasName);
@@ -56,13 +54,13 @@ export async function listCanvasesForUser(payload, claims) {
           canvases.set(canvasName, entry);
         }
 
+        const issueFields = issue.fields || {};
         if (issueFields.project && issueFields.project.key) {
           entry.projectKeys.add(issueFields.project.key);
         }
 
-        const urlValue = storedUrl || (marker && marker.url) || null;
-        if (urlValue) {
-          entry.urls.add(normalizeUrl(urlValue));
+        if (metadata.pin.url) {
+          entry.urls.add(normalizeUrl(metadata.pin.url));
         }
       }
 

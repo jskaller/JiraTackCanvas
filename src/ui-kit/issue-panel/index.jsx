@@ -5,6 +5,7 @@ import ForgeReconciler, {
   Button,
   Textfield,
   Link,
+  Image,
   SectionMessage,
   useProductContext,
 } from '@forge/react';
@@ -74,12 +75,33 @@ const IssuePanel = () => {
   return (
     <Stack space="space.100">
       <Text>Canvas: {data.canvasName}</Text>
+
+      {data.guest && (
+        <Text>
+          Guest: {data.guest.name} ({data.guest.email})
+        </Text>
+      )}
+
       {data.url ? (
         <Link href={data.url} openNewTab>
           {data.url}
         </Link>
       ) : (
         <Text>Page URL unavailable</Text>
+      )}
+
+      {data.pin && (
+        <Stack space="space.050">
+          <Text>Pin position: {data.pin.position}</Text>
+          <Text>Selector: {data.pin.selector || 'none'}</Text>
+        </Stack>
+      )}
+
+      {data.screenshot && data.screenshot.dataUrl && (
+        <Stack space="space.050">
+          <Text>Screenshot</Text>
+          <Image src={data.screenshot.dataUrl} alt={data.screenshot.filename || 'JiraTack screenshot'} />
+        </Stack>
       )}
 
       {data.url && (

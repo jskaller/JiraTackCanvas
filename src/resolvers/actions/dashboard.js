@@ -2,8 +2,8 @@ import api, { route } from '@forge/api';
 import { getInstallationConfig } from '../../lib/config.js';
 import { errorResult } from '../../lib/errors.js';
 import { normalizeUrl, stripDeepLinkParams } from '../../shared/urlNormalize.js';
-import { parsePinMarker } from '../../lib/pinMarker.js';
 import { trackLicensedUser } from '../../lib/license.js';
+import { METADATA_PROPERTY_KEY, metadataFromIssue } from '../../lib/metadata.js';
 
 const PAGE_SIZE = 100;
 const MAX_TICKETS = 2000;
@@ -52,36 +52,11 @@ export async function dashboardAggregate(context) {
   await trackLicensedUser(context);
 
   const config = await getInstallationConfig();
-  const fieldRegistry = config.fieldRegistry || {};
   const archived = new Set(Array.isArray(config.archivedCanvases) ? config.archivedCanvases : []);
   const deleted = new Set(Array.isArray(config.deletedCanvases) ? config.deletedCanvases : []);
 
-  if (!fieldRegistry.canvasField) {
-    return {
-      ok: true,
-      data: {
-        canvases: [],
-        configVersion: config.configVersion || '',
-        hasAccess: true,
-        isAdmin: await computeIsAdmin(context),
-        jiraBaseUrl: null,
-        canvasFieldId: null,
-      },
-    };
-  }
-
-  const fields = [
-    fieldRegistry.canvasField,
-    fieldRegistry.urlField,
-    'description',
-    'status',
-    'updated',
-    'assignee',
-    'reporter',
-    'project',
-  ].filter(Boolean);
-
-  const jql = `labels = "jiratack" ORDER BY created DESC`;
+  const fields = ['status', 'updated', 'assignee', 'reporter', 'project'];
+  const jql = 'labels = "jiratack" ORDER BY created DESC';
 
   const canvases = new Map();
   let nextPageToken = null;
@@ -92,6 +67,7 @@ export async function dashboardAggregate(context) {
       const body = {
         jql,
         fields,
+        properties: [METADATA_PROPERTY_KEY],
         maxResults: PAGE_SIZE,
       };
       if (nextPageToken) body.nextPageToken = nextPageToken;
@@ -110,11 +86,9 @@ export async function dashboardAggregate(context) {
       const issues = (data && data.issues) || [];
 
       for (const issue of issues) {
-        const issueFields = issue.fields || {};
-        const storedCanvas = issueFields[fieldRegistry.canvasField];
-        const storedUrl = fieldRegistry.urlField ? issueFields[fieldRegistry.urlField] : null;
-        const marker = !storedCanvas || !storedUrl ? parsePinMarker(issueFields.description) : null;
-        const canvasName = storedCanvas || (marker && marker.canvas) || null;
+        const metadata = metadataFromIssue(issue);
+        if (!metadata) continue;
+        const canvasName = metadata.pin.canvas;
         if (!canvasName) continue;
 
         let entry = canvases.get(canvasName);
@@ -133,6 +107,7 @@ export async function dashboardAggregate(context) {
 
         entry.ticketCount += 1;
 
+        const issueFields = issue.fields || {};
         const statusCategory = issueFields.status && issueFields.status.statusCategory
           ? issueFields.status.statusCategory.key
           : null;
@@ -140,7 +115,7 @@ export async function dashboardAggregate(context) {
           entry.openCount += 1;
         }
 
-        const urlValue = storedUrl || (marker && marker.url) || null;
+        const urlValue = metadata.pin.url;
         if (urlValue) {
           const normalized = normalizeUrl(stripDeepLinkParams(urlValue));
           entry.urls.set(normalized, (entry.urls.get(normalized) || 0) + 1);
@@ -204,7 +179,6 @@ export async function dashboardAggregate(context) {
         hasAccess,
         isAdmin,
         jiraBaseUrl,
-        canvasFieldId: fieldRegistry.canvasField,
       },
     };
   } catch (e) {

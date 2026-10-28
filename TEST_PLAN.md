@@ -1359,6 +1359,14 @@ All of 6.1–6.14 pass. Commit: `feat(s6): epic panel, issue panel, field audit,
 - Click the bookmark on page B → assert the same canvas loads, the ticket is selected and scrolled into view, and the ticket-list filter matches what was active on page A (no re-auth prompt).
 - Assert no stale `jiratack_nav_state` remains after the restore (subsequent manual reload keeps the default 'All Tickets' filter).
 
+### 7.19 Issue-property metadata (D18)
+
+- Create a licensed ticket → assert the issue description has the bold `[JiraTack]` header, user body, and a `Page:` link, with **no JSON**; assert label `jiratack`; assert `com.jiratack.metadata` exists with `{ pin: { canvas, url, position, selector }, version: 1 }`.
+- Create a guest ticket → assert `[JiraTack Guest: Name]` header and both `jiratack` + `jiratack-guest` labels; metadata contains `guest`.
+- Assert `getPins`, `listCanvasesForUser`, dashboard, and the issue panel all read from the property; old dev tickets without it are absent (expected).
+- Issue panel → assert guest identity, pin position/selector, and the screenshot render inline.
+- Confirm no custom fields, provisioning button, field audit, or recovery UI remain.
+
 ### Sprint 7 exit criteria
 
 All of 7.1–7.13 pass. Commit: `feat(s7): inline edit, done animation, retirement, license, marketplace`.

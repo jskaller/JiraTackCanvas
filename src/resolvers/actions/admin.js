@@ -1,24 +1,19 @@
 import crypto from 'crypto';
 import api, { route, getAppContext } from '@forge/api';
 import { WhereConditions } from '@forge/kvs';
-import { provisionFields } from '../../lib/fields.js';
 import { getInstallationConfig, setInstallationConfig } from '../../lib/config.js';
-import { kvsGet, kvsSet, kvs } from '../../lib/kvs.js';
+import { kvsGet, kvsSet } from '../../lib/kvs.js';
 import { trackLicensedUser } from '../../lib/license.js';
 import { generateSessionJwt } from '../../lib/tokens.js';
 import { errorResponse, errorResult } from '../../lib/errors.js';
 import { resolveWebtriggerUrls } from '../../lib/webtriggerUrls.js';
 import { createSeedTicket } from '../../lib/canvas.js';
-import { parsePinMarker } from '../../lib/pinMarker.js';
+import { METADATA_PROPERTY_KEY, metadataFromIssue } from '../../lib/metadata.js';
 import { SDK_VERSION } from '../../lib/version.js';
 
 const CANVAS_TOKEN_TTL_SECONDS = 2592000;
 const GUEST_TOKEN_TTL_DAYS = 365;
 const SESSION_TTL_SECONDS = 8 * 60 * 60;
-
-export async function runProvisionFields(context) {
-  return provisionFields(context);
-}
 
 function resolveInstallationId(context) {
   try {
@@ -30,7 +25,7 @@ function resolveInstallationId(context) {
   return (context && context.installationId) || (context && context.extension && context.extension.installation && context.extension.installation.id) || '';
 }
 
-async function computePermittedProjects(mode, canvasName, canvasFieldId) {
+async function computePermittedProjects(mode, canvasName) {
   if (mode === 'open') {
     return { ok: true, permittedProjects: '*' };
   }
@@ -41,7 +36,7 @@ async function computePermittedProjects(mode, canvasName, canvasFieldId) {
   const projects = Array.isArray(values) ? values : [];
   const permittedProjects = projects.length >= 100 ? '*' : projects.map((p) => p.key);
 
-  if (permittedProjects === '*' || !canvasFieldId) {
+  if (permittedProjects === '*' || !canvasName) {
     return { ok: true, permittedProjects };
   }
 
@@ -49,14 +44,23 @@ async function computePermittedProjects(mode, canvasName, canvasFieldId) {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
-      jql: `"${canvasFieldId}" = "${canvasName}"`,
+      jql: 'labels = "jiratack"',
       fields: ['project'],
+      properties: [METADATA_PROPERTY_KEY],
       maxResults: 100,
     }),
   });
   const searchPayload = await search.json();
   const issues = (searchPayload && searchPayload.issues) || [];
-  const pinProjectKeys = [...new Set(issues.map((i) => i.fields.project.key))];
+  const pinProjectKeys = [...new Set(
+    issues
+      .filter((issue) => {
+        const metadata = metadataFromIssue(issue);
+        return metadata && metadata.pin.canvas === canvasName;
+      })
+      .map((issue) => issue.fields && issue.fields.project && issue.fields.project.key)
+      .filter(Boolean),
+  )];
   const intersection = pinProjectKeys.filter((k) => permittedProjects.includes(k));
 
   if (pinProjectKeys.length > 0 && intersection.length === 0) {
@@ -67,6 +71,21 @@ async function computePermittedProjects(mode, canvasName, canvasFieldId) {
   }
 
   return { ok: true, permittedProjects };
+}
+
+async function isJiraAdmin(context) {
+  if (context && context.userAccess && typeof context.userAccess.isAdmin === 'boolean') {
+    return context.userAccess.isAdmin;
+  }
+  try {
+    const res = await api.asUser().requestJira(route`/rest/api/3/mypermissions?permissions=ADMINISTER`);
+    if (!res.ok) return false;
+    const data = await res.json();
+    const permission = data && data.permissions && data.permissions.ADMINISTER;
+    return Boolean(permission && permission.havePermission);
+  } catch (e) {
+    return false;
+  }
 }
 
 export async function generateCanvasToken(context, payload) {
@@ -87,11 +106,10 @@ export async function generateCanvasToken(context, payload) {
   }
 
   const config = await getInstallationConfig();
-  const canvasFieldId = (config.fieldRegistry && config.fieldRegistry.canvasField) || null;
 
   let permitted;
   try {
-    permitted = await computePermittedProjects(config.viewPermissionMode, canvasName, canvasFieldId);
+    permitted = await computePermittedProjects(config.viewPermissionMode, canvasName);
   } catch (e) {
     return errorResult('INTERNAL', e && e.message ? e.message : String(e));
   }
@@ -157,7 +175,6 @@ export async function generateCanvasToken(context, payload) {
       canvasName,
       scope,
       permittedProjects,
-      fieldRegistry: config.fieldRegistry || {},
     },
   };
 }
@@ -190,7 +207,7 @@ export async function generateGuestToken(context, payload) {
 
   let permitted;
   try {
-    permitted = await computePermittedProjects(config.viewPermissionMode, null, null);
+    permitted = await computePermittedProjects(config.viewPermissionMode, null);
   } catch (e) {
     return errorResult('INTERNAL', e && e.message ? e.message : String(e));
   }
@@ -288,267 +305,6 @@ export async function revokeCanvasToken(payload) {
   }
 }
 
-export async function autoUpdateFieldMappings(context, payload) {
-  const config = await getInstallationConfig();
-  const fieldRegistry = config.fieldRegistry || {};
-  const fieldIds = [
-    fieldRegistry.canvasField,
-    fieldRegistry.urlField,
-    fieldRegistry.pinField,
-    fieldRegistry.selectorField,
-  ].filter(Boolean);
-
-  if (fieldIds.length === 0) {
-    return errorResult('BAD_REQUEST', 'Provision fields before auto-updating field mappings.');
-  }
-
-  const warnings = [];
-  const updatedScreens = [];
-
-  try {
-    const screensRes = await api.asUser().requestJira(route`/rest/api/3/screens?maxResults=100`);
-    if (!screensRes.ok) {
-      return errorResult('INTERNAL', `Failed to list screens with HTTP ${screensRes.status}.`);
-    }
-    const screensJson = await screensRes.json();
-    const screens = (screensJson && screensJson.values) || [];
-
-    const defaultScreens = screens.filter((screen) => /default/i.test(screen.name || ''));
-    const targets = defaultScreens.length > 0 ? defaultScreens : screens;
-
-    if (targets.length === 0) {
-      return { ok: true, data: { updatedScreens: [], warnings: ['No screens found.'] } };
-    }
-
-    for (const screen of targets) {
-      try {
-        let tabsRes;
-        try {
-          tabsRes = await api.asUser().requestJira(route`/rest/api/3/screens/${screen.id}/tabs`);
-        } catch (e) {
-          console.error(`[JiraTack] Failed to read tabs for screen ${screen.name}:`, e);
-          warnings.push(
-            `Skipped screen ${screen.name} (Team-managed screens must be configured manually): ${e && e.message ? e.message : e}`,
-          );
-          continue;
-        }
-
-        if (!tabsRes.ok) {
-          console.error(`[JiraTack] Tabs request for screen ${screen.name} returned HTTP ${tabsRes.status}.`);
-          if (tabsRes.status === 400 || tabsRes.status === 403) {
-            warnings.push(
-              `Skipped screen ${screen.name} (Team-managed screens must be configured manually): HTTP ${tabsRes.status}.`,
-            );
-          } else {
-            warnings.push(`Failed to list tabs for screen ${screen.name}: HTTP ${tabsRes.status}.`);
-          }
-          continue;
-        }
-
-        let tabs = [];
-        try {
-          tabs = (await tabsRes.json()) || [];
-        } catch (e) {
-          warnings.push(`Skipped screen ${screen.name}: could not parse tabs response.`);
-          continue;
-        }
-
-        const added = [];
-
-        for (const tab of tabs) {
-          try {
-            const fieldsRes = await api.asUser().requestJira(route`/rest/api/3/screens/${screen.id}/tabs/${tab.id}/fields`);
-            let existingIds = [];
-            if (fieldsRes.ok) {
-              const existing = await fieldsRes.json();
-              const list = Array.isArray(existing) ? existing : (existing && existing.values) || [];
-              existingIds = list.map((field) => field.id);
-            } else {
-              warnings.push(`Failed to list fields for ${screen.name} / ${tab.name}: HTTP ${fieldsRes.status}.`);
-            }
-
-            for (const fieldId of fieldIds) {
-              if (existingIds.includes(fieldId)) continue;
-
-              const addRes = await api.asUser().requestJira(
-                route`/rest/api/3/screens/${screen.id}/tabs/${tab.id}/fields`,
-                {
-                  method: 'POST',
-                  headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({ fieldId }),
-                },
-              );
-
-              if (addRes.ok) {
-                added.push(fieldId);
-                existingIds.push(fieldId);
-              } else {
-                warnings.push(`Failed to add ${fieldId} to ${screen.name} / ${tab.name}: HTTP ${addRes.status}.`);
-              }
-            }
-          } catch (e) {
-            console.error(`[JiraTack] Failed to process tab on screen ${screen.name}:`, e);
-            warnings.push(`Skipped tab on ${screen.name}: ${e && e.message ? e.message : e}`);
-          }
-        }
-
-        if (added.length > 0) {
-          updatedScreens.push({ id: screen.id, name: screen.name, added });
-        }
-      } catch (e) {
-        console.error(`[JiraTack] Failed to process screen ${screen.name}:`, e);
-        warnings.push(`Skipped screen ${screen.name}: ${e && e.message ? e.message : e}`);
-      }
-    }
-
-    console.log('[JiraTack] Auto field mapping complete:', { updatedScreens, warnings });
-    return { ok: true, data: { updatedScreens, warnings } };
-  } catch (e) {
-    return errorResult('INTERNAL', e && e.message ? e.message : String(e));
-  }
-}
-
-async function isJiraAdmin(context) {
-  if (context && context.userAccess && context.userAccess.isAdmin === true) {
-    return true;
-  }
-  try {
-    const res = await api.asUser().requestJira(route`/rest/api/3/mypermissions?permissions=ADMINISTER`);
-    if (res.ok) {
-      const data = await res.json();
-      const permission = data && data.permissions && data.permissions.ADMINISTER;
-      return Boolean(permission && permission.havePermission);
-    }
-  } catch (e) {
-    return false;
-  }
-  return false;
-}
-
-export async function recoverPinsFromDescriptions(context, payload) {
-  const isAdmin = await isJiraAdmin(context);
-  if (!isAdmin) {
-    return errorResult('INSUFFICIENT_SCOPE', 'Admin access is required.');
-  }
-
-  const dryRun = Boolean(payload && payload.dryRun);
-  const config = await getInstallationConfig();
-  const fieldRegistry = config.fieldRegistry || {};
-  if (!fieldRegistry.canvasField || !fieldRegistry.urlField || !fieldRegistry.pinField) {
-    return errorResult('BAD_REQUEST', 'Provision fields before running recovery.');
-  }
-
-  const jql = `labels = "jiratack" ORDER BY created ASC`;
-  const issues = [];
-  let nextPageToken = null;
-  const MAX_SCANNED = 2000;
-
-  try {
-    while (issues.length < MAX_SCANNED) {
-      const body = { jql, fields: ['description', fieldRegistry.canvasField], maxResults: 100 };
-      if (nextPageToken) body.nextPageToken = nextPageToken;
-
-      const res = await api.asUser().requestJira(route`/rest/api/3/search/jql`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-      });
-
-      if (!res.ok) {
-        return errorResult('INTERNAL', `Recovery query failed with HTTP ${res.status}.`);
-      }
-
-      const data = await res.json();
-      const batch = (data && data.issues) || [];
-      issues.push(...batch);
-
-      if (batch.length === 0) break;
-      if (data && (data.isLast || !data.nextPageToken)) break;
-      nextPageToken = data && data.nextPageToken;
-      if (!nextPageToken) break;
-    }
-  } catch (e) {
-    return errorResult('INTERNAL', e && e.message ? e.message : String(e));
-  }
-
-  const alreadyPopulated = issues.filter(
-    (issue) => issue.fields && issue.fields[fieldRegistry.canvasField],
-  ).length;
-  const candidates = issues
-    .filter((issue) => !(issue.fields && issue.fields[fieldRegistry.canvasField]))
-    .slice(0, 500);
-  const truncated = candidates.length >= 500;
-  console.log(
-    '[JiraTack] Recovery scan:',
-    { scanned: issues.length, alreadyPopulated, candidates: candidates.length, jql },
-  );
-
-  let recovered = 0;
-  let skipped = 0;
-  const errors = [];
-
-  for (const issue of candidates) {
-    const marker = parsePinMarker(issue.fields && issue.fields.description);
-    if (!marker) {
-      skipped += 1;
-      continue;
-    }
-
-    if (dryRun) {
-      recovered += 1;
-      continue;
-    }
-
-    const fields = {
-      [fieldRegistry.canvasField]: marker.canvas,
-      [fieldRegistry.urlField]: marker.url,
-      [fieldRegistry.pinField]: marker.position,
-    };
-    if (fieldRegistry.selectorField && marker.selector) {
-      fields[fieldRegistry.selectorField] = marker.selector;
-    }
-
-    try {
-      const res = await api.asUser().requestJira(route`/rest/api/3/issue/${issue.key}?overrideScreenSecurity=true&overrideEditableFlag=true`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ fields }),
-      });
-      if (res.ok) {
-        recovered += 1;
-      } else {
-        let errorText = '';
-        try {
-          const raw = await res.text();
-          errorText = raw ? raw.slice(0, 800) : '';
-        } catch (readError) {
-          errorText = '';
-        }
-        console.error('[JiraTack] Recovery PUT failed:', issue.key, res.status, fields, errorText);
-        skipped += 1;
-        errors.push(`${issue.key}: HTTP ${res.status}${errorText ? ` - ${errorText}` : ''}`);
-      }
-    } catch (e) {
-      skipped += 1;
-      errors.push(`${issue.key}: ${e && e.message ? e.message : e}`);
-    }
-  }
-
-  return {
-    ok: true,
-    data: {
-      recovered,
-      skipped,
-      errors,
-      truncated,
-      dryRun,
-      candidates: candidates.length,
-      scanned: issues.length,
-      alreadyPopulated,
-    },
-  };
-}
-
 const USER_TOKEN_TTL_DAYS = 90;
 
 export async function generateUserToken(context) {
@@ -560,7 +316,7 @@ export async function generateUserToken(context) {
 
   let permitted;
   try {
-    permitted = await computePermittedProjects(config.viewPermissionMode, null, null);
+    permitted = await computePermittedProjects(config.viewPermissionMode, null);
   } catch (e) {
     return errorResult('INTERNAL', e && e.message ? e.message : String(e));
   }
@@ -604,7 +360,6 @@ export async function generateUserToken(context) {
       apiUrl,
       sdkUrl,
       sdkVersion: SDK_VERSION,
-      fieldRegistry: config.fieldRegistry || {},
     },
   };
 }
@@ -636,7 +391,6 @@ export async function deleteCanvas(context, payload) {
   }
 
   const config = await getInstallationConfig();
-  const fieldRegistry = config.fieldRegistry || {};
 
   const jql = `labels = "jiratack" ORDER BY created ASC`;
   const issues = [];
@@ -645,7 +399,7 @@ export async function deleteCanvas(context, payload) {
 
   try {
     while (issues.length < MAX_SCANNED) {
-      const body = { jql, fields: ['status', fieldRegistry.canvasField, 'description'], maxResults: 100 };
+      const body = { jql, fields: ['status'], properties: [METADATA_PROPERTY_KEY], maxResults: 100 };
       if (nextPageToken) body.nextPageToken = nextPageToken;
 
       const res = await api.asUser().requestJira(route`/rest/api/3/search/jql`, {
@@ -672,11 +426,8 @@ export async function deleteCanvas(context, payload) {
   }
 
   const canvasIssues = issues.filter((issue) => {
-    const fields = issue.fields || {};
-    const stored = fieldRegistry.canvasField ? fields[fieldRegistry.canvasField] : null;
-    if (stored === canvasName) return true;
-    const marker = parsePinMarker(fields.description);
-    return Boolean(marker && marker.canvas === canvasName);
+    const metadata = metadataFromIssue(issue);
+    return Boolean(metadata && metadata.pin.canvas === canvasName);
   });
 
   const openIssues = canvasIssues.filter((issue) => {

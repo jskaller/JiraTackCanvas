@@ -1,8 +1,9 @@
 import { route } from '@forge/api';
 import { getInstallationConfig } from './config.js';
 import { errorResult } from './errors.js';
-import { appendPinMarker } from './pinMarker.js';
 import { normalizeUrl, stripDeepLinkParams } from '../shared/urlNormalize.js';
+import { buildIssueDescription } from './issueDescription.js';
+import { writeMetadata } from './metadata.js';
 
 function chooseProject(config, permittedProjects, projectKey) {
   if (projectKey) return projectKey;
@@ -49,10 +50,6 @@ export async function createSeedTicket(options) {
   }
 
   const config = await getInstallationConfig();
-  const fieldRegistry = config.fieldRegistry || {};
-  if (!fieldRegistry.canvasField || !fieldRegistry.urlField) {
-    return errorResult('BAD_REQUEST', 'Provision fields before creating a canvas.');
-  }
 
   const resolvedProject = chooseProject(config, permittedProjects, projectKey);
   if (!resolvedProject) {
@@ -70,128 +67,60 @@ export async function createSeedTicket(options) {
 
   const fields = {
     summary: 'Canvas created',
-    description: {
-      type: 'doc',
-      version: 1,
-      content: [
-        {
-          type: 'paragraph',
-          content: [{ type: 'text', text: `JiraTack canvas created: ${canvasName.trim()}` }],
-        },
-      ],
-    },
+    description: buildIssueDescription({
+      bodyText: `JiraTack canvas created: ${canvasName.trim()}`,
+    }),
     issuetype: { id: resolvedIssueType },
     project: { key: resolvedProject },
     labels: ['jiratack'],
-    [fieldRegistry.canvasField]: canvasName.trim(),
-    [fieldRegistry.urlField]: url,
   };
 
   if (reporterAccountId) {
     fields.reporter = { accountId: reporterAccountId };
   }
 
-  async function requestCreate(issueFields) {
-    const res = await requester.requestJira(
-      route`/rest/api/3/issue?overrideScreenSecurity=true&overrideEditableFlag=true`,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ fields: issueFields }),
-      },
-    );
+  const res = await requester.requestJira(
+    route`/rest/api/3/issue?overrideScreenSecurity=true&overrideEditableFlag=true`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ fields }),
+    },
+  );
 
-    if (res.ok) {
-      return { ok: true, created: await res.json() };
-    }
-
-    let raw = '';
+  if (!res.ok) {
+    let detail = '';
     try {
-      raw = await res.text();
+      detail = await res.text();
     } catch (e) {
-      raw = '';
+      detail = '';
     }
-
-    let body = null;
-    try {
-      body = raw ? JSON.parse(raw) : null;
-    } catch (e) {
-      body = null;
+    if (res.status === 400 || res.status === 422) {
+      return errorResult('VALIDATION_ERROR', 'Jira rejected the canvas seed ticket.', { raw: detail.slice(0, 800) });
     }
-
-    return {
-      ok: false,
-      status: res.status,
-      details: {
-        status: res.status,
-        errorMessages: (body && body.errorMessages) || [],
-        errors: (body && body.errors) || {},
-        raw: body ? undefined : String(raw).slice(0, 800),
-      },
-    };
-  }
-
-  const customFieldIds = [
-    fieldRegistry.canvasField,
-    fieldRegistry.urlField,
-    fieldRegistry.pinField,
-    fieldRegistry.selectorField,
-  ].filter(Boolean);
-
-  let created = null;
-  const firstAttempt = await requestCreate(fields);
-
-  if (firstAttempt.ok) {
-    created = firstAttempt.created;
-  } else if (firstAttempt.status === 400 || firstAttempt.status === 422) {
-    const errorKeys = Object.keys((firstAttempt.details && firstAttempt.details.errors) || {});
-    const rejectedCustomFields = errorKeys.filter((fieldId) => customFieldIds.includes(fieldId));
-
-    if (rejectedCustomFields.length > 0) {
-      console.log(
-        '[JiraTack] createCanvas rejected custom fields. Retrying without them:',
-        rejectedCustomFields,
-      );
-
-      const retryFields = { ...fields };
-      rejectedCustomFields.forEach((fieldId) => {
-        delete retryFields[fieldId];
-      });
-      retryFields.description = appendPinMarker(retryFields.description, {
-        canvas: canvasName.trim(),
-        url,
-        position: '0,0',
-      });
-
-      const retryAttempt = await requestCreate(retryFields);
-      if (retryAttempt.ok) {
-        created = retryAttempt.created;
-      } else {
-        console.error('[JiraTack] createCanvas retry rejected:', retryAttempt.details);
-        if (retryAttempt.status === 400 || retryAttempt.status === 422) {
-          return errorResult('VALIDATION_ERROR', 'Jira rejected the canvas seed ticket.', retryAttempt.details);
-        }
-        return errorResult(
-          'INTERNAL',
-          `Jira canvas seed creation failed with HTTP ${retryAttempt.status}.`,
-          retryAttempt.details,
-        );
-      }
-    } else {
-      console.error('[JiraTack] createCanvas rejected:', firstAttempt.details);
-      return errorResult('VALIDATION_ERROR', 'Jira rejected the canvas seed ticket.', firstAttempt.details);
-    }
-  } else {
-    console.error('[JiraTack] createCanvas rejected:', firstAttempt.details);
     return errorResult(
       'INTERNAL',
-      `Jira canvas seed creation failed with HTTP ${firstAttempt.status}.`,
-      firstAttempt.details,
+      `Jira canvas seed creation failed with HTTP ${res.status}.`,
+      { raw: detail.slice(0, 800) },
     );
   }
 
-  if (!created) {
+  const created = await res.json();
+  if (!created || !created.key) {
     return errorResult('INTERNAL', 'Canvas seed ticket creation returned no result.');
+  }
+
+  const metadataResult = await writeMetadata(created.key, {
+    pin: {
+      canvas: canvasName.trim(),
+      url,
+      position: '0,0',
+      selector: null,
+    },
+    version: 1,
+  });
+  if (!metadataResult.ok) {
+    return errorResult('INTERNAL', 'Canvas seed ticket was created but its metadata could not be stored.');
   }
 
   return { ok: true, data: { canvasName: canvasName.trim(), key: created.key, id: created.id } };

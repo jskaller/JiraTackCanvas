@@ -51,7 +51,7 @@ sprint per BUILD_PLAN.md.
 
 - Webtriggers are public and have no user identity. Do not call `asUser()` in webtrigger handlers.
 - URL normalization must be byte-identical between client and server. One shared module (`src/shared/urlNormalize.js`).
-- Pin data lives in four Jira custom fields; the description marker is only a recovery backup.
+- Pin metadata lives in the Jira issue property `com.jiratack.metadata` (source of truth). Descriptions are human-readable ADF (no JSON/marker). Labels: `jiratack` on every ticket, plus `jiratack-guest` for guest tickets. Custom fields, the description marker, and recovery logic were removed (D18).
 - `permittedProjects` claim in JWT is set at issuance; webtrigger filters by it.
 - Never store `CryptoKey` objects — not relevant to v1 but noted for future crypto work.
 

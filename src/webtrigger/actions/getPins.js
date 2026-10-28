@@ -3,8 +3,8 @@ import { getInstallationConfig } from '../../lib/config.js';
 import { errorResult } from '../../lib/errors.js';
 import { normalizeUrl } from '../../shared/urlNormalize.js';
 import { getEffectiveRetirementDays } from '../../lib/jql.js';
-import { parsePinMarker } from '../../lib/pinMarker.js';
 import { canAccessCanvas, canAccessProject } from '../middleware/scope.js';
+import { METADATA_PROPERTY_KEY, metadataFromIssue } from '../../lib/metadata.js';
 
 const PAGE_SIZE = 100;
 const MAX_SCANNED = 2000;
@@ -25,13 +25,10 @@ function statusChangedAt(fields) {
   return Number.isNaN(time) ? null : time;
 }
 
-function mapPin(issue, fieldRegistry, marker) {
+function mapPin(issue, metadata) {
   const fields = issue.fields || {};
   const status = fields.status || {};
   const category = status.statusCategory || {};
-
-  const storedPin = fieldRegistry.pinField ? fields[fieldRegistry.pinField] : null;
-  const storedSelector = fieldRegistry.selectorField ? fields[fieldRegistry.selectorField] : null;
 
   return {
     key: issue.key,
@@ -47,11 +44,12 @@ function mapPin(issue, fieldRegistry, marker) {
     issueTypeId: fields.issuetype && fields.issuetype.id ? String(fields.issuetype.id) : null,
     assignee: mapUser(fields.assignee),
     reporter: mapUser(fields.reporter),
-    pinPosition: storedPin || (marker && marker.position) || null,
-    selector: storedSelector || (marker && marker.selector) || null,
+    pinPosition: metadata.pin.position,
+    selector: metadata.pin.selector,
     issueType: fields.issuetype ? { name: fields.issuetype.name } : null,
     createdAt: fields.created || null,
-    url: (fields[fieldRegistry.urlField] || (marker && marker.url) || null),
+    url: metadata.pin.url,
+    guest: metadata.guest || null,
   };
 }
 
@@ -70,10 +68,6 @@ export async function getPinsForCanvasAndUrl(payload, claims) {
   }
 
   const config = await getInstallationConfig();
-  const fieldRegistry = config.fieldRegistry || {};
-  if (!fieldRegistry.canvasField || !fieldRegistry.urlField) {
-    return errorResult('INTERNAL', 'Custom fields are not provisioned.');
-  }
 
   const normalizedUrl = normalizeUrl(url);
   const wantAll = Boolean(payload && payload.all);
@@ -89,13 +83,8 @@ export async function getPinsForCanvasAndUrl(payload, claims) {
     'issuetype',
     'created',
     'project',
-    'description',
     'statuscategorychangedate',
-    fieldRegistry.canvasField,
-    fieldRegistry.urlField,
-    fieldRegistry.pinField,
-    fieldRegistry.selectorField,
-  ].filter(Boolean);
+  ];
 
   const jql = `labels = "jiratack" ORDER BY created ASC`;
   const pins = [];
@@ -104,7 +93,12 @@ export async function getPinsForCanvasAndUrl(payload, claims) {
 
   try {
     do {
-      const body = { jql, fields: fieldsParam, maxResults: PAGE_SIZE };
+      const body = {
+        jql,
+        fields: fieldsParam,
+        properties: [METADATA_PROPERTY_KEY],
+        maxResults: PAGE_SIZE,
+      };
       if (nextPageToken) body.nextPageToken = nextPageToken;
 
       const res = await api.asApp().requestJira(route`/rest/api/3/search/jql`, {
@@ -121,21 +115,17 @@ export async function getPinsForCanvasAndUrl(payload, claims) {
       const issues = (data && data.issues) || [];
 
       for (const issue of issues) {
-        const issueFields = issue.fields || {};
-        if (issueFields.summary === 'Canvas created') continue;
-        const marker = parsePinMarker(issueFields.description);
+        const metadata = metadataFromIssue(issue);
+        if (!metadata) continue;
+        if (metadata.pin.canvas !== canvasName) continue;
 
-        const storedCanvas = issueFields[fieldRegistry.canvasField];
-        const issueCanvas = storedCanvas || (marker && marker.canvas) || null;
-        if (issueCanvas !== canvasName) continue;
-
-        const storedUrl = issueFields[fieldRegistry.urlField];
-        const issueUrl = storedUrl || (marker && marker.url) || null;
+        const issueUrl = metadata.pin.url;
         if (!wantAll) {
           if (!issueUrl) continue;
           if (normalizeUrl(issueUrl) !== normalizedUrl) continue;
         }
 
+        const issueFields = issue.fields || {};
         const category = issueFields.status && issueFields.status.statusCategory
           ? issueFields.status.statusCategory.key
           : null;
@@ -148,7 +138,7 @@ export async function getPinsForCanvasAndUrl(payload, claims) {
         const projectKey = issueFields.project && issueFields.project.key;
         if (!canAccessProject(claims.permittedProjects, projectKey)) continue;
 
-        pins.push(mapPin(issue, fieldRegistry, marker));
+        pins.push(mapPin(issue, metadata));
       }
 
       scanned += issues.length;

@@ -197,7 +197,7 @@ Server behavior:
 
 1. Normalize `url` per Part 6.
 
-2. Run JQL: Part 7.1 (canvas + normalized URL + statusCategory != Done).
+2. **Storage (D18):** pin metadata lives in the issue property `com.jiratack.metadata`. Run `labels = "jiratack"` with `properties: ["com.jiratack.metadata"]` and filter by `metadata.pin.canvas` + `metadata.pin.url` in memory. Issues without the property are skipped; Done/retirement rules still apply.
 
 3. **Filter results by `token.permittedProjects`** (per D9):
    
@@ -267,7 +267,7 @@ Server behavior:
    
    - `summary` = `[JiraTack]` + payload.summary (prefix enforced idempotently).
    
-   - `description` = client ADF + console log append (Part 8.3) + pin marker append (Part 8.4). Order: client content, then console output block, then pin marker paragraph.
+   - `description` = human-readable ADF built server-side (D18): bold header `[JiraTack Guest: {Name}]` or `[JiraTack]`, the client body, an optional console-output code block, and a footer paragraph linking the page URL. No JSON marker.
    
    - `<canvasFieldId>` = canvasName.
    
@@ -289,15 +289,15 @@ Server behavior:
    
    - `reporter` = `{ accountId: jwt.sub }` — never from client.
    
-   - `labels` = `["jiratack"]`.
+   - `labels` = `["jiratack"]`, plus `"jiratack-guest"` for `guest_create`.
 
-6. POST `/rest/api/3/issue`.
+6. POST `/rest/api/3/issue`. On success, write the issue property: `PUT /rest/api/3/issue/{key}/properties/com.jiratack.metadata` with `{ guest?, pin: { canvas, url, position, selector }, version: 1 }` (retry once; the property is the source of truth).
 
 7. If `screenshotDataUrl`: attach via `/rest/api/3/issue/{key}/attachments` with `X-Atlassian-Token: no-check`. On failure: log, proceed.
 
 8. Return.
 
-9. Jira 400 → 422 `VALIDATION_ERROR` with `details.fieldErrors`. Retry-once applies only to auto-created custom fields.
+9. Jira 400 → 422 `VALIDATION_ERROR` with `details.fieldErrors`.
 
 ### 3.4 `getTransitions`
 
@@ -335,7 +335,7 @@ Success:  { configVersion }
 Authorization (applies to all scopes, including guests):
 
 1. The issue must carry the `jiratack` label, else `INSUFFICIENT_SCOPE`.
-2. The caller's `permittedProjects` must include the issue's project, and `canAccessCanvas` must allow the issue's canvas (stored custom field, falling back to the description marker), else `INSUFFICIENT_SCOPE`.
+2. The caller's `permittedProjects` must include the issue's project, and `canAccessCanvas` must allow the issue's canvas (from `com.jiratack.metadata.pin.canvas`), else `INSUFFICIENT_SCOPE`.
 3. Guest (`guest_create`) assignee targets must hold a JiraTack license, else `VALIDATION_ERROR`.
 
 Behavior:
@@ -489,27 +489,9 @@ Behavior:
 
 4. `fixUrl` = `/secure/admin/ConfigureFieldScreen.jspa?id=<screenId>`.
 
-### 4.6 `recoverPinsFromDescriptions`
+### 4.6 `recoverPinsFromDescriptions` — retired (D18)
 
-```text
-recoverPinsFromDescriptions(context, payload) → { ok, data: { recovered: number, skipped: number, errors: [string] } }
-Payload: { dryRun: boolean }
-Auth:     Admin only (context.userAccess.isAdmin === true)
-```
-
-Behavior (per D9 part 3):
-
-1. Query candidates via JQL: `<canvasField> is EMPTY AND text ~ "JiraTack pin:"` (cap 500 per run; if 500 hit, return `truncated: true` in `data`).
-
-2. For each candidate, fetch full description via `asUser().requestJira('/rest/api/3/issue/{key}?fields=description')`.
-
-3. Walk the ADF tree. Find any `paragraph` node whose first text child starts with `📌 JiraTack pin:`. Extract everything after the prefix, `JSON.parse()`. If parse fails, increment `skipped`, continue.
-
-4. If parse succeeds and contains `canvas`, `url`, `position` (required keys): populate the four custom fields via `PUT /rest/api/3/issue/{key}`. Increment `recovered`.
-
-5. If `dryRun === true`: no writes. Return `recovered` count as "would recover" count.
-
-Called from admin page as an on-demand action. Not scheduled. Not automatic.
+Removed. Metadata lives in the issue property and the description marker no longer exists, so description-based recovery is not possible.
 
 ### 4.7 `generateUserToken`
 
@@ -686,17 +668,9 @@ Team-managed:    parent = <epicKey> AND "<canvasFieldName>" is not EMPTY
 ORDER BY created ASC
 ```
 
-### 7.6 Recovery candidates (`recoverPinsFromDescriptions`)
+### 7.6 Recovery candidates — retired (D18)
 
-```text
-"<canvasFieldName>" is EMPTY AND text ~ "JiraTack pin:" ORDER BY created ASC
-```
-
-Cap at 500 results per run; if 500 hit, return `truncated: true`.
-
----
-
-## Part 8 — Serialization contracts
+Removed with the description marker. No recovery pass exists; the issue property is the source of truth.
 
 ### 8.1 ADF node shapes (client serializer)
 
@@ -739,9 +713,9 @@ Client formats `consoleLog` as:
 
 Per entry: `[level] message (source)` when source non-null, `[level] message` when null. Level lowercase.
 
-### 8.4 Pin marker append (server-side, per D9)
+### 8.4 Pin metadata storage (server-side, per D18)
 
-Every created ticket receives a pin marker paragraph appended at the very end of the description ADF (after client content and after console log block). This is the recovery backup for the custom fields.
+Pin metadata is stored in the Jira issue property `com.jiratack.metadata`, never in the description. The description is human-readable ADF only. The property is written immediately after issue creation; no JSON marker is appended.
 
 ```json
 {
@@ -763,7 +737,7 @@ Rules:
 
 - Prefix `📌 JiraTack pin:` is exact and required. Recovery parses by finding a paragraph whose first text node starts with this prefix.
 
-- Users may edit or delete this paragraph; if they do, that ticket is not recoverable via `recoverPinsFromDescriptions`.
+- Descriptions no longer contain a machine-readable paragraph; all machine data lives in `com.jiratack.metadata`.
 
 Recovery parse (Part 4.6): find paragraph, strip prefix `📌 JiraTack pin:`, `JSON.parse()` the remainder. If parse fails, skip ticket.
 
