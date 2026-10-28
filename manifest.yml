@@ -33,6 +33,14 @@ modules:
         function: resolver
       render: native
       title: JiraTack
+  jira:entityProperty:
+    - key: jiratack-metadata
+      entityType: issue
+      propertyKey: com.jiratack.metadata
+      values:
+        - path: pin.canvas
+          type: string
+          searchAlias: jiratackCanvas
   jira:issuePanel:
     - key: jiratack-epic-panel
       resource: epic-panel-ui

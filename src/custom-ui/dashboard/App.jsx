@@ -75,7 +75,7 @@ export default function App() {
   }
 
   function handleOpenJira(canvas) {
-    const url = buildJqlUrl(jiraBaseUrl, canvas && canvas.canvasName, canvas && canvas.projectKeys);
+    const url = buildJqlUrl(jiraBaseUrl, canvas && canvas.canvasName);
     if (!url) {
       setActionError({ canvasName: canvas && canvas.canvasName, message: 'Jira base URL is unavailable.' });
       return;

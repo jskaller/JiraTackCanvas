@@ -38,14 +38,11 @@ export function formatDate(value) {
   return date.toLocaleString();
 }
 
-export function buildJqlUrl(jiraBaseUrl, canvasName, projectKeys) {
-  if (!jiraBaseUrl) return null;
-  const keys = Array.isArray(projectKeys)
-    ? projectKeys.filter((key) => typeof key === 'string' && key.length > 0)
-    : [];
-  let jql = 'labels = "jiratack"';
-  if (keys.length > 0) {
-    jql += ` AND project in (${keys.map((key) => `"${key.replace(/"/g, '\\"')}"`).join(', ')})`;
-  }
+export function buildJqlUrl(jiraBaseUrl, canvasName) {
+  if (!jiraBaseUrl || !canvasName) return null;
+  const escaped = String(canvasName).replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+  // `jiratackCanvas` is the search alias for com.jiratack.metadata.pin.canvas,
+  // registered via the jira:entityProperty module.
+  const jql = `jiratackCanvas = "${escaped}"`;
   return `${String(jiraBaseUrl).replace(/\/$/, '')}/issues/?jql=${encodeURIComponent(jql)}`;
 }

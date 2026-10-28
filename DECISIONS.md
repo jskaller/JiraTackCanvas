@@ -72,7 +72,7 @@ Single decision log for JiraTack. Every open and resolved decision appears exact
 **Status:** Resolved (2026-10-28)
 **Resolution:** Machine-readable pin data lives in the Jira issue property `com.jiratack.metadata` (`{ guest?, pin: { canvas, url, position, selector }, version: 1 }`). Descriptions are human-readable ADF only: a bold `[JiraTack Guest: Name]`/`[JiraTack]` header, the user body, an optional console-output code block, and a footer link to the page. Every ticket gets the `jiratack` label; guest tickets also get `jiratack-guest`, so all existing `labels = "jiratack"` queries keep working. Reads use the enhanced search `properties` request parameter and filter canvas/url in memory. Custom-field provisioning, the description marker, recovery, and all migration/regex logic are removed (dev-only; no backfill, so pre-existing dev tickets without the property no longer appear). The issue panel reads the property and renders guest identity, pin data, and the screenshot (resolver returns a base64 data URL).
 **Rejected alternatives:** Keeping the marker as a recovery backup (unnecessary once the property is authoritative); custom fields for JQL (dropped in favour of in-memory filtering); lazy regex migration (removed per the dev-only decision); exclusive `jiratack-guest` label (would break every read query).
-**Applies to:** CONTRACTS §3.2, §3.3, §3.5, §4.6, §7.6, §8.4; AGENTS.md; TEST_PLAN §7.19.
+**Applies to:** CONTRACTS §3.2, §3.3, §3.5, §4.6, §7.6, §8.4; AGENTS.md; TEST_PLAN §7.19. Canvas-exact JQL (dashboard "Review All Tickets") is enabled by a `jira:entityProperty` module indexing `com.jiratack.metadata.pin.canvas` as the `jiratackCanvas` search alias.
 
 ### D13 — SDK version source
 
