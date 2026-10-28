@@ -41,8 +41,7 @@ export function installFitScale(options = {}) {
   const { onBelowFloor, onScaleChange } = options;
 
   const bodyEl = document.body;
-  const htmlEl = document.documentElement;
-  if (!bodyEl || !htmlEl) return null;
+  if (!bodyEl) return null;
 
   let scale = computeFitScale(window.innerWidth, sidebarWidth);
   if (scale === null || scale < minScale) return null;
@@ -50,7 +49,6 @@ export function installFitScale(options = {}) {
   const previous = {
     transform: getInline(bodyEl, 'transform'),
     transformOrigin: getInline(bodyEl, 'transform-origin'),
-    htmlOverflowX: getInline(htmlEl, 'overflow-x'),
   };
 
   let disposed = false;
@@ -60,9 +58,6 @@ export function installFitScale(options = {}) {
     scale = next;
     setInline(bodyEl, 'transform', `scale(${next})`, 'important');
     setInline(bodyEl, 'transform-origin', '0 0', 'important');
-    // Clip the rigid, untransformed layout width so a fixed-width page that
-    // is wider than the viewport cannot produce a horizontal scrollbar.
-    setInline(htmlEl, 'overflow-x', 'clip', 'important');
   }
 
   apply(scale);
@@ -99,7 +94,6 @@ export function installFitScale(options = {}) {
       window.removeEventListener('resize', handleResize);
       restoreInline(bodyEl, 'transform', previous.transform);
       restoreInline(bodyEl, 'transform-origin', previous.transformOrigin);
-      restoreInline(htmlEl, 'overflow-x', previous.htmlOverflowX);
     },
   };
 }
