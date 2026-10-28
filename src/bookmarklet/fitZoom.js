@@ -19,10 +19,13 @@ export function installFitZoom(options = {}) {
   if (zoom === null || zoom < minZoom) return null;
 
   let previousZoom = null;
+  let previousPriority = '';
   try {
-    previousZoom = bodyEl.style.zoom;
+    previousZoom = bodyEl.style.getPropertyValue('zoom');
+    previousPriority = bodyEl.style.getPropertyPriority('zoom');
   } catch (e) {
     previousZoom = null;
+    previousPriority = '';
   }
 
   let disposed = false;
@@ -31,7 +34,7 @@ export function installFitZoom(options = {}) {
   function apply(next) {
     zoom = next;
     try {
-      bodyEl.style.zoom = String(next);
+      bodyEl.style.setProperty('zoom', String(next), 'important');
     } catch (e) {
       // ignore
     }
@@ -70,7 +73,8 @@ export function installFitZoom(options = {}) {
       }
       window.removeEventListener('resize', handleResize);
       try {
-        bodyEl.style.zoom = previousZoom || '';
+        if (previousZoom) bodyEl.style.setProperty('zoom', previousZoom, previousPriority || '');
+        else bodyEl.style.removeProperty('zoom');
       } catch (e) {
         // ignore
       }

@@ -127,19 +127,27 @@ export function renderSidebar(container, options) {
   const isUniversal = Boolean(options.canvasSelector);
   const isGuest = Boolean(options.guestSelector);
 
-  function makeModeToggle() {
-    const inFit = options.layoutMode === 'fit';
-    const button = make('button', 'jiratack-mode-toggle', inFit ? 'Actual size' : 'Fit page');
-    button.type = 'button';
-    button.title = inFit
-      ? 'Show the page at actual size (sidebar covers content)'
-      : 'Shrink the page to fit beside the sidebar';
-    button.addEventListener('click', () => {
+  function makeLayoutRow() {
+    const fit = options.layoutMode === 'fit';
+    const row = make('div', 'jiratack-layout-row');
+    row.appendChild(make('span', 'jiratack-layout-label', 'Fit to sidebar'));
+    const toggle = make(
+      'button',
+      `jiratack-layout-switch${fit ? ' jiratack-layout-switch-on' : ''}`,
+    );
+    toggle.type = 'button';
+    toggle.setAttribute('role', 'switch');
+    toggle.setAttribute('aria-checked', fit ? 'true' : 'false');
+    toggle.setAttribute('aria-label', 'Fit page to sidebar');
+    toggle.title = fit ? 'Show the page at actual size' : 'Shrink the page to fit beside the sidebar';
+    toggle.appendChild(make('span', 'jiratack-layout-knob'));
+    toggle.addEventListener('click', () => {
       if (options.onLayoutModeChange) {
-        options.onLayoutModeChange(inFit ? 'push' : 'fit');
+        options.onLayoutModeChange(fit ? 'push' : 'fit');
       }
     });
-    return button;
+    row.appendChild(toggle);
+    return row;
   }
 
   if (isGuest) {
@@ -162,7 +170,6 @@ export function renderSidebar(container, options) {
     const badges = make('div', 'jiratack-badges');
     badges.appendChild(make('span', 'jiratack-badge', 'Guest'));
     header.appendChild(badges);
-    header.appendChild(makeModeToggle());
     header.appendChild(makeCloseButton());
 
     if (selectorContainer) renderFilterToggle(selectorContainer);
@@ -191,7 +198,6 @@ export function renderSidebar(container, options) {
       badges.appendChild(make('span', 'jiratack-badge jiratack-badge-view', 'View only'));
     }
     if (badges.childNodes.length > 0) header.appendChild(badges);
-    header.appendChild(makeModeToggle());
     header.appendChild(makeCloseButton());
 
     if (!hasSelectedCanvas) {
@@ -201,6 +207,7 @@ export function renderSidebar(container, options) {
         selectorContainer.appendChild(loadingNode(loadingLabel || 'Loading canvases…'));
         selectorContainer.appendChild(skeletonCanvases());
       } else {
+        selectorContainer.appendChild(makeLayoutRow());
         const canvases = (options.canvasSelector && options.canvasSelector.canvases) || [];
         if (canvases.length === 0) {
           const error = make('div', 'jiratack-canvas-error', `No canvases found. API returned: ${canvases.length}`);
@@ -248,7 +255,6 @@ export function renderSidebar(container, options) {
       );
     }
     if (badges.childNodes.length > 0) header.appendChild(badges);
-    header.appendChild(makeModeToggle());
     header.appendChild(makeCloseButton());
     if (selectorContainer) renderFilterToggle(selectorContainer);
     if (selectorContainer) renderFilterToggle(selectorContainer);
@@ -256,6 +262,7 @@ export function renderSidebar(container, options) {
 
   function renderFilterToggle(container) {
     container.innerHTML = '';
+    container.appendChild(makeLayoutRow());
     const wrap = make('div', 'jiratack-filter-toggle');
     const allButton = make('button', activeFilter === 'all' ? 'jiratack-filter-active' : '', 'All Tickets');
     allButton.type = 'button';

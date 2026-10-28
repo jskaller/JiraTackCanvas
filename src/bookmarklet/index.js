@@ -57,26 +57,54 @@ let savedHtmlTransition = null;
 let savedBodyWidth = null;
 let pushLayoutApplied = false;
 
+function getInline(el, prop) {
+  try {
+    return {
+      value: el.style.getPropertyValue(prop),
+      priority: el.style.getPropertyPriority(prop),
+    };
+  } catch (e) {
+    return { value: '', priority: '' };
+  }
+}
+
+function setInline(el, prop, value, priority) {
+  try {
+    el.style.setProperty(prop, value, priority || '');
+  } catch (e) {
+    // ignore
+  }
+}
+
+function restoreInline(el, prop, saved) {
+  try {
+    if (saved && saved.value) el.style.setProperty(prop, saved.value, saved.priority || '');
+    else el.style.removeProperty(prop);
+  } catch (e) {
+    // ignore
+  }
+}
+
 function applyPushLayout() {
   if (pushLayoutApplied) return;
   try {
     const htmlEl = document.documentElement;
     const bodyEl = document.body;
     if (!htmlEl || !bodyEl) return;
-    savedHtmlMarginRight = htmlEl.style.marginRight;
-    savedHtmlTransition = htmlEl.style.transition;
-    savedBodyWidth = bodyEl.style.width;
+    savedHtmlMarginRight = getInline(htmlEl, 'margin-right');
+    savedHtmlTransition = getInline(htmlEl, 'transition');
+    savedBodyWidth = getInline(bodyEl, 'width');
 
     // Fixed-width bodies would otherwise overflow once the margin reserves
     // space for the sidebar. Measure before applying the margin, while the
     // body width still reflects the unmodified viewport.
     const bodyWidthPx = Number.parseFloat(window.getComputedStyle(bodyEl).width);
     if (Number.isFinite(bodyWidthPx) && bodyWidthPx > htmlEl.clientWidth) {
-      bodyEl.style.width = `calc(100% - ${SIDEBAR_WIDTH_PX}px)`;
+      setInline(bodyEl, 'width', `calc(100% - ${SIDEBAR_WIDTH_PX}px)`, 'important');
     }
 
-    htmlEl.style.transition = 'margin-right 0.2s ease-in-out';
-    htmlEl.style.marginRight = `${SIDEBAR_WIDTH_PX}px`;
+    setInline(htmlEl, 'transition', 'margin-right 0.2s ease-in-out', 'important');
+    setInline(htmlEl, 'margin-right', `${SIDEBAR_WIDTH_PX}px`, 'important');
     pushLayoutApplied = true;
   } catch (e) {
     // ignore — overlay still works, the sidebar just covers content
@@ -89,11 +117,11 @@ function restorePushLayout() {
     const htmlEl = document.documentElement;
     const bodyEl = document.body;
     if (htmlEl) {
-      htmlEl.style.marginRight = savedHtmlMarginRight || '';
-      htmlEl.style.transition = savedHtmlTransition || '';
+      restoreInline(htmlEl, 'margin-right', savedHtmlMarginRight);
+      restoreInline(htmlEl, 'transition', savedHtmlTransition);
     }
     if (bodyEl) {
-      bodyEl.style.width = savedBodyWidth || '';
+      restoreInline(bodyEl, 'width', savedBodyWidth);
     }
   } catch (e) {
     // ignore

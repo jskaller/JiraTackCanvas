@@ -823,20 +823,53 @@ body.jiratack-pin-mode * {
   border-color: #bf2600;
 }
 
-.jiratack-mode-toggle {
-  margin-top: 8px;
-  padding: 4px 10px;
-  border: 1px solid #dfe1e6;
-  border-radius: 3px;
-  background: #ffffff;
-  color: #42526e;
-  font-size: 11px;
-  font-weight: 600;
-  cursor: pointer;
+.jiratack-layout-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 0 16px 8px;
 }
 
-.jiratack-mode-toggle:hover {
+.jiratack-layout-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: #5e6c84;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+
+.jiratack-layout-switch {
+  position: relative;
+  width: 34px;
+  height: 20px;
+  padding: 0;
+  border: 1px solid #dfe1e6;
+  border-radius: 999px;
   background: #f4f5f7;
+  cursor: pointer;
+  flex: 0 0 auto;
+}
+
+.jiratack-layout-knob {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: #ffffff;
+  box-shadow: 0 1px 2px rgba(9, 30, 66, 0.3);
+  transition: left 0.15s ease-in-out;
+}
+
+.jiratack-layout-switch-on {
+  background: #0052cc;
+  border-color: #0052cc;
+}
+
+.jiratack-layout-switch-on .jiratack-layout-knob {
+  left: 16px;
 }
 
 .jiratack-loading {

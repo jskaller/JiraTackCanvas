@@ -51,9 +51,18 @@ export function installFixedShift() {
 
   function shift(el) {
     if (!supported || shifted.has(el)) return;
-    shifted.set(el, el.style.getPropertyValue('translate'));
+    let original = null;
     try {
-      el.style.setProperty('translate', `-${SHIFT_PX}px 0`);
+      original = {
+        value: el.style.getPropertyValue('translate'),
+        priority: el.style.getPropertyPriority('translate'),
+      };
+    } catch (e) {
+      original = null;
+    }
+    shifted.set(el, original);
+    try {
+      el.style.setProperty('translate', `-${SHIFT_PX}px 0`, 'important');
     } catch (e) {
       shifted.delete(el);
     }
@@ -64,8 +73,11 @@ export function installFixedShift() {
     const original = shifted.get(el);
     shifted.delete(el);
     try {
-      if (original) el.style.setProperty('translate', original);
-      else el.style.removeProperty('translate');
+      if (original && original.value) {
+        el.style.setProperty('translate', original.value, original.priority || '');
+      } else {
+        el.style.removeProperty('translate');
+      }
     } catch (e) {
       // ignore
     }
