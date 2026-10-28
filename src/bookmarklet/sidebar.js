@@ -326,7 +326,7 @@ export function renderSidebar(container, options) {
         make(
           'div',
           'jiratack-ticket-hint',
-          'Opens this page — click your JiraTack bookmark there to keep the sidebar open.',
+          'Opens another page — reopen JiraTack there.',
         ),
       );
     }
@@ -384,8 +384,15 @@ export function renderSidebar(container, options) {
       const pinUrl = pin.url ? normalizeUrl(pin.url) : null;
       const currentUrl = normalizeUrl(window.location.href);
       if (pinUrl && pinUrl !== currentUrl) {
-        if (options.onBeforeNavigate) options.onBeforeNavigate(pin);
-        if (navigateToPin(pin, canvasName)) return;
+        const delay = options.onBeforeNavigate ? options.onBeforeNavigate(pin) : 0;
+        if (delay > 0) {
+          window.setTimeout(() => {
+            navigateToPin(pin, canvasName);
+          }, delay);
+        } else {
+          navigateToPin(pin, canvasName);
+        }
+        return;
       }
 
       select(pin.key);

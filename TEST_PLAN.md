@@ -1355,7 +1355,7 @@ All of 6.1–6.14 pass. Commit: `feat(s6): epic panel, issue panel, field audit,
 ### 7.18 Cross-page card navigation (reopen loop)
 
 - Canvas has tickets on page A and page B. On page A, click a card whose URL is page B.
-- Assert: browser navigates to page B (same tab); card shows the "click your JiraTack bookmark" hint while on page A.
+- Assert: clicking shows a toast explaining the page will open and the sidebar must be reopened, the navigation is held ~1.2s so the toast is readable, then the browser navigates to page B in the same tab; the card also carries the inline "reopen JiraTack there" hint while on page A.
 - Click the bookmark on page B → assert the same canvas loads, the ticket is selected and scrolled into view, and the ticket-list filter matches what was active on page A (no re-auth prompt).
 - Assert no stale `jiratack_nav_state` remains after the restore (subsequent manual reload keeps the default 'All Tickets' filter).
 

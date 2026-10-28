@@ -347,13 +347,17 @@ function restoreNavFilter(canvasName) {
   return state.filter === 'page' ? 'page' : 'all';
 }
 
+const CROSS_PAGE_NOTICE_MS = 1200;
+
 function handleBeforeNavigate(pin) {
-  if (!current) return;
+  if (!current) return 0;
   saveNavState({
     canvasName: current.canvasName,
     filter: current.filter || 'all',
     selectedKey: pin ? pin.key : null,
   });
+  showToast(`Opening ${pin && pin.key ? pin.key : 'another page'} — click your JiraTack bookmark there to reopen the sidebar.`);
+  return CROSS_PAGE_NOTICE_MS;
 }
 
 function isInteractiveTarget(el) {
