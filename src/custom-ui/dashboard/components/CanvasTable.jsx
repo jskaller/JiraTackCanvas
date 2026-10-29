@@ -1,8 +1,20 @@
 import React, { useState } from 'react';
 import { formatDate } from '../api';
+import { toSafeHttpUrl } from '@shared/safeUrl';
 
-function ProjectSpan({ projectKeys }) {
-  if (!projectKeys || projectKeys.length === 0) return <span className="jt-muted">—</span>;
+function SafeLink({ url, children, className, title }) {
+  const safe = toSafeHttpUrl(url);
+  if (!safe) {
+    return <span className={className} title={title}>{children}</span>;
+  }
+  return (
+    <a className={className} href={safe} target="_blank" rel="noopener noreferrer" title={title}>
+      {children}
+    </a>
+  );
+}
+
+function ProjectSpan({ projectKeys }) {  if (!projectKeys || projectKeys.length === 0) return <span className="jt-muted">—</span>;
   if (projectKeys.length === 1) return <span className="jt-chip">{projectKeys[0]}</span>;
   return (
     <span className="jt-chip" title={projectKeys.join(', ')}>
@@ -107,15 +119,13 @@ export default function CanvasTable({ canvases, onOpenJira, onDelete, onArchive,
                     {isExpanded ? '▾' : '▸'}
                   </button>
                   {urls.length > 0 ? (
-                    <a
+                    <SafeLink
                       className="jt-canvas-link"
-                      href={urls[0].url}
-                      target="_blank"
-                      rel="noopener noreferrer"
+                      url={urls[0].url}
                       title="Open original page"
                     >
                       {canvas.canvasName} <span className="jt-external-icon">↗</span>
-                    </a>
+                    </SafeLink>
                   ) : (
                     canvas.canvasName
                   )}
@@ -165,9 +175,7 @@ export default function CanvasTable({ canvases, onOpenJira, onDelete, onArchive,
                       ) : (
                         urls.map((item) => (
                           <div className="jt-url-item" key={item.url}>
-                            <a href={item.url} target="_blank" rel="noopener noreferrer">
-                              {item.url}
-                            </a>
+                            <SafeLink url={item.url}>{item.url}</SafeLink>
                             <span className="jt-url-count">
                               ({item.ticketCount} {item.ticketCount === 1 ? 'ticket' : 'tickets'})
                             </span>

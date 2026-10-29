@@ -245,7 +245,7 @@ Request: {
     selector: string | null,
     summary: string,
     descriptionAdf: object | null,
-    screenshotDataUrl: string | null,
+    screenshotUploadId: string | null,
     consoleLog: string | null,
     issueTypeId: string,
     projectKey: string,
@@ -298,7 +298,18 @@ Server behavior:
 
 6. POST `/rest/api/3/issue`. On success, write the issue property: `PUT /rest/api/3/issue/{key}/properties/com.jiratack.metadata` with `{ guest?, pin: { canvas, url, position, selector }, version: 1 }` (retry once; the property is the source of truth).
 
-7. If `screenshotDataUrl`: attach via `/rest/api/3/issue/{key}/attachments` with `X-Atlassian-Token: no-check`. On failure: log, proceed.
+7. If `screenshotUploadId` (per D20): assemble the chunks via `readScreenshotUpload`, attach via `/rest/api/3/issue/{key}/attachments` with `X-Atlassian-Token: no-check`, then delete the upload. Missing/expired upload → log and proceed without a screenshot; attachment failure → log, proceed; the ticket is never blocked on the image.
+
+### 3.3b `beginScreenshotUpload` / `uploadScreenshotChunk` (D20)
+
+```text
+beginScreenshotUpload  → { uploadId, chunkSize }
+  payload: { mimeType: "image/*", size: number }   // size = base64 length, ≤ 4 MiB
+uploadScreenshotChunk  → { received: index }
+  payload: { uploadId, index: number, data: string } // data ≤ 200 KiB base64
+```
+
+Auth: `create` / `universal` / `guest_create`. `uploadId` is random (32 hex) and bound to the JWT subject; a chunk from another session is reported as `NOT_FOUND` (existence is not disclosed). Manifest + chunks live in KVS with a 15-minute TTL and are deleted after attachment. The client-observed 5 MiB web-trigger body limit is never approached because no request carries the whole image; the KVS 240 KiB per-value limit is why chunks are capped at 200 KiB base64.
 
 8. Return. If the property write failed after both attempts the call still succeeds (the ticket exists in Jira) but includes `warning: "metadata-not-stored"`; the SDK surfaces a distinct message because the ticket will not appear in any canvas until the property is written.
 

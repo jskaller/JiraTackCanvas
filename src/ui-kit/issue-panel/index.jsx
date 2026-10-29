@@ -10,6 +10,7 @@ import ForgeReconciler, {
   useProductContext,
 } from '@forge/react';
 import { invoke, router } from '@forge/bridge';
+import { toSafeHttpUrl } from '../../shared/safeUrl';
 
 const IssuePanel = () => {
   const context = useProductContext();
@@ -72,6 +73,8 @@ const IssuePanel = () => {
     return <Text>Not a JiraTack ticket</Text>;
   }
 
+  const safePageUrl = toSafeHttpUrl(data.url);
+
   return (
     <Stack space="space.100">
       <Text>Canvas: {data.canvasName}</Text>
@@ -82,9 +85,9 @@ const IssuePanel = () => {
         </Text>
       )}
 
-      {data.url ? (
-        <Link href={data.url} openNewTab>
-          {data.url}
+      {safePageUrl ? (
+        <Link href={safePageUrl} openNewTab>
+          {safePageUrl}
         </Link>
       ) : (
         <Text>Page URL unavailable</Text>
@@ -104,9 +107,9 @@ const IssuePanel = () => {
         </Stack>
       )}
 
-      {data.url && (
+      {safePageUrl && (
         <Stack space="space.050">
-          <Button onClick={() => router.open(data.url)}>Open page to view pins</Button>
+          <Button onClick={() => router.open(safePageUrl)}>Open page to view pins</Button>
           <Text>Once the page opens, click your JiraTack bookmarklet to view this canvas.</Text>
         </Stack>
       )}

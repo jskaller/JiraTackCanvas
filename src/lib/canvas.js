@@ -61,7 +61,7 @@ export async function createSeedTicket(options) {
     return errorResult('BAD_REQUEST', 'No issue type is available for the project.');
   }
 
-  const url = typeof targetUrl === 'string' && targetUrl.trim().length > 0
+  const url = typeof targetUrl === 'string' && /^https?:\/\//i.test(targetUrl.trim())
     ? normalizeUrl(stripDeepLinkParams(targetUrl.trim()))
     : 'https://example.com';
 

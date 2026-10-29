@@ -6,6 +6,7 @@ import { canAccessCanvas, canAccessProject } from '../middleware/scope.js';
 import { isLicensedUser } from '../../lib/license.js';
 import { buildIssueDescription } from '../../lib/issueDescription.js';
 import { writeMetadata } from '../../lib/metadata.js';
+import { readScreenshotUpload, deleteScreenshotUpload } from './screenshotUpload.js';
 
 function buildMultipartBody(fileBuffer, filename, mimeType) {
   const boundary = `----JiraTack${Date.now().toString(16)}${Math.random().toString(16).slice(2)}`;
@@ -165,6 +166,9 @@ export async function createIssue(payload, claims) {
   }
 
   const normalizedUrl = normalizeUrl(rawUrl);
+  if (!/^https?:\/\//i.test(normalizedUrl)) {
+    return errorResult('VALIDATION_ERROR', 'url must be an absolute http(s) URL.');
+  }
   const summary = rawSummary.startsWith('[JiraTack]') ? rawSummary : `[JiraTack] ${rawSummary}`;
   const description = buildIssueDescription({
     guest,
@@ -226,11 +230,22 @@ export async function createIssue(payload, claims) {
     console.error('[JiraTack] Created issue without metadata:', created.key);
   }
 
-  if (typeof payload.screenshotDataUrl === 'string' && payload.screenshotDataUrl.length > 0) {
-    try {
-      await attachScreenshot(created.key, payload.screenshotDataUrl);
-    } catch (e) {
-      console.error('[JiraTack] Screenshot attachment failed:', e);
+  const screenshotUploadId = payload && payload.screenshotUploadId;
+  if (typeof screenshotUploadId === 'string' && screenshotUploadId.length > 0) {
+    const shot = await readScreenshotUpload(screenshotUploadId, claims);
+    if (!shot.ok) {
+      console.error(
+        '[JiraTack] Screenshot upload unusable:',
+        shot.error && shot.error.error && shot.error.error.code,
+      );
+    } else {
+      try {
+        await attachScreenshot(created.key, shot.dataUrl);
+      } catch (e) {
+        console.error('[JiraTack] Screenshot attachment failed:', e);
+      } finally {
+        await deleteScreenshotUpload(screenshotUploadId, shot.chunkCount);
+      }
     }
   }
 

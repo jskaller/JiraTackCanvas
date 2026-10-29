@@ -1,5 +1,6 @@
 import { renderInlineEdit } from './inlineEdit.js';
 import { normalizeUrl } from '../shared/urlNormalize.js';
+import { toSafeHttpUrl } from '../shared/safeUrl.js';
 
 const SELECTED_CLASS = 'jiratack-ticket-selected';
 
@@ -23,8 +24,11 @@ function buildIssueUrl(config, session, key) {
 
 function navigateToPin(pin, canvasName) {
   if (!pin.url) return false;
+  // Stored URLs are untrusted: never assign a non-http(s) scheme to location.
+  const safeUrl = toSafeHttpUrl(pin.url, window.location.href);
+  if (!safeUrl) return false;
   try {
-    const target = new URL(pin.url, window.location.href);
+    const target = new URL(safeUrl);
     target.searchParams.set('jiratack_ticket', pin.key);
     if (canvasName) {
       target.searchParams.set('jiratack_canvas', canvasName);

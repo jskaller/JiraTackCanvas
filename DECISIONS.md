@@ -82,6 +82,14 @@ Single decision log for JiraTack. Every open and resolved decision appears exact
 **Known limitation:** revocation is still eventual — a deleted token record blocks new exchanges but a live session JWT remains valid until `exp` (8 h). Mitigated by the SDK auto re-exchanging on `TOKEN_EXPIRED`/`TOKEN_INVALID`; true instant revocation needs a per-request session allowlist (KVS read per call), deferred with D11.
 **Applies to:** CONTRACTS §4.0, §4.5b, §4.5c, §3.2, §3.3; TEST_PLAN §2.20.
 
+### D20 — Screenshot transport and URL-scheme allowlist
+
+**Status:** Resolved (2026-10-29)
+**Resolution:** Screenshots no longer transit the web trigger as one base64 field. The client keeps the existing 800px webp capture, then uploads base64 chunks (≤200 KiB each) via `beginScreenshotUpload` + `uploadScreenshotChunk`; the app stores them in KVS under a random `uploadId` bound to the JWT subject with a 15-minute TTL. `createIssue` receives only `screenshotUploadId`, assembles the chunks, attaches to Jira, and deletes them. Rationale: the web-trigger body ceiling is community-measured at ~5 MiB and undocumented, while a KVS value is capped at 240 KiB — a single payload is therefore both risky and unstoreable. Separately, every stored or user-supplied URL that reaches an `href` or `location.href` is validated to `http(s)` by `src/shared/safeUrl.js`, and `createIssue` rejects non-http(s) URLs; this closes a stored-XSS vector where a crafted pin URL could execute via a `javascript:` scheme in the Jira dashboard or the host page.
+**Rejected alternatives:** Pre-signed upload URLs (Forge exposes none to third-party browser clients); writing directly to Forge Storage from the page (backend-only); client-side size capping alone (still one oversized request; no identifier seam for the extension).
+**Known limitations:** bytes still transit Forge, in small pieces; chunk upload is sequential; the ~5 MiB ceiling is community-measured rather than documented; uploads abandoned by the client rely on TTL cleanup.
+**Applies to:** CONTRACTS §3.3, §3.3b; TEST_PLAN §2.21.
+
 ### D13 — SDK version source
 
 **Status:** Resolved (2026-10-23)

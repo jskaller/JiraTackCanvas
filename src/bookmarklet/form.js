@@ -1,4 +1,4 @@
-import { createIssue, getIssueTypes, getPriorities, searchUsers } from './api.js';
+import { createIssue, getIssueTypes, getPriorities, searchUsers, uploadScreenshot } from './api.js';
 import { serializeToAdf } from '../shared/adfSerializer.js';
 import { normalizeUrl, stripDeepLinkParams } from '../shared/urlNormalize.js';
 import { formatConsoleLog } from './consoleProxy.js';
@@ -451,6 +451,17 @@ export function renderTicketForm(container, options) {
 
     try {
       const descriptionAdf = descriptionToAdf(descriptionInput.value);
+
+      let screenshotUploadId = null;
+      if (screenshotDataUrl) {
+        try {
+          screenshotUploadId = await uploadScreenshot(config, session, screenshotDataUrl);
+        } catch (e) {
+          // Screenshots are optional; never block the ticket on upload failure.
+          console.error('[JiraTack] Screenshot upload failed:', e);
+        }
+      }
+
       const result = await createIssue(config, session, {
         canvasId: config.canvasId,
         url: pageUrl,
@@ -458,7 +469,7 @@ export function renderTicketForm(container, options) {
         selector: capture.selector || null,
         summary,
         descriptionAdf,
-        screenshotDataUrl,
+        screenshotUploadId,
         consoleLog,
         issueTypeId,
         projectKey,

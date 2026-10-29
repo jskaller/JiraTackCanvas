@@ -1,89 +1,163 @@
 import { normalizeUrl } from '../shared/urlNormalize.js';
-import { exchangeSession } from './auth.js';
+import { exchangeSession as browserExchangeSession } from './auth.js';
 
-export async function postAction(config, session, action, payload, authenticated, attempt) {
-  const headers = { 'Content-Type': 'application/json' };
-  if (authenticated && session && session.jwt) {
-    headers.Authorization = `Bearer ${session.jwt}`;
-  }
+/**
+ * DOM-free API client. `exchangeSession` is injectable so an extension can
+ * supply its own session manager; the bookmarklet uses the browser default.
+ */
+export function createApiClient(options = {}) {
+  const exchangeSession = options.exchangeSession || browserExchangeSession;
 
-  const response = await fetch(config.apiUrl, {
-    method: 'POST',
-    headers,
-    body: JSON.stringify({ action, payload }),
-  });
-
-  let body;
-  try {
-    body = await response.json();
-  } catch (e) {
-    throw new Error(`${action} returned an invalid response.`);
-  }
-
-  if (!body || body.ok !== true) {
-    const code = body && body.error && body.error.code;
-    // A stale session should self-heal rather than surface an error the user
-    // cannot act on; this also bounds the practical revocation window.
-    if (authenticated && !attempt && (code === 'TOKEN_EXPIRED' || code === 'TOKEN_INVALID') && config.token) {
-      try {
-        const fresh = await exchangeSession(config, { force: true });
-        if (session) {
-          session.jwt = fresh.jwt;
-          session.expiresAt = fresh.expiresAt;
-          session.displayName = fresh.displayName;
-        }
-        return postAction(config, session, action, payload, authenticated, true);
-      } catch (refreshError) {
-        // fall through to the original error
-      }
+  async function postAction(config, session, action, payload, authenticated, attempt) {
+    const headers = { 'Content-Type': 'application/json' };
+    if (authenticated && session && session.jwt) {
+      headers.Authorization = `Bearer ${session.jwt}`;
     }
-    const error = new Error((body && body.error && body.error.message) || `${action} failed.`);
-    error.code = code;
-    error.details = body && body.error && body.error.details;
-    throw error;
+
+    const response = await fetch(config.apiUrl, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ action, payload }),
+    });
+
+    let body;
+    try {
+      body = await response.json();
+    } catch (e) {
+      throw new Error(`${action} returned an invalid response.`);
+    }
+
+    if (!body || body.ok !== true) {
+      const code = body && body.error && body.error.code;
+      // A stale session should self-heal rather than surface an error the user
+      // cannot act on; this also bounds the practical revocation window.
+      if (authenticated && !attempt && (code === 'TOKEN_EXPIRED' || code === 'TOKEN_INVALID') && config.token) {
+        try {
+          const fresh = await exchangeSession(config, { force: true });
+          if (session) {
+            session.jwt = fresh.jwt;
+            session.expiresAt = fresh.expiresAt;
+            session.displayName = fresh.displayName;
+          }
+          return postAction(config, session, action, payload, authenticated, true);
+        } catch (refreshError) {
+          // fall through to the original error
+        }
+      }
+      const error = new Error((body && body.error && body.error.message) || `${action} failed.`);
+      error.code = code;
+      error.details = body && body.error && body.error.details;
+      throw error;
+    }
+
+    return body.data;
   }
 
-  return body.data;
+  async function getPins(config, session, canvasId, url, all = false) {
+    return postAction(
+      config,
+      session,
+      'getPinsForCanvasAndUrl',
+      { canvasId, url: normalizeUrl(url), all: Boolean(all) },
+      true,
+    );
+  }
+
+  async function createIssue(config, session, payload) {
+    return postAction(config, session, 'createIssue', payload, true);
+  }
+
+  async function getTransitions(config, session, issueKey) {
+    return postAction(config, session, 'getTransitions', { issueKey }, true);
+  }
+
+  async function updateIssue(config, session, issueKey, fields) {
+    return postAction(config, session, 'updateIssue', { issueKey, fields }, true);
+  }
+
+  async function getPriorities(config, session) {
+    return postAction(config, session, 'getPriorities', {}, true);
+  }
+
+  async function getIssueTypes(config, session, projectKey) {
+    return postAction(config, session, 'getIssueTypes', { projectKey }, true);
+  }
+
+  async function listCanvasesForUser(config, session) {
+    return postAction(config, session, 'listCanvasesForUser', {}, true);
+  }
+
+  async function createCanvas(config, session, canvasName, targetUrl) {
+    return postAction(config, session, 'createCanvas', { canvasName, targetUrl }, true);
+  }
+
+  async function searchUsers(config, session, projectKey, query) {
+    return postAction(config, session, 'searchUsers', { projectKey, query }, true);
+  }
+
+  /**
+   * Uploads a data-URL screenshot in small chunks and returns an upload id.
+   * createIssue then sends only the id, never the binary payload.
+   */
+  async function uploadScreenshot(config, session, dataUrl) {
+    const match = /^data:(image\/[a-zA-Z0-9.+-]+);base64,(.+)$/.exec(dataUrl || '');
+    if (!match) return null;
+
+    const mimeType = match[1];
+    const base64 = match[2];
+    const begin = await postAction(
+      config,
+      session,
+      'beginScreenshotUpload',
+      { mimeType, size: base64.length },
+      true,
+    );
+    if (!begin || !begin.uploadId) return null;
+
+    const chunkSize = begin.chunkSize || 200 * 1024;
+    let index = 0;
+    for (let offset = 0; offset < base64.length; offset += chunkSize, index += 1) {
+      await postAction(
+        config,
+        session,
+        'uploadScreenshotChunk',
+        {
+          uploadId: begin.uploadId,
+          index,
+          data: base64.slice(offset, offset + chunkSize),
+        },
+        true,
+      );
+    }
+
+    return begin.uploadId;
+  }
+
+  return {
+    postAction,
+    getPins,
+    createIssue,
+    getTransitions,
+    updateIssue,
+    getPriorities,
+    getIssueTypes,
+    listCanvasesForUser,
+    createCanvas,
+    searchUsers,
+    uploadScreenshot,
+  };
 }
 
-export async function getPins(config, session, canvasId, url, all = false) {
-  return postAction(
-    config,
-    session,
-    'getPinsForCanvasAndUrl',
-    { canvasId, url: normalizeUrl(url), all: Boolean(all) },
-    true,
-  );
-}
+const browserClient = createApiClient();
 
-export async function createIssue(config, session, payload) {
-  return postAction(config, session, 'createIssue', payload, true);
-}
-
-export async function getTransitions(config, session, issueKey) {
-  return postAction(config, session, 'getTransitions', { issueKey }, true);
-}
-
-export async function updateIssue(config, session, issueKey, fields) {
-  return postAction(config, session, 'updateIssue', { issueKey, fields }, true);
-}
-
-export async function getPriorities(config, session) {
-  return postAction(config, session, 'getPriorities', {}, true);
-}
-
-export async function getIssueTypes(config, session, projectKey) {
-  return postAction(config, session, 'getIssueTypes', { projectKey }, true);
-}
-
-export async function listCanvasesForUser(config, session) {
-  return postAction(config, session, 'listCanvasesForUser', {}, true);
-}
-
-export async function createCanvas(config, session, canvasName, targetUrl) {
-  return postAction(config, session, 'createCanvas', { canvasName, targetUrl }, true);
-}
-
-export async function searchUsers(config, session, projectKey, query) {
-  return postAction(config, session, 'searchUsers', { projectKey, query }, true);
-}
+export const postAction = browserClient.postAction;
+export const getPins = browserClient.getPins;
+export const createIssue = browserClient.createIssue;
+export const getTransitions = browserClient.getTransitions;
+export const updateIssue = browserClient.updateIssue;
+export const getPriorities = browserClient.getPriorities;
+export const getIssueTypes = browserClient.getIssueTypes;
+export const listCanvasesForUser = browserClient.listCanvasesForUser;
+export const createCanvas = browserClient.createCanvas;
+export const searchUsers = browserClient.searchUsers;
+export const uploadScreenshot = browserClient.uploadScreenshot;

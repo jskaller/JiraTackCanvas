@@ -8,6 +8,7 @@ import ForgeReconciler, {
   useProductContext,
 } from '@forge/react';
 import { invoke, router } from '@forge/bridge';
+import { toSafeHttpUrl } from '../../shared/safeUrl';
 
 function buildBookmarklet(data) {
   const canvasName = data.canvasName || data.canvasId || 'Canvas';
@@ -24,10 +25,10 @@ function buildBookmarklet(data) {
   return `javascript:${code}`;
 }
 
-function buildJqlUrl(jiraBaseUrl, canvasFieldId, canvasName) {
-  if (!jiraBaseUrl || !canvasFieldId) return null;
-  const jql = `"${canvasFieldId}" = "${canvasName}"`;
-  return `${String(jiraBaseUrl).replace(/\/$/, '')}/issues/?jql=${encodeURIComponent(jql)}`;
+function buildJqlUrl(jiraBaseUrl, canvasName) {
+  if (!jiraBaseUrl || !canvasName) return null;
+  const escaped = String(canvasName).replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+  return `${String(jiraBaseUrl).replace(/\/$/, '')}/issues/?jql=${encodeURIComponent(`jiratackCanvas = "${escaped}"`)}`;
 }
 
 const EpicPanel = () => {
@@ -40,7 +41,6 @@ const EpicPanel = () => {
   const [error, setError] = useState(null);
   const [canvases, setCanvases] = useState([]);
   const [jiraBaseUrl, setJiraBaseUrl] = useState(null);
-  const [canvasFieldId, setCanvasFieldId] = useState(null);
   const [bookmarklet, setBookmarklet] = useState(null);
   const [generating, setGenerating] = useState(null);
 
@@ -57,7 +57,6 @@ const EpicPanel = () => {
         if (res && res.ok && res.data) {
           setCanvases(res.data.canvases || []);
           setJiraBaseUrl(res.data.jiraBaseUrl || null);
-          setCanvasFieldId(res.data.canvasFieldId || null);
         } else {
           setError((res && res.error && res.error.message) || 'Failed to load canvases.');
         }
@@ -88,8 +87,8 @@ const EpicPanel = () => {
   };
 
   const openCanvas = (canvasName) => {
-    const url = buildJqlUrl(jiraBaseUrl, canvasFieldId, canvasName);
-    if (url) router.open(url);
+    const safe = toSafeHttpUrl(buildJqlUrl(jiraBaseUrl, canvasName));
+    if (safe) router.open(safe);
   };
 
   if (loading) return <Text>Loading…</Text>;

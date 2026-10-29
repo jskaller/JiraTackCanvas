@@ -628,6 +628,17 @@ Run each as a **non-admin** Jira user from the dashboard/project-settings page, 
 8. KVS failure handling: with a stale/absent config, assert `getInstallationConfig` returns defaults, but a read error surfaces as `INTERNAL` and does **not** write defaults over an existing config.
 9. SDK auto-reauth: let a session JWT expire, trigger any authenticated action, and assert it self-heals (one re-exchange + retry) instead of surfacing `TOKEN_EXPIRED`.
 
+### 2.21 Screenshot chunk upload and URL safety (D20)
+
+1. Create a ticket with a screenshot → assert the attachment exists on the issue, is an image, and the same bytes render in the issue panel.
+2. Assert no single request body exceeds ~250 KB: capture the network tab while creating; every request is `beginScreenshotUpload`, `uploadScreenshotChunk`, then `createIssue` with **`screenshotUploadId`** and **no `screenshotDataUrl`**.
+3. After creation, assert the `screenshot:<id>` and `screenshot:<id>:*` KVS keys are gone (deleted on attach; otherwise TTL 15 min).
+4. Guest session: chunk upload and attach succeed; a chunk sent with another session's `uploadId` returns `NOT_FOUND`.
+5. `beginScreenshotUpload` with a size above the cap → `VALIDATION_ERROR`; a chunk over 200 KiB → `VALIDATION_ERROR`.
+6. `createIssue` with `url: "javascript:alert(1)"` → `VALIDATION_ERROR` (no ticket created).
+7. In the dashboard, a canvas/pin whose URL is `javascript:...` renders as inert text, not a link; in the bookmarklet, clicking such a pin does not navigate.
+8. `node src/shared/safeUrl.test.js` → all vectors pass.
+
 ### Sprint 2 exit criteria
 
 All of 2.1–2.20 pass. Commit: `feat(s2): token issuance, webtrigger API, authorisation`.
