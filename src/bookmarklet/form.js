@@ -54,8 +54,21 @@ export function renderTicketForm(container, options) {
   const openMode = session.permittedProjects === '*';
 
   const existingPins = Array.isArray(options.pins) ? options.pins : [];
+  const isSeedTicket = (pin) => Boolean(pin)
+    && typeof pin.summary === 'string'
+    && pin.summary.replace(/^\[JiraTack\]\s*/i, '').trim() === 'Canvas created';
   const newestPin = existingPins.length > 0
     ? existingPins.reduce((newest, pin) => {
+        if (!newest) return pin;
+        const newestTime = newest.createdAt ? Date.parse(newest.createdAt) : 0;
+        const pinTime = pin.createdAt ? Date.parse(pin.createdAt) : 0;
+        return pinTime > newestTime ? pin : newest;
+      }, null)
+    : null;
+  // The canvas seed ticket is an Epic; it must never drive the issue-type default.
+  const usablePins = existingPins.filter((pin) => pin && !isSeedTicket(pin));
+  const lastUsedPin = usablePins.length > 0
+    ? usablePins.reduce((newest, pin) => {
         if (!newest) return pin;
         const newestTime = newest.createdAt ? Date.parse(newest.createdAt) : 0;
         const pinTime = pin.createdAt ? Date.parse(pin.createdAt) : 0;
@@ -65,7 +78,9 @@ export function renderTicketForm(container, options) {
 
   const resolvedDefaultProject = (newestPin && newestPin.projectKey)
     || (permitted.length > 0 ? permitted[0] : '');
-  const resolvedDefaultIssueTypeId = newestPin && newestPin.issueTypeId ? newestPin.issueTypeId : null;
+  const resolvedDefaultIssueTypeId = (lastUsedPin && lastUsedPin.issueTypeId)
+    || defaultIssueTypeId
+    || null;
   const resolvedDefaultPriorityId = newestPin && newestPin.priorityId ? newestPin.priorityId : null;
 
   let projectSelect = null;
@@ -105,7 +120,7 @@ export function renderTicketForm(container, options) {
   summaryInput.maxLength = 215;
 
   const descriptionInput = el('textarea', 'jiratack-textarea');
-  descriptionInput.rows = 5;
+  descriptionInput.rows = 3;
   descriptionInput.placeholder = 'Describe the issue…';
 
   const assigneeWrap = el('div', 'jiratack-field');
@@ -123,6 +138,15 @@ export function renderTicketForm(container, options) {
   const reporterInput = textInput('', session.displayName || 'Current user');
   reporterInput.disabled = true;
   reporterInput.title = 'Reporter is set from the authenticated Jira user.';
+
+  const topBar = el('div', 'jiratack-form-top');
+  topBar.appendChild(el('span', 'jiratack-form-title', 'New ticket'));
+  const topCancelButton = el('button', 'jiratack-form-cancel', 'Cancel');
+  topCancelButton.type = 'button';
+  topCancelButton.title = 'Cancel (Esc)';
+  topCancelButton.addEventListener('click', cancel);
+  topBar.appendChild(topCancelButton);
+  form.appendChild(topBar);
 
   if (isGuest) {
     form.appendChild(field('Your Name', guestNameInput));
@@ -206,10 +230,7 @@ export function renderTicketForm(container, options) {
   submitButton.type = 'submit';
   const cancelButton = el('button', 'jiratack-button', 'Cancel');
   cancelButton.type = 'button';
-  cancelButton.addEventListener('click', () => {
-    destroy();
-    if (onCancel) onCancel();
-  });
+  cancelButton.addEventListener('click', cancel);
   actions.appendChild(submitButton);
   actions.appendChild(cancelButton);
   form.appendChild(actions);
@@ -220,6 +241,20 @@ export function renderTicketForm(container, options) {
     errorBox.textContent = message;
     errorBox.style.display = 'block';
   }
+
+  function cancel() {
+    destroy();
+    if (onCancel) onCancel();
+  }
+
+  function onKeydown(event) {
+    if (event.key !== 'Escape') return;
+    event.preventDefault();
+    event.stopPropagation();
+    cancel();
+  }
+
+  document.addEventListener('keydown', onKeydown, true);
 
   function clearError() {
     errorBox.textContent = '';
@@ -267,7 +302,10 @@ export function renderTicketForm(container, options) {
       if (resolvedDefaultIssueTypeId && issueTypes.some((type) => String(type.id) === String(resolvedDefaultIssueTypeId))) {
         issueTypeSelect.value = String(resolvedDefaultIssueTypeId);
       } else {
-        const preferred = issueTypes.find((type) => /^task$/i.test(type.name)) || issueTypes[0];
+        // Last used, then Task, then anything that is not an Epic.
+        const preferred = issueTypes.find((type) => /^task$/i.test(type.name))
+          || issueTypes.find((type) => !/^epic$/i.test(type.name))
+          || issueTypes[0];
         issueTypeSelect.value = String(preferred.id);
       }
       issueTypeSelect.disabled = false;
@@ -511,6 +549,7 @@ export function renderTicketForm(container, options) {
   form.addEventListener('submit', handleSubmit);
 
   function destroy() {
+    document.removeEventListener('keydown', onKeydown, true);
     if (assigneeDebounce) {
       window.clearTimeout(assigneeDebounce);
       assigneeDebounce = null;

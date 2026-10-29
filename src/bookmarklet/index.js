@@ -792,7 +792,12 @@ async function handleCapture(capture) {
     const bTime = b && b.createdAt ? Date.parse(b.createdAt) : 0;
     return bTime - aTime;
   });
-  const newestPin = sortedPins.length > 0 ? sortedPins[0] : null;
+  // The canvas seed ticket ("Canvas created", an Epic) must not drive defaults.
+  const isSeedTicket = (pin) => Boolean(pin)
+    && typeof pin.summary === 'string'
+    && pin.summary.replace(/^\[JiraTack\]\s*/i, '').trim() === 'Canvas created';
+  const usablePins = sortedPins.filter((pin) => !isSeedTicket(pin));
+  const newestPin = usablePins.length > 0 ? usablePins[0] : null;
   const defaultProject = newestPin && newestPin.projectKey ? newestPin.projectKey : undefined;
   const defaultAssignee = newestPin && newestPin.assignee ? { ...newestPin.assignee } : undefined;
   const defaultIssueTypeId = newestPin && newestPin.issueTypeId ? newestPin.issueTypeId : undefined;
