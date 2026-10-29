@@ -114,6 +114,7 @@ export async function generateCanvasToken(context, payload) {
     userId: String(userId),
     installationId: String(installationId),
     scope: String(scope),
+    isAdmin: await isJiraAdmin(context),
     issuedAt,
     expiresAt,
     revoked: false,
@@ -136,6 +137,7 @@ export async function generateCanvasToken(context, payload) {
     canvasName,
     scope,
     permittedProjects,
+    isAdmin: record.isAdmin === true,
     iat,
     exp: iat + SESSION_TTL_SECONDS,
   };
@@ -210,6 +212,7 @@ export async function generateGuestToken(context, payload) {
   const record = {
     scope: 'guest_create',
     issuer: String(issuer),
+    isAdmin: false,
     permittedCanvases,
     permittedProjectsJson: JSON.stringify(permitted.permittedProjects),
     installationId: String(installationId),
@@ -347,6 +350,7 @@ export async function generateUserToken(context) {
     userId: String(userId),
     installationId: String(installationId),
     scope,
+    isAdmin: await isJiraAdmin(context),
     issuedAt,
     expiresAt,
     revoked: false,
@@ -379,6 +383,9 @@ export async function generateUserToken(context) {
 }
 
 export async function createCanvas(context, payload) {
+  const denied = await requireAdmin(context, 'Only Jira admins can create canvases.');
+  if (denied) return denied;
+
   try {
     return await createSeedTicket({
       requester: api.asUser(),

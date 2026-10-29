@@ -11,6 +11,7 @@ import { getIssueTypes } from './actions/getIssueTypes.js';
 import { listCanvasesForUser } from './actions/listCanvasesForUser.js';
 import { createCanvas } from './actions/createCanvas.js';
 import { beginScreenshotUpload, uploadScreenshotChunk } from './actions/screenshotUpload.js';
+import { requireAdminClaims } from '../lib/access.js';
 
 const JSON_HEADERS = { 'Content-Type': ['application/json'] };
 
@@ -127,6 +128,10 @@ export const handler = async (req, context) => {
     if (action === 'createCanvas') {
       const auth = await authenticate(req, context, ['create', 'universal']);
       if (!auth.ok) return envelope(auth);
+      // Scope alone is not proof of admin rights; the claim is resolved at
+      // issuance because web triggers have no user identity for asUser().
+      const denied = requireAdminClaims(auth.claims, 'Only Jira admins can create canvases.');
+      if (denied) return envelope(denied);
       return envelope(await createCanvas(payload, auth.claims));
     }
 

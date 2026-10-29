@@ -33,3 +33,17 @@ export async function requireAdmin(context, message) {
   if (admin) return null;
   return errorResult('INSUFFICIENT_SCOPE', message || ADMIN_MESSAGE);
 }
+
+/**
+ * Web triggers have no user identity, so `asUser()` cannot be used there.
+ * Admin rights are therefore resolved at token issuance (resolver context) and
+ * carried as an `isAdmin` claim; web triggers enforce that claim.
+ */
+export function claimsAreAdmin(claims) {
+  return Boolean(claims && claims.isAdmin === true);
+}
+
+export function requireAdminClaims(claims, message) {
+  if (claimsAreAdmin(claims)) return null;
+  return errorResult('INSUFFICIENT_SCOPE', message || ADMIN_MESSAGE);
+}

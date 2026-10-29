@@ -94,6 +94,7 @@ export function createSessionManager(storage) {
         cached
         && cached.expiresAt > Date.now()
         && Object.prototype.hasOwnProperty.call(cached, 'displayName')
+        && Object.prototype.hasOwnProperty.call(cached, 'isAdmin')
       ) {
         return cached;
       }
@@ -131,6 +132,7 @@ export function createSessionManager(storage) {
       issuer: data.issuer || null,
       jiraBaseUrl: data.jiraBaseUrl || null,
       displayName: data.displayName || null,
+      isAdmin: data.isAdmin === true,
     };
     write(canvasId, session);
     return session;

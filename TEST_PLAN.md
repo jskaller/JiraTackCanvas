@@ -628,6 +628,11 @@ Run each as a **non-admin** Jira user from the dashboard/project-settings page, 
 8. KVS failure handling: with a stale/absent config, assert `getInstallationConfig` returns defaults, but a read error surfaces as `INTERNAL` and does **not** write defaults over an existing config.
 9. SDK auto-reauth: let a session JWT expire, trigger any authenticated action, and assert it self-heals (one re-exchange + retry) instead of surfacing `TOKEN_EXPIRED`.
 
+10. **Guest JWT → `createCanvas`:** returns **403 `INSUFFICIENT_SCOPE`**. Assert the response is the 403 envelope (not 200, not a validation error) and that **no seed ticket is created**. Also decode the guest JWT and assert `isAdmin === false`.
+11. **Licensed non-admin JWT (`create` or `universal`) → `createCanvas`:** returns **403 `INSUFFICIENT_SCOPE`**; no seed ticket. The dashboard `createCanvas` resolver returns the same for the same user (the check is not bypassable by switching surfaces).
+12. **Admin JWT → `createCanvas`:** succeeds (200, seed ticket created). Decode the JWT first and assert `isAdmin === true`. Re-issue a bookmarklet before this test, because tokens minted before D21 carry no claim and fail closed.
+13. **Claim staleness:** demote a user (or use a token issued while they were admin) and confirm `createCanvas` still succeeds until the JWT expires — the documented D21 limitation, not a regression.
+
 ### 2.21 Screenshot chunk upload and URL safety (D20)
 
 1. Create a ticket with a screenshot → assert the attachment exists on the issue, is an image, and the same bytes render in the issue panel.

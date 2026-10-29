@@ -114,12 +114,16 @@ await storage.set(`canvasTokens:${token}`, record, { ttl: 2592000 });
   "aud": "installationId",
   "canvasId": "canvasName (v1 uses name as ID)",
   "canvasName": "canvasName",
-  "scope": "create | view",
+  "scope": "create | view | universal | guest_create",
   "permittedProjects": ["MM", "QA", "DS"] | "*",
+  "permittedCanvases": ["canvas A", "canvas B"],
+  "isAdmin": true,
   "iat": 1234567890,
   "exp": 1234596690
 }
 ```
+
+**`isAdmin` (D21):** resolved at token issuance from the resolver context (`userAccess.isAdmin`, falling back to an `ADMINISTER` lookup) and stamped into the token record and the session JWT for canvas, user and guest tokens. Web-trigger handlers enforce it for admin-only actions because they have no user identity and therefore cannot call `asUser()`. Guest tokens are always `false`; a missing claim is treated as `false`, so tokens minted before this claim existed cannot perform admin-only actions until re-issued.
 
 **`permittedProjects` semantics (per D9):**
 
@@ -174,7 +178,7 @@ await kvs.set(`userTokens:${token}`, record, { ttl: { value: 90, unit: 'DAYS' } 
 ```text
 Request:  { action: "exchangeToken", payload: { canvasToken: string } }
 Auth:     none
-Success:  { sessionJwt, expiresAt, canvasId, canvasName, scope, permittedProjects, apiUrl, sdkUrl, jiraBaseUrl, configVersion }
+Success:  { sessionJwt, expiresAt, canvasId, canvasName, scope, permittedProjects, isAdmin, apiUrl, sdkUrl, jiraBaseUrl, configVersion }
 ```
 
 `canvasToken` may be either a canvas token (`canvasTokens:<token>`) or a user token (`userTokens:<token>`). User tokens produce a JWT with `scope: "universal"`, `canvasId: null`, and `canvasName: null`.
@@ -398,16 +402,25 @@ Queries `labels = "jiratack" ORDER BY created DESC` (paginated up to 2,000), ski
 
 ---
 
-## Part 4 — Resolver contracts
+### 3.9 `createCanvas` — admin only (D21)
 
+```text
+Request:  { action: "createCanvas", payload: { canvasName, targetUrl, projectKey?, issueTypeId? } }
+Auth:     Bearer, scope create or universal, AND claims.isAdmin === true
+Success:  { canvasName, key, id }   // seed ticket
+```
+
+Creates the canvas seed ticket. **Scope alone is insufficient:** the handler enforces the `isAdmin` claim (D21) before any business logic, returning 403 `INSUFFICIENT_SCOPE` otherwise. A guest token never reaches this action (its scope is not allowlisted) and guest claims are always `isAdmin: false`. Because admin rights are stamped at issuance, a token minted before D21 has no claim and is treated as non-admin until re-issued.
+
+## Part 4 — Resolver contracts
 ### 4.0 Access model (per D19)
 
 Resolvers are invoked from app UI that **any logged-in site user can open**, so hiding a control is not authorisation. Enforcement is per-operation, server-side, via `requireAdmin(context)` (`src/lib/access.js`) which reads `context.userAccess.isAdmin` and falls back to an `ADMINISTER` permission lookup.
 
 | Resolver | Caller |
 | --- | --- |
-| `getInstallationConfig`, `setInstallationConfig`, `getProjectConfig`, `setProjectConfig`, `listCanvasTokens`, `revokeCanvasToken`, `deleteCanvas`, `archiveCanvas` | **Jira admin only** → else `INSUFFICIENT_SCOPE` |
-| `generateCanvasToken`, `generateUserToken`, `generateGuestToken`, `createCanvas`, `dashboardAggregate`, `epicPanelData`, `issuePanelData` | Any user holding a **JiraTack seat** (Jira's own project permissions still apply). A missing seat returns `LICENSE_INACTIVE` where enforced |
+| `getInstallationConfig`, `setInstallationConfig`, `getProjectConfig`, `setProjectConfig`, `listCanvasTokens`, `revokeCanvasToken`, `createCanvas`, `deleteCanvas`, `archiveCanvas` | **Jira admin only** → else `INSUFFICIENT_SCOPE` |
+| `generateCanvasToken`, `generateUserToken`, `generateGuestToken`, `dashboardAggregate`, `epicPanelData`, `issuePanelData` | Any user holding a **JiraTack seat** (Jira's own project permissions still apply). A missing seat returns `LICENSE_INACTIVE` where enforced |
 
 Canvas **creation** is deliberately open (it is additive, and Jira enforces project create permission); **deletion/archival** is admin-only.
 

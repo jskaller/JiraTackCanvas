@@ -90,6 +90,14 @@ Single decision log for JiraTack. Every open and resolved decision appears exact
 **Known limitations:** bytes still transit Forge, in small pieces; chunk upload is sequential; the ~5 MiB ceiling is community-measured rather than documented; uploads abandoned by the client rely on TTL cleanup.
 **Applies to:** CONTRACTS §3.3, §3.3b; TEST_PLAN §2.21.
 
+### D21 — Admin enforcement in web triggers via an issuance-bound claim
+
+**Status:** Resolved (2026-10-29)
+**Resolution:** A web trigger has no user identity, so `api.asUser()` cannot be used there (an explicit AGENTS.md constraint) and a live `ADMINISTER` lookup is impossible. Admin-dependent web-trigger actions therefore enforce an `isAdmin` claim that is resolved at token issuance in resolver context (`userAccess.isAdmin`, falling back to `mypermissions?permissions=ADMINISTER`), persisted in the token record, and copied into every session JWT for canvas/user tokens; guest tokens are always `false`. `createCanvas` is admin-only in both the web trigger (`requireAdminClaims`, before business logic) and the dashboard resolver (`requireAdmin`), closing the gap where `create`/`universal` scope was mistaken for admin rights. Missing claim ⇒ treated as non-admin (fail closed).
+**Rejected alternatives:** Calling `asUser()` from the web trigger (impossible — no user identity, and forbidden); a per-request KVS admin allowlist keyed by `sub` (still cannot distinguish a legitimate admin from a token holder, and adds a read per call); leaving the resolver path open (would make the web-trigger check bypassable).
+**Known limitations:** Admin status is a point-in-time claim, so a demotion takes effect only on the next token issuance or session expiry (≤8 h, consistent with D9/D11). Tokens issued before this decision carry no claim and cannot create canvases until re-issued.
+**Applies to:** CONTRACTS §2.2, §3.9, §4.0; TEST_PLAN §2.20.
+
 ### D13 — SDK version source
 
 **Status:** Resolved (2026-10-23)

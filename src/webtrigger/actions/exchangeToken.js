@@ -96,6 +96,7 @@ export async function exchangeToken(payload) {
       aud: userRecord.installationId,
       scope,
       permittedProjects,
+      isAdmin: userRecord.isAdmin === true,
       iat,
       exp,
     });
@@ -109,6 +110,7 @@ export async function exchangeToken(payload) {
       canvasName: null,
       scope,
       permittedProjects,
+      isAdmin: userRecord.isAdmin === true,
       displayName,
     });
   }
@@ -145,6 +147,7 @@ export async function exchangeToken(payload) {
       issuer,
       permittedCanvases,
       permittedProjects,
+      isAdmin: false,
       iat,
       exp,
     });
@@ -160,6 +163,7 @@ export async function exchangeToken(payload) {
       issuer,
       permittedCanvases,
       permittedProjects,
+      isAdmin: false,
       displayName,
     });
   }
@@ -183,6 +187,7 @@ export async function exchangeToken(payload) {
     canvasName: record.canvasName,
     scope: record.scope,
     permittedProjects,
+    isAdmin: record.isAdmin === true,
     iat,
     exp,
   });
@@ -196,6 +201,7 @@ export async function exchangeToken(payload) {
     canvasName: record.canvasName,
     scope: record.scope,
     permittedProjects,
+    isAdmin: record.isAdmin === true,
     displayName,
   });
 }
