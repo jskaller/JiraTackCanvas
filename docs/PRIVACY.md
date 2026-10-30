@@ -35,7 +35,7 @@ JiraTack is a Jira Cloud app that lets QA teams drop pins on web pages and turn 
 
 **On the Jira issues the app creates**
 
-- The issue property `com.jiratack.metadata`: canvas name, normalised page URL, pin position, CSS selector, and — for guest-created tickets — the guest's name and email address.
+- The issue property `com.jiratack.metadata`: canvas name, the page URL as captured (query string preserved), pin position, CSS selector, and — for guest-created tickets — the guest's name and email address.
 - Labels `jiratack`, and `jiratack-guest` for guest tickets.
 - The issue description: a JiraTack header, the user's text, optional captured console output, and a link to the page.
 - An optional screenshot attachment.

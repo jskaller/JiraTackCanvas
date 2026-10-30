@@ -2,7 +2,7 @@
 
 **Audience:** OpenCode. Every function signature, request/response shape, JQL template, error code, URL normalisation rule, and ADF node shape.
 **Precedence:** Where this document disagrees with SPEC.md or ARCHITECTURE.md on wire-level details, this document wins. Where it disagrees with DECISIONS.md, DECISIONS.md wins.
-**Verified against:** `src/` at commit `acde065`, app 4.92.0, SDK `731d221968a1`, 2026-10-30.
+**Verified against:** `src/` in the working tree, 2026-10-30, app 4.92.0, SDK `d5d8edafeda5`.
 
 ---
 
@@ -28,7 +28,7 @@ Machine-readable pin data lives in the Jira issue property `com.jiratack.metadat
 | Field | Type | Rules |
 | --- | --- | --- |
 | `pin.canvas` | string | Required, non-empty. 1–255 chars at issuance. |
-| `pin.url` | string | Required, non-empty, normalised (§6.1) and absolute `http(s)`. |
+| `pin.url` | string | Required, non-empty. The URL **as captured** (`canonicalUrl`): absolute `http(s)`, fragment and deep-link params removed, query preserved and sorted. Identity is derived at read time (D23). |
 | `pin.position` | string | Required, non-empty. `relX,relY` or `absX,absY` (SPEC §12.2). |
 | `pin.selector` | string \| null | `null` when no stable selector was found. Empty strings normalise to `null`. |
 | `guest.name`, `guest.email` | string | Optional; present only on guest tickets. |
@@ -242,6 +242,8 @@ Behaviour:
 
 6. Return. `truncated: true` means the scan cap was reached and the list may be incomplete.
 
+**URL matching is a client concern.** The SDK always requests the whole canvas (`all: true`) and filters by `pin.url` at render time, because the reviewer can switch between `smart`, `exact` and `path` without another request (D23, §6.4). The `url` parameter and `all: false` remain implemented for non-SDK callers; that path compares `normalizeUrl(url)` against `normalizeUrl(pin.url)`.
+
 Hidden pins never reach the client. "No pins on this page" and "no pins you can see" are indistinguishable by design.
 
 `PinRecord` — `url`, `pinPosition`, `selector`, `guest` come from the property; the rest from Jira fields:
@@ -435,7 +437,7 @@ Success:  { canvasName, key, id }              // seed ticket
 - **Scope alone is insufficient.** `requireAdminClaims` runs before any business logic → 403 `INSUFFICIENT_SCOPE`.
 - A guest token never reaches this action (its scope is not allowlisted), and guest claims are always `isAdmin: false`.
 - The seed ticket is `summary: "Canvas created"`, description built with body text `JiraTack canvas created: <name>`, label `jiratack`, and metadata `{ pin: { canvas, url, position: "0,0", selector: null }, version: 1 }`.
-- `url` = normalised `targetUrl` if it is `http(s)`, else `https://example.com`.
+- `url` = canonical `targetUrl` if it is `http(s)`, else `https://example.com`.
 - Project is `payload.projectKey`, else the first enabled configured project the caller may use, else the first permitted project; none → `BAD_REQUEST`.
 - Issue type is `payload.issueTypeId`, else the project config default, else the first non-subtask type; none → `BAD_REQUEST`.
 - Seed ticket created but metadata write failed → `INTERNAL` (the canvas would be invisible, so it is reported as a failure).
@@ -643,7 +645,8 @@ Called by the bootstrap after the SDK script loads. If `window.__jiratackActiveC
     .jiratack-detached-cluster
   #jiratack-sidebar          position: fixed; right: 0; top: 0; width: 320px; height: 100vh
     .jiratack-sidebar-header
-    .jiratack-filter-toggle
+    .jiratack-filter-toggle    All / Current Page
+    .jiratack-match-row        Smart / Exact / Whole page with counts (Current Page only)
     .jiratack-ticket-list
       .jiratack-ticket-card[data-key]
     .jiratack-new-ticket-form
@@ -676,63 +679,83 @@ Nothing else. Never `localStorage`. `createSessionManager(storage)` accepts an i
 
 ## Part 6 — URL normalisation (client and server must match)
 
-Single module `src/shared/urlNormalize.js`, bundled into both.
+Single module `src/shared/urlNormalize.js`, bundled into both. D23 is the authority for the rule set.
 
 ### 6.1 Algorithm
 
 ```javascript
-export function normalizeUrl(input) {
-  if (!input) return '';
-  let u;
-  try { u = new URL(input); } catch { return input.trim(); }
-  u.hash = '';
-  u.search = '';                 // the ENTIRE query string is dropped
-  u.protocol = u.protocol.toLowerCase();
-  u.hostname = u.hostname.toLowerCase();
-  if (u.pathname !== '/' && u.pathname.endsWith('/')) {
-    u.pathname = u.pathname.slice(0, -1);
-  }
-  return u.toString();
-}
+// 1. canonical: structure only, every non-deep-link parameter kept
+canonicalUrl(input)  → lowercase scheme/host, drop fragment,
+                       drop jiratack_ticket / jiratack_canvas,
+                       strip trailing "/" unless root, sort params
+
+// 2. smart identity: canonical minus noise, minus random values
+normalizeUrl(input)  → drop utm_* and named trackers
+                       drop cache-busters when numeric/random
+                       drop version stamps when semver/random
+                       KEEP-listed names survive regardless of value shape
+                       drop unnamed values shaped like UUID / 32-40-64 hex /
+                         10-13 digit epoch / >=16 mixed alphanumerics
+                       sort survivors
+
+// 3. full path
+pathOnlyUrl(input)   → scheme + host + path, no query
 ```
 
-- Do not coerce `http` → `https`.
-- **All query parameters are removed**, not only tracking parameters. Page identity is path-based.
-- Path case, port and non-root trailing-slash semantics are preserved exactly.
+Keep-list (overrides the value-shape rule): `id`, `page`, `p`, `q`, `query`, `search`, `filter`, `sort`, `view`, `tab`, `lang`, `locale`, `sku`, `product`, `slug`, `path`, `file`, `doc`, `issue`, `key`, `project`.
 
-**Consequence to keep in mind:** `?page=2`, `?filter=x`, `?variant=b` and `?utm_source=…` all collapse to the same page. Two URLs differing only by query string share one pin set. This is shipped behaviour and a product decision to confirm; do not "fix" it without a decision entry.
+- Do not coerce `http` → `https`.
+- `canonicalUrl` is what `createIssue` stores; `normalizeUrl` is what "Smart" matching compares.
+- Because a stored URL keeps its query, `normalizeUrl` is idempotent over stored values.
 
 ### 6.2 Test vectors (acceptance gate — `src/shared/urlNormalize.test.js`)
+
+`normalizeUrl`:
 
 | Input | Output |
 | --- | --- |
 | `https://example.com/page` | `https://example.com/page` |
 | `https://example.com/page/` | `https://example.com/page` |
-| `https://example.com/page#section` | `https://example.com/page` |
 | `https://Example.COM/Page` | `https://example.com/Page` |
-| `https://example.com/page?cat=x` | `https://example.com/page` |
-| `https://example.com/page?id=42` | `https://example.com/page` |
-| `https://example.com/page?utm_source=x&id=42#section` | `https://example.com/page` |
-| `https://example.com/page/?cat=x` | `https://example.com/page` |
-| `https://example.com/A` | `https://example.com/A` |
-| `https://example.com/a/` | `https://example.com/a` |
+| `https://example.com/p?page=2` | `https://example.com/p?page=2` |
+| `https://example.com/p?b=2&a=1` | `https://example.com/p?a=1&b=2` |
+| `https://example.com/p?utm_source=x&page=2` | `https://example.com/p?page=2` |
+| `https://example.com/p?fbclid=abc&page=3` | `https://example.com/p?page=3` |
+| `https://example.com/p?ts=1793315205` | `https://example.com/p` |
+| `https://example.com/p?v=1.2.3` | `https://example.com/p` |
+| `https://example.com/p?session=8f14e45fceea167a5a36dedd4bea2543` | `https://example.com/p` |
+| `https://example.com/p?sid=abc123def456ghi789` | `https://example.com/p` |
+| `https://example.com/p?sku=ABC123456789012345` | unchanged (keep-list wins) |
+| `https://example.com/p?id=8f14e45fceea167a5a36dedd4bea2543` | unchanged (keep-list wins) |
+| `https://example.com/p?jiratack_ticket=KAN-15&page=2` | `https://example.com/p?page=2` |
 | `http://example.com/page` | `http://example.com/page` |
-| `https://example.com/` | `https://example.com/` |
-| `https://example.com/?cat=x` | `https://example.com/` |
-| `https://example.com:8443/a?x=1` | `https://example.com:8443/a` |
-| `https://example.com/page?jiratack_ticket=KAN-15` | `https://example.com/page` |
+
+`canonicalUrl`: keeps every non-deep-link parameter (`?session=…` survives), sorts, strips fragment and trailing slash.
+`pathOnlyUrl`: drops the query entirely; `https://example.com/p?x=1` → `https://example.com/p`.
 
 ### 6.3 `stripDeepLinkParams`
 
-Separate helper, used for display paths that must keep other query parameters (dashboard URL breakdown, seed-ticket target):
+Removes only `jiratack_ticket` / `jiratack_canvas`, preserving every other parameter as written (used for display and seed-ticket targets):
 
 | Input | Output |
 | --- | --- |
 | `https://example.com/page?jiratack_ticket=KAN-15&foo=bar` | `https://example.com/page?foo=bar` |
 | `https://example.com/page?jiratack_canvas=Q3&foo=bar` | `https://example.com/page?foo=bar` |
-| `https://example.com/page?foo=bar` | `https://example.com/page?foo=bar` |
 
-Run the vector file with `node --test src/shared/urlNormalize.test.js` before touching either function.
+### 6.4 Match modes
+
+```text
+urlMatches(pinUrl, currentUrl, mode) → boolean
+modes: 'smart' (default) | 'exact' | 'path' | 'all'
+  smart → normalizeUrl(pinUrl) === normalizeUrl(currentUrl)
+  exact → canonicalUrl(pinUrl) === canonicalUrl(currentUrl)
+  path  → pathOnlyUrl(pinUrl) === pathOnlyUrl(currentUrl)
+  all   → true (no filtering)
+```
+
+`filterPinsByUrl(pins, currentUrl, mode)` and `countPinsByUrl(pins, currentUrl)` wrap this for the sidebar and the pin layer, so the list and the pins can never disagree.
+
+Run `node --test src/shared/urlNormalize.test.js` before touching any of it. The vector file, not this table, is the gate.
 
 ---
 
@@ -853,7 +876,7 @@ The description is human-readable ADF only. Machine data lives in the property (
 <user body paragraphs>
 Console output:                                bold, only when a log is included
 <codeBlock>
-Page: <link to normalised URL>                 footer paragraph
+Page: <link to the canonical URL>              footer paragraph
 ```
 
 Rules:

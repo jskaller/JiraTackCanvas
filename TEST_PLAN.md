@@ -3,7 +3,7 @@
 **Audience:** OpenCode, human tester. Per-sprint verification commands and assertions.
 **Precedence:** If a test conflicts with CONTRACTS.md, CONTRACTS.md wins. This document tells you *how* to verify; CONTRACTS.md tells you *what* the correct behavior is.
 **Rule:** A sprint is not complete until every assertion in its section passes. Do not proceed to the next sprint on partial passes.
-**Verified against:** `src/` at commit `acde065`, app 4.92.0, SDK `731d221968a1`, 2026-10-30. Parts 1 and 6 were pruned of the retired custom-field/provisioning/audit/recovery tests (D18); Parts 2, 3, 5, 7 and 8 carry the current assertions.
+**Verified against:** `src/` in the working tree, 2026-10-30, app 4.92.0, SDK `d5d8edafeda5`. Parts 1 and 6 were pruned of the retired custom-field/provisioning/audit/recovery tests (D18); Parts 2, 3, 5, 7 and 8 carry the current assertions. §3.13 covers the D23 match modes.
 
 ---
 
@@ -248,11 +248,13 @@ All of 1.1–1.10 pass. Commit: `feat(s1): scaffolding, metadata model, admin co
 
 ### 2.1 URL normalization test vectors
 
-bash
+```bash
+node --test src/shared/urlNormalize.test.js
+```
 
-node src/shared/urlNormalize.test.js
+Assert: every vector passes and the exit code is 0. The vectors cover structural normalisation, tracking/cache/version removal, random-value removal, the keep-list override (`sku`, `id`), deep-link stripping, canonical storage, path-only identity, and all three match modes (D23).
 
-# Assert: all 10 vectors print PASS, exit code 0
+Also assert `normalizeUrl` is idempotent: feeding a stored `pin.url` back in must not change it.
 
 ### 2.2 ADF serializer test vectors
 
@@ -502,6 +504,7 @@ curl -s -u "$EMAIL:$API_TOKEN" \
   "https://<site>.atlassian.net/rest/api/3/issue/<KEY>/properties/com.jiratack.metadata" | jq .
 
 # Assert: .value.pin.canvas / .url / .position / .selector match the form values
+# Assert: .value.pin.url keeps the page's query string (canonical storage, D23)
 # Assert: .value.version == 1
 # Assert: description contains no "JiraTack pin:" text
 ```
@@ -817,9 +820,31 @@ Assert the generated URL:
 
 - Optional Trusted Types check: on accounts.google.com, assert the reason names Trusted Types rather than a generic CSP block.
 
+### 3.13 URL match modes (D23)
+
+Requires a canvas with pins across query variants: e.g. `?page=1`, `?page=2`, and one pin on the bare path.
+
+1. Open `?page=2`, activate, select **Current Page**.
+
+2. Assert: the `Match` row is present and shows `Smart`, `Exact`, `Whole page` with counts.
+
+3. Assert: `Smart` is selected by default and the list/pins agree with it.
+
+4. Click `Whole page` → assert the sibling pins appear on both the list and the page, and the counts did not change when switching.
+
+5. Click `Exact` → assert only pins captured on the current exact URL remain.
+
+6. Open a page with **no** query string → assert the `Match` row is absent entirely.
+
+7. Open `?page=2` on a canvas whose only pins are on `?page=1`, select `Exact` → assert the empty state offers "Show all N on this page", and clicking it switches to `Whole page` and reveals them.
+
+8. Assert switching modes never triggers a network request (everything is client-side).
+
+9. Assert the mode resets to `Smart` after closing and reopening the bookmarklet.
+
 ### Sprint 3 exit criteria
 
-All of 3.1–3.12 pass. Commit: `feat(s3): bookmarklet SDK scaffold`.
+All of 3.1–3.13 pass. Commit: `feat(s3): bookmarklet SDK scaffold`.
 
 ---
 

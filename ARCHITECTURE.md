@@ -2,7 +2,7 @@
 
 **Audience:** OpenCode, first read. Context document; precedes `CONTRACTS.md`.
 **Status:** Current. Describes shipped code only.
-**Verified against:** `src/` at commit `acde065`, app 4.92.0, SDK `731d221968a1`, 2026-10-30.
+**Verified against:** `src/` in the working tree, 2026-10-30, app 4.92.0, SDK `d5d8edafeda5`.
 **Supersedes:** ARCHITECTURE.md v1.x (four custom fields, description marker, two web triggers).
 
 Decisions referenced here are authoritative in `DECISIONS.md`. Wire-level shapes are authoritative in `CONTRACTS.md`.
@@ -111,9 +111,10 @@ User clicks the bookmarklet on a target page
   → __jiratackInit({ token, apiUrl, sdkUrl, canvasId, canvasName, sdkVersion })
   → no cached JWT? → exchangeToken
   → JWT carries scope, permittedProjects, isAdmin
-  → getPinsForCanvasAndUrl({ canvasId, url })
+  → getPinsForCanvasAndUrl({ canvasId, url, all: true })
       server: labels="jiratack", properties=[com.jiratack.metadata]
-      filter: canvas, normalised URL, permittedProjects, retirement window
+      filter: canvas, permittedProjects, retirement window
+  → client filters by URL with the selected match mode (smart | exact | path)
   → render overlay
 User activates pin mode and clicks an element
   → compute selector + position
@@ -284,6 +285,8 @@ Any change to the delivery mechanism must preserve the property that the SDK tal
 8. **Guest links delegate the issuer's access.** Bounded by canvas scope and 365-day expiry; recorded in D19.
 
 9. **Strict-CSP sites cannot run the bookmarklet at all.** §11. The bootstrap now states why instead of failing silently; running there requires the extension channel (D22).
+
+10. **Page identity is inferred, so it can be wrong.** Pins store the URL as captured and identity is derived at read time; the reviewer can switch between Smart, Exact and Whole page when the inference misleads (D23). The heuristic still has edge cases in both directions.
 
 ---
 

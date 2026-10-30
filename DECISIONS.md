@@ -114,6 +114,25 @@ A content-script browser extension is adopted as the CSP-resilient channel. Cont
 
 **Applies to:** ARCHITECTURE.md §11 (delivery constraints of the shipped client), §12 (known constraints); SPEC.md §6.1 (failure behaviour of the shipped bootstrap). SPEC.md and ARCHITECTURE.md otherwise describe shipped code only; the extension plan itself lives in the business alignment document.
 
+### D23 — Page identity: URL normalisation and reviewer-side match modes
+
+**Status:** Resolved (2026-10-30)
+**Resolution:** Three parts, because page identity is inferred and inference is sometimes wrong.
+
+1. **Normalisation is three steps, in order.** (a) Canonicalise: lowercase scheme and host, drop the fragment, drop `jiratack_ticket`/`jiratack_canvas`, strip a trailing slash on a non-root path, sort query parameters. (b) Drop noise: `utm_*` and named trackers (`fbclid`, `gclid`, `msclkid`, `ttclid`, `twclid`, `li_fat_id`, `igshid`, `mc_cid`, `mc_eid`, `_hsenc`, `_hsmi`, `ref`, …); cache-busters (`t`, `ts`, `timestamp`, `cb`, `cachebust`, `nocache`, `rnd`, `random`) when their value is numeric or random-looking; version stamps (`v`, `ver`, `version`) when the value is semver or hash-shaped; and any otherwise-unnamed parameter whose value is a UUID, a 32/40/64-char hex digest, a 10–13 digit epoch, or ≥16 chars of mixed alphanumerics. (c) A **keep-list** overrides (b) by name: `id`, `page`, `q`, `query`, `search`, `filter`, `sort`, `view`, `tab`, `lang`, `locale`, `sku`, `product`, `slug`, `path`, `file`, `doc`, `issue`, `key`, `project`. Without it, `?sku=ABC123456789012345` would be dropped and two products would merge.
+
+   This replaces the previous behaviour of clearing the whole query string, which collapsed every query-addressed page onto one pin set.
+
+2. **Pins store the canonical URL as captured**, query intact, not a lossy normalised form. Identity is derived at read time, so a wrong inference can be corrected without the information having been destroyed. Pins created before this decision lost their query and cannot be recovered; Smart and Whole page still work on them, Exact under-matches. Accepted: pre-launch, no backfill.
+
+3. **The reviewer chooses the match mode; the filer is not asked.** The sidebar's Current Page filter gains `Smart` (heuristic), `Exact` (same query parameters), and `Whole page` (path only), each labelled with the number of pins it would show. The row appears only when the three counts differ — which is never on a URL without a query string — and a rescue button appears in the empty state when a wider mode would reveal pins.
+
+**Rejected alternatives:** A page-match selector in the new-ticket form (puts a query-string decision on the person filing, who cannot know how reviewers will browse, and leaks an implementation concern into the capture flow); per-site or per-origin normalisation rules (invisible inherited state, and the rule belongs to the page, not the installation); a read-time toggle without storing the query (cannot fix a merge after capture, because both pins would share the same stripped URL); keeping the old path-only identity (silently merges every query-addressed page); storing both raw and normalised URLs (redundant once canonical storage is the source and identity is derived).
+
+**Known limitations:** The heuristic can still merge an unnamed parameter with a short meaningful value, and can still split on a random-looking value under a keep-listed name. `Exact` cannot recover a query that was never stored (pre-D23 pins). Counts are computed from the fetched pin set, so a canvas past the 2,000-ticket scan cap may report low counts along with `truncated`.
+
+**Applies to:** SPEC.md §12.1, §10.2, §19; CONTRACTS.md §1.1, §3.2, §6; TEST_PLAN §2.1, §3.13.
+
 ### D13 — SDK version source
 
 **Status:** Resolved (2026-10-23)

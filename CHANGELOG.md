@@ -45,6 +45,15 @@ All notable changes to JiraTack.
 - Bootstrap reports SDK load failures in-page (CSP, Trusted Types, failed
   init, timeout) instead of removing the spinner silently (D22).
 
+### Page identity (D23)
+
+- Normaliser rebuilt: tracking, cache-buster, version and random-value removal
+  with a keep-list, replacing the blanket query-string drop.
+- Pins store the canonical URL as captured, query intact, so identity can be
+  re-derived; matching moved to render time.
+- Sidebar gains Smart / Exact / Whole page match modes with per-mode pin counts,
+  shown only when the counts differ, plus an empty-state rescue.
+
 ### Fixes
 
 - Epic panel `totalTicketCount` is the canvas-wide count rather than a copy of

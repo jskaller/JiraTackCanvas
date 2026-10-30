@@ -1,8 +1,8 @@
 # SPEC.md — v3.0
 
 **Status:** Current. Behaviour of shipped code only.
-**Verified against:** `src/` at commit `acde065` (clean tree), app 4.92.0, SDK `731d221968a1`, 2026-10-30.
-**Supersedes:** SPEC.md v2.3 in full.
+**Verified against:** `src/` in the working tree, 2026-10-30, app 4.92.0, SDK `d5d8edafeda5`.
+**Supersedes:** SPEC.md v2.3 in full; v3.1 adds D23 (page identity and match modes).
 
 **Precedence.** `CONTRACTS.md` wins on wire-level details (shapes, signatures, error codes, manifest, `package.json`). `DECISIONS.md` wins on any question, open or closed. This document wins on product behaviour.
 
@@ -12,6 +12,7 @@
 
 | Version | Date | Change |
 | --- | --- | --- |
+| v3.1 | 2026-10-30 | Page identity: three-step normaliser with a keep-list, canonical URL storage, reviewer-side Smart/Exact/Whole-page match modes (D23). |
 | v3.0 | 2026-10-30 | Rewritten against shipped code. Issue-property metadata (D18), per-operation authorisation (D19), chunked screenshot upload and URL allowlist (D20), issuance-bound admin claim (D21), guest links, personal bookmarklet, dual layout modes (D17), real action and error inventories. Removed: custom fields, field provisioning, mapping audit, description marker, recovery, build order, phase test plans, open decisions. |
 | v2.3 | 2026-10-23 | Two-scope token model (`create` / `view`), custom-field pin index. |
 | v2.2, v1.1 | — | Superseded. |
@@ -328,7 +329,7 @@ Host-page CSP can block the external script entirely — measured on github.com,
 
 2. Exchange the token for a session JWT if none is cached.
 
-3. Load pins for the normalised current URL, or list canvases in launcher mode.
+3. Load pins for the canvas (whole-canvas fetch), then match them to the current page client-side using the selected match mode, or list canvases in launcher mode.
 
 4. Render the fixed overlay, pins, sidebar, and toast container.
 
@@ -476,7 +477,7 @@ fields: summary, status, priority, assignee, reporter, issuetype, created, proje
         statuscategorychangedate
 ```
 
-Filtering happens in memory: canvas match, normalised URL match (unless `payload.all`), `permittedProjects`, and the retirement window.
+Filtering happens in memory: canvas match, `permittedProjects`, and the retirement window. URL matching is applied by the client at render time; the server only matches URLs when `all` is false.
 
 - Scans up to 2,000 issues across pages of 100.
 
@@ -667,6 +668,10 @@ click bookmarklet
 
 - Filter toggle: All / This page.
 
+- **Match row** (only with `This page` selected, and only when the modes disagree): `Smart`, `Exact`, `Whole page`, each labelled with the number of pins it would show. The counts make the trade-off visible — "Smart 2 / Whole page 5" means four sibling URLs were merged. Default `Smart`; the choice resets on each activation and is never persisted.
+
+- When the selected mode shows nothing but a wider one would show pins, the empty state offers a rescue button: "Show all N on this page".
+
 - Ticket card collapsed: key, summary (truncated), status chip, priority, assignee, reporter.
 
 - Clicking a card selects the pin/card pair and scrolls both into view. Exactly one pair is selected at a time.
@@ -756,25 +761,40 @@ Per-operation, server-side. Hiding a control is never the control (D19, D21).
 
 ### 12.1 URL normalisation
 
-`src/shared/urlNormalize.js` is bundled into both the SDK and the server; there is one implementation, not two.
+`src/shared/urlNormalize.js` is bundled into both the SDK and the server; there is one implementation, not two (D23).
 
 ```text
-normalize(url):
-  parse with new URL()
-  strip the fragment
-  clear the ENTIRE query string
-  lowercase protocol and hostname
-  strip a trailing slash from the path unless path === "/"
-  preserve port and path case
+canonicalUrl(url):
+  lowercase scheme and host
+  drop the fragment
+  drop jiratack_ticket / jiratack_canvas
+  strip a trailing slash unless path === "/"
+  sort query parameters
+
+normalizeUrl(url):            # "Smart" identity
+  start from canonicalUrl
+  drop utm_* and named trackers (fbclid, gclid, msclkid, ttclid, li_fat_id, …)
+  drop cache-busters (t, ts, timestamp, cb, cachebust, nocache, rnd, random)
+            when the value is numeric or random-looking
+  drop version stamps (v, ver, version) when semver or hash-shaped
+  KEEP anything named in the keep-list, regardless of value shape:
+       id, page, q, query, search, filter, sort, view, tab, lang, locale,
+       sku, product, slug, path, file, doc, issue, key, project
+  otherwise drop values shaped like a UUID, 32/40/64-char hex, a 10–13
+       digit epoch, or >=16 chars of mixed alphanumerics
+  sort the survivors
+
+pathOnlyUrl(url):             # "Whole page" identity
+  scheme + host + path, no query
 ```
 
-- **All query parameters are dropped**, not only tracking parameters. `https://example.com/page?id=42` normalises to `https://example.com/page`. Page identity is therefore path-based: two URLs that differ only by query string are the same JiraTack page. This is deliberate for review workflows (variant/filter/session params flood otherwise), but it means query-driven pages collapse onto one pin set. Tracked in the security review as a product decision to confirm.
+- The keep-list exists because a hash-shaped value under `sku` or `product` identifies content, not a session. Dropping it would merge two real pages.
 
 - Protocol is not coerced: `http://` and `https://` are different pages.
 
-- Deep-link parameters (`jiratack_ticket`, `jiratack_canvas`) are removed by the same rule; `stripDeepLinkParams` exists separately for display paths that must keep other query parameters.
+- **Pins store `canonicalUrl`**, not the normalised form — the query survives in the ticket, so identity can be re-derived later. Older tickets stored a stripped URL and cannot be recovered; Smart and Whole page still match them.
 
-- All stored or user-supplied URLs that reach an `href` or `location.href` are validated to `http(s)` by `src/shared/safeUrl.js`. This closes a stored-XSS vector where a crafted pin URL could execute via a `javascript:` scheme in the dashboard or on the host page (D20).
+- All stored or user-supplied URLs that reach an `href` or `location.href` are validated to `http(s)` by `src/shared/safeUrl.js` (D20).
 
 ### 12.2 Position format
 
@@ -841,7 +861,7 @@ Removes all `jiratack-*` elements and the injected style, restores console funct
 <user body>
 Console output:                   (bold, when a log is included)
 <codeBlock with the console text>
-Page: <link to the normalised URL>
+Page: <link to the canonical URL>
 ```
 
 No JSON, no marker, no machine payload. The property holds all machine data (D18).
@@ -892,7 +912,7 @@ Discard the form, remove the pending pin, clear the screenshot, return to the li
 
 ### 16.1 Overlay
 
-§7.4. Always by label plus property, never by custom field.
+§7.4. The client fetches the whole canvas (`all: true`) and filters by URL at render time using the selected match mode (§10.2). Server-side filtering remains for callers that do not pass `all`, and `truncated` still reports a capped scan.
 
 ### 16.2 Dashboard
 
@@ -962,6 +982,7 @@ Retirement is a filter, never a deletion.
 | `getPinsForCanvasAndUrl` failure | Inline error with retry; already-rendered pins stay visible |
 | Result set truncated at the scan cap | Client is told via `truncated`; partial lists must not be presented as complete |
 | Guest link with no canvases | "No canvases are available for this link. Ask the person who sent it for a new one." |
+| No pins match the selected mode, but a wider mode has pins | Empty list plus "Show all N on this page", which switches to Whole page |
 | `createIssue` validation failure | Field errors plus Jira's messages |
 | Metadata write failure | `warning: "metadata-not-stored"`; the toast says the pin could not be saved |
 | Screenshot attach failure | Logged; ticket still created |
