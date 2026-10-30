@@ -5,17 +5,18 @@ Read this before any work in this repo.
 ## What this is
 
 JiraTack is a Forge app that lets QA teams drop pins on web pages and turn them
-into Jira tickets. Pre-build — no source code exists yet. All work proceeds by
-sprint per BUILD_PLAN.md.
+into Jira tickets. It is built and deployed to the development environment
+(app 4.92.0). Sprint plans in BUILD_PLAN.md are historical; current behaviour is
+defined by SPEC.md v3.0 and ARCHITECTURE.md v2.0.
 
 ## Read order
 
-1. CONTRACTS.md — wire-level contracts (signatures, shapes, error codes)
-2. BUILD_PLAN.md — sprint structure and acceptance criteria
-3. TEST_PLAN.md — per-sprint verification commands
-4. DECISIONS.md — resolved and open decisions
-5. SPEC.md — product behavior
-6. ARCHITECTURE.md — system architecture
+1. DECISIONS.md — authoritative on every decision (through D22)
+2. CONTRACTS.md — wire-level contracts (signatures, shapes, error codes, manifest)
+3. SPEC.md — product behaviour of shipped code
+4. ARCHITECTURE.md — system shape, channels, storage, authorisation
+5. TEST_PLAN.md — verification commands (Parts 2, 3, 5, 7, 8 are current)
+6. BUILD_PLAN.md — historical sprint plan; do not treat as current scope
 
 ## Precedence
 
@@ -31,13 +32,15 @@ sprint per BUILD_PLAN.md.
 - UI Kit: `@forge/react` (UI Kit 2). Custom UI: `@forge/bridge`.
 - Never add a package without human approval.
 
-## Sprint discipline
+## Change discipline
 
-- Implement exactly what BUILD_PLAN §<sprint> lists. Nothing else.
-- Do not refactor, rename, or improve adjacent code.
-- Do not start a sprint's work before its prerequisites (BUILD_PLAN §2) are complete.
-- Before proposing a commit, run the matching TEST_PLAN §<sprint> assertions and report pass/fail for each.
-- If an assertion fails, do not proceed to the next sprint. Report the failure.
+- BUILD_PLAN.md is historical. For new work, implement only what the human asks
+  for, no adjacent refactors or renames.
+- Before proposing a commit, run the shared-module tests and the relevant
+  TEST_PLAN.md assertions, and report pass/fail for each.
+- If an assertion fails, stop and report it rather than proceeding.
+- Docs must not drift from code: when behaviour changes, update SPEC.md,
+  CONTRACTS.md, and DECISIONS.md in the same body of work.
 
 ## Build commands
 
@@ -53,6 +56,9 @@ sprint per BUILD_PLAN.md.
 - URL normalization must be byte-identical between client and server. One shared module (`src/shared/urlNormalize.js`).
 - Pin metadata lives in the Jira issue property `com.jiratack.metadata` (source of truth). Descriptions are human-readable ADF (no JSON/marker). Labels: `jiratack` on every ticket, plus `jiratack-guest` for guest tickets. Custom fields, the description marker, and recovery logic were removed (D18).
 - `permittedProjects` claim in JWT is set at issuance; webtrigger filters by it.
+- Admin rights in webtriggers come from the `isAdmin` claim resolved at issuance (D21). Never trust `scope` as proof of admin. Missing claim means non-admin.
+- Guest links are gated by the JiraTack seat, not by site admin (D19); guest sessions are confined to `permittedCanvases` and are always `isAdmin: false`.
+- The bookmarklet loads the SDK from the `jiratack-sdk` webtrigger, which host-page CSP can block. Do not assume the overlay will appear on strict-CSP sites (D22).
 - Never store `CryptoKey` objects — not relevant to v1 but noted for future crypto work.
 
 ## When in doubt
