@@ -1,31 +1,52 @@
 # CONTRACTS.md
 
-**Audience:** OpenCode. Every function signature, every request/response shape, every JQL template, every error code, the URL normalization algorithm, and the ADF node shapes.
-**Precedence:** Where this document disagrees with SPEC.md or ARCHITECTURE.md on wire-level details, this document wins. Where it disagrees with DECISIONS.md on open questions, DECISIONS.md wins.
+**Audience:** OpenCode. Every function signature, request/response shape, JQL template, error code, URL normalisation rule, and ADF node shape.
+**Precedence:** Where this document disagrees with SPEC.md or ARCHITECTURE.md on wire-level details, this document wins. Where it disagrees with DECISIONS.md, DECISIONS.md wins.
+**Verified against:** `src/` at commit `acde065`, app 4.92.0, SDK `731d221968a1`, 2026-10-30.
 
 ---
 
-## Part 1 — Field contracts
+## Part 1 — Data contracts
 
-### 1.1 Field definitions
+### 1.1 Pin metadata property
 
-| Internal name   | Provisioned field type                                        | Expected field ID shape | Constraints                                                             |
-| --------------- | ------------------------------------------------------------- | ----------------------- | ----------------------------------------------------------------------- |
-| `canvasField`   | `com.atlassian.jira.plugin.system.customfieldtypes:textfield` | `customfield_NNNNN`     | Single-value. Free-form text with spaces. Max 255 chars.                |
-| `urlField`      | `com.atlassian.jira.plugin.system.customfieldtypes:url`       | `customfield_NNNNN`     | Fallback to `textfield` if URL type unavailable in plan. Max 255 chars. |
-| `pinField`      | `com.atlassian.jira.plugin.system.customfieldtypes:textfield` | `customfield_NNNNN`     | `relX,relY` or `absX,absY`. Max 32 chars.                               |
-| `selectorField` | `com.atlassian.jira.plugin.system.customfieldtypes:textfield` | `customfield_NNNNN`     | CSS selector or empty. Max 512 chars.                                   |
+Machine-readable pin data lives in the Jira issue property `com.jiratack.metadata`. There are no custom fields, no description marker, and no recovery pass (D18).
+
+```json
+{
+  "guest": { "name": "Ada Lovelace", "email": "ada@example.com" },
+  "pin": {
+    "canvas": "Q3 Marketing",
+    "url": "https://example.com/pricing",
+    "position": "45.2,32.8",
+    "selector": "#hero-image"
+  },
+  "version": 1
+}
+```
+
+| Field | Type | Rules |
+| --- | --- | --- |
+| `pin.canvas` | string | Required, non-empty. 1–255 chars at issuance. |
+| `pin.url` | string | Required, non-empty, normalised (§6.1) and absolute `http(s)`. |
+| `pin.position` | string | Required, non-empty. `relX,relY` or `absX,absY` (SPEC §12.2). |
+| `pin.selector` | string \| null | `null` when no stable selector was found. Empty strings normalise to `null`. |
+| `guest.name`, `guest.email` | string | Optional; present only on guest tickets. |
+| `version` | number | `1`. Defaults to `1` when absent. |
+
+**Normalisation on write.** `normalizeMetadata()` returns `null` unless `pin.canvas`, `pin.url` and `pin.position` are all non-empty strings. `writeMetadata` rejects a `null` result with `VALIDATION_ERROR` and retries once on transport failure.
+
+**Labels.**
+
+- `jiratack` — every ticket the app creates. This is the query index.
+- `jiratack-guest` — additionally on guest tickets. Additive, never exclusive.
+
+**Search alias.** `manifest.yml` declares `jira:entityProperty` for entity `issue`, `propertyKey: com.jiratack.metadata`, path `pin.canvas`, `searchAlias: jiratackCanvas`. Indexing applies from deployment forward; older tickets may not be indexed, so in-memory filtering is the primary path.
 
 ### 1.2 `installationConfig` shape (stored in KVS)
 
 ```json
 {
-  "fieldRegistry": {
-    "canvasField": "customfield_10240",
-    "urlField": "customfield_10241",
-    "pinField": "customfield_10242",
-    "selectorField": "customfield_10243"
-  },
   "viewPermissionMode": "per_user_projects",
   "projects": {
     "MM": {
@@ -38,194 +59,204 @@
       "consoleLogsDefaultChecked": false
     }
   },
+  "archivedCanvases": [],
+  "deletedCanvases": [],
   "configVersion": "sha256hex",
   "updatedAt": 1234567890,
   "schemaVersion": 1
 }
 ```
 
-`viewPermissionMode` is installation-level. Values: `"per_user_projects"` (default) | `"open"`. Per D9.
+- `viewPermissionMode`: `"per_user_projects"` (default) | `"open"` (D9).
 
-`configVersion` = SHA-256 hex of canonical `JSON.stringify({ projects, fieldRegistry, viewPermissionMode })`. Recomputed on every write.
+- `configVersion` = SHA-256 hex of canonical `JSON.stringify({ projects, viewPermissionMode })`. Recomputed on every write. **`fieldRegistry` is not part of it; the key no longer exists.**
 
-### 1.3 `provisionFields` — resolver contract
+- Project entries merge over defaults on read (`PROJECT_DEFAULTS` in `src/resolvers/actions/config.js`), so an absent project has `enabled: true` and `retirementDays: 0`.
 
-```text
-provisionFields(context) → { ok, fieldIds: { canvasField, urlField, pinField, selectorField }, warnings: [string] }
-```
+- **Read semantics:** a KVS read error throws (`"Installation config is unavailable."`). It never returns defaults, because a transient failure once got persisted back over real configuration.
 
-Behavior:
+- **Write semantics:** writes go through `mutateInstallationConfig(mutator, attempts = 3)`, which reads and writes in one window. `setInstallationConfig` merges `payload.projects` shallowly. True compare-and-set is outstanding.
 
-1. Query `/rest/api/3/field` → list existing fields.
+### 1.3 `provisionFields` — retired (D18)
 
-2. For each of the four fields: if exact name exists and type matches, reuse. Else create via `POST /rest/api/3/field`.
-
-3. Best-effort: add each field to the default screen's create+edit tabs.
-
-4. Write `fieldRegistry` to `installationConfig`.
-
-5. Return.
-
-Warnings if: (a) field exists with incompatible type, (b) screen manipulation fails.
+Removed with custom fields. No resolver, no field registry, no screen manipulation. Do not reintroduce a provisioning path; the app writes one property and two labels per ticket.
 
 ---
 
 ## Part 2 — Token contracts
 
-### 2.1 Canvas token
+### 2.1 Canvas and guest tokens
 
-- Generation: `crypto.randomBytes(32).toString('hex')` → 64-char hex string.
+- Generation: `crypto.randomBytes(32).toString('hex')` → 64-char hex.
 
-- Storage: KVS `canvasTokens:<token>`, TTL 30 days.
+- Storage: KVS `canvasTokens:<token>`, written with `{ ttl: { value: 30, unit: 'DAYS' } }` for canvas tokens and `{ ttl: { value: 365, unit: 'DAYS' } }` for guest tokens.
 
-- Write call:
-
-```javascript
-await storage.set(`canvasTokens:${token}`, record, { ttl: 2592000 });
-// 2592000 seconds = 30 days
-```
-
-- Record:
+- **Canvas record:**
 
 ```json
 {
   "canvasName": "string, 1..255 chars",
-  "userId": "string, Atlassian accountId of issuing user",
+  "userId": "Atlassian accountId of issuing user",
   "installationId": "string",
   "scope": "create | view",
+  "isAdmin": true,
+  "permittedProjectsJson": "[\"MM\",\"QA\"] or \"*\"",
   "issuedAt": 1234567890000,
   "expiresAt": 1234567890000,
   "revoked": false
 }
 ```
 
+- **Guest record** (same key prefix):
+
+```json
+{
+  "scope": "guest_create",
+  "issuer": "accountId of the seat holder who minted it",
+  "isAdmin": false,
+  "permittedCanvases": ["Q3 Marketing"],
+  "permittedProjectsJson": "[\"MM\"]",
+  "installationId": "string",
+  "issuedAt": 1234567890000,
+  "expiresAt": 1234567890000,
+  "revoked": false
+}
+```
+
+Guest records have no `canvasName` and no `userId`. `listCanvasTokens` returns those fields as `undefined` for them.
+
+`permittedProjects` is serialised as a JSON **string** in the record and parsed back at exchange time. Parsing failure yields `[]`, never `"*"`.
+
 ### 2.2 Session JWT
 
-- Algorithm: **HS256**.
+- Algorithm: **HS256**, `jsonwebtoken`.
 
-- Secret: 256-bit hex from `sessionSigningSecret` KVS key. Generated once at first bootstrap via `crypto.randomBytes(32).toString('hex')`. Never rotated in v1.
+- Secret: 256-bit hex under KVS key `sessionSigningSecret`, created on first use with `{ version: { type: 'must_be_missing' } }` so concurrent cold starts cannot orphan each other's tokens. Stored as a plain value, not `kvs.setSecret`; migration is tracked in the security review. Never rotated in v1.
 
 - Claims:
 
 ```json
 {
   "iss": "jiratack",
-  "sub": "accountId of issuing user",
+  "sub": "issuing accountId (for guests: the issuer's)",
   "aud": "installationId",
-  "canvasId": "canvasName (v1 uses name as ID)",
-  "canvasName": "canvasName",
-  "scope": "create | view | universal | guest_create",
-  "permittedProjects": ["MM", "QA", "DS"] | "*",
-  "permittedCanvases": ["canvas A", "canvas B"],
+  "canvasId": "canvasName, when canvas-bound",
+  "canvasName": "canvasName, when canvas-bound",
+  "scope": "create | view | guest_create",
+  "permittedProjects": ["MM", "QA"] | "*",
+  "permittedCanvases": ["Q3 Marketing"],
+  "issuer": "accountId",
   "isAdmin": true,
   "iat": 1234567890,
   "exp": 1234596690
 }
 ```
 
-**`isAdmin` (D21):** resolved at token issuance from the resolver context (`userAccess.isAdmin`, falling back to an `ADMINISTER` lookup) and stamped into the token record and the session JWT for canvas, user and guest tokens. Web-trigger handlers enforce it for admin-only actions because they have no user identity and therefore cannot call `asUser()`. Guest tokens are always `false`; a missing claim is treated as `false`, so tokens minted before this claim existed cannot perform admin-only actions until re-issued.
+`permittedCanvases` and `issuer` appear only on guest tokens. `canvasId`/`canvasName` are absent for personal and guest tokens.
 
-**`permittedProjects` semantics (per D9):**
+**`isAdmin` (D21).** Resolved at issuance from resolver context (`userAccess.isAdmin`, falling back to `mypermissions?permissions=ADMINISTER`), persisted in the record and copied into every session JWT. Guests are always `false`. A missing claim is treated as `false`, so tokens minted before D21 cannot perform admin-only actions until re-issued.
 
-- Array of project keys: viewer sees only pins whose project key is in this array.
+**`universal` is not a scope.** It survives in some allowlists and SDK checks but no generator mints it. Treat it as vestigial.
 
-- `"*"`: viewer sees all pins in the canvas regardless of project (`viewPermissionMode: "open"`, OR viewer has ≥100 browse-accessible projects, treated as admin-level).
+**Validation.** Verify signature and `exp > now`, then compare `claims.aud` with the current installation ARI (falling back to `req.context.installContext`/`installationId`); a mismatch is `TOKEN_INVALID`. Reject missing/malformed headers, expired signatures (`TOKEN_EXPIRED`), and disallowed scopes (`INSUFFICIENT_SCOPE`).
 
-- Validation: verify signature, `exp > now`, `aud === installationId`. Extract `scope`, `sub`, `canvasId`, `permittedProjects`. Reject on any failure with 401 `TOKEN_INVALID` or `TOKEN_EXPIRED`.
+**Expiry comparison.** Token records store `expiresAt` in epoch **milliseconds** and are compared with `Date.now()`. The JWT `exp` is epoch **seconds**.
 
-### 2.3 User token (universal)
-
-- Generation: `crypto.randomBytes(32).toString('hex')` → 64-char hex string.
-- Storage: KVS `userTokens:<token>`, TTL 90 days.
-- Write call:
-
-```javascript
-await kvs.set(`userTokens:${token}`, record, { ttl: { value: 90, unit: 'DAYS' } });
-```
-
-- Record:
+### 2.3 Personal (user) token
 
 ```json
 {
   "userId": "Atlassian accountId",
-  "installationId": "ari:cloud:ecosystem::installation/<uuid>",
+  "installationId": "string",
+  "scope": "create | view",
+  "isAdmin": true,
+  "permittedProjectsJson": "[\"MM\",\"QA\"] or \"*\"",
   "issuedAt": 1234567890000,
   "expiresAt": 1234567890000,
-  "revoked": false,
-  "permittedProjectsJson": "[\"MM\",\"QA\"] or \"*\""
+  "revoked": false
 }
 ```
 
-- Not bound to a canvas. Exchanged for a session JWT with `scope: "universal"`, no `canvasId`, and the parsed `permittedProjects` claim. Used by the universal bookmarklet's launcher to list only accessible canvases.
+- Stored under `userTokens:<token>`, TTL 90 days.
+
+- Not bound to a canvas. The exchanged JWT has no `canvasId`; the bookmarklet uses `canvasId: "universal"` to trigger launcher mode.
+
+- `scope` is `view` when `userAccess.hasAccess === false`, otherwise `create`. A user token is **not** refused for a missing seat.
 
 ---
 
-## Part 3 — Webtrigger API contracts
+## Part 3 — Web trigger API contracts
 
-**Base path:** `<wt>/api` — `POST`, `Content-Type: application/json`, `Authorization: Bearer <sessionJwt>` for all except `exchangeToken`.
+**Base:** `POST <apiUrl>`, `Content-Type: application/json`, `Authorization: Bearer <sessionJwt>` for everything except `exchangeToken`. Non-POST → `BAD_REQUEST`.
 
-**Response envelope:**
+**Envelope:**
 
 ```json
-{ "ok": true, "data": { ... } }
-{ "ok": false, "error": { "code": "...", "message": "...", "details": ... } }
+{ "ok": true, "data": { } }
+{ "ok": false, "error": { "code": "…", "message": "…", "details": null } }
 ```
 
-**HTTP status codes:** 200 for `ok: true`; 400 `BAD_REQUEST`; 401 `TOKEN_INVALID` / `TOKEN_EXPIRED`; 403 `INSUFFICIENT_SCOPE` / `LICENSE_INACTIVE`; 404 `NOT_FOUND`; 422 `VALIDATION_ERROR`; 500 `INTERNAL`.
+Status codes: see Part 9.
 
 ### 3.1 `exchangeToken`
 
 ```text
 Request:  { action: "exchangeToken", payload: { canvasToken: string } }
 Auth:     none
-Success:  { sessionJwt, expiresAt, canvasId, canvasName, scope, permittedProjects, isAdmin, apiUrl, sdkUrl, jiraBaseUrl, configVersion }
+Success:  { sessionJwt, expiresAt, canvasId, canvasName, scope, permittedProjects,
+            isAdmin, displayName, apiUrl, sdkUrl, jiraBaseUrl, configVersion }
+Guest:    … + { issuer, permittedCanvases }
 ```
 
-`canvasToken` may be either a canvas token (`canvasTokens:<token>`) or a user token (`userTokens:<token>`). User tokens produce a JWT with `scope: "universal"`, `canvasId: null`, and `canvasName: null`.
+`payload.canvasToken` may be a canvas token, a guest token, or a personal token (`payload.userToken` and `payload.token` are also accepted). Lookup order: `userTokens:<token>`, then `canvasTokens:<token>`.
 
-Errors: `TOKEN_INVALID`, `TOKEN_EXPIRED`, `LICENSE_INACTIVE`.
+- Personal token → `scope: "create" | "view"`, `canvasId: null`, `canvasName: null`.
+- Guest token → `scope: "guest_create"`, `isAdmin: false`, plus `issuer` and `permittedCanvases`.
+- Canvas token → its recorded `scope`, `canvasId`/`canvasName`.
 
-**`permittedProjects` is returned so the client can display it** (e.g. a small "Viewing N projects" badge in the sidebar). Client must not use it as an access check — the server filters pins before returning them.
+`expiresAt` is returned in milliseconds. `displayName` is the issuing user's display name, resolved with `asApp()` and cached in-process.
 
-**`jiraBaseUrl`:** server should fetch `/rest/api/3/serverInfo` to return `jiraBaseUrl` so the client can build absolute links (e.g. `"https://<site>.atlassian.net"`).
+Errors: `BAD_REQUEST` (no token), `TOKEN_INVALID`, `TOKEN_EXPIRED`.
+
+`permittedProjects` is returned for display only. The client must not treat it as an access check; the server filters results before returning them.
 
 ### 3.2 `getPinsForCanvasAndUrl`
 
 ```text
-Request:  { action: "getPinsForCanvasAndUrl", payload: { canvasId, url } }
-Auth:     Bearer, scope create or view
+Request:  { action: "getPinsForCanvasAndUrl", payload: { canvasId, url, all?: boolean } }
+Auth:     Bearer, scope create | view | guest_create
 Success:  { pins: [PinRecord], canvasName, configVersion, truncated }
 ```
 
-Server behavior:
+Behaviour:
 
-1. Normalize `url` per Part 6.
+1. Normalise `url` per §6.1.
 
-2. **Storage (D18):** pin metadata lives in the issue property `com.jiratack.metadata`. Run `labels = "jiratack"` with `properties: ["com.jiratack.metadata"]` and filter by `metadata.pin.canvas` + `metadata.pin.url` in memory. Issues without the property are skipped; Done/retirement rules still apply.
+2. Search `labels = "jiratack"` with `properties: ["com.jiratack.metadata"]`, pages of 100, scanning up to 2,000 issues (§7.1).
 
-3. **Filter results by `token.permittedProjects`** (per D9):
-   
-   - If `permittedProjects === "*"`: no filter.
-   
-   - Else: keep only pins whose project key is in `permittedProjects`.
+3. Skip issues without metadata; skip canvas mismatch; unless `all` is true, skip URL mismatch after normalisation.
 
-4. Return filtered list. `truncated: true` means the scan hit its 2,000-issue cap and the list may be incomplete.
+4. Apply retirement (§7.2).
 
-Filtering happens server-side; hidden pins never reach the client. The client cannot distinguish between "no pins on this page" and "no pins you can see" — both return an empty list, which is the intended behavior.
+5. Filter by `permittedProjects`; guests are additionally confined to `permittedCanvases` (`canAccessCanvas` returns `INSUFFICIENT_SCOPE` before the scan).
 
-`PinRecord` (same shape regardless of mode). `url`, `pinPosition`, `selector` and `guest` come from the issue property (D18); the rest from Jira fields:
+6. Return. `truncated: true` means the scan cap was reached and the list may be incomplete.
+
+Hidden pins never reach the client. "No pins on this page" and "no pins you can see" are indistinguishable by design.
+
+`PinRecord` — `url`, `pinPosition`, `selector`, `guest` come from the property; the rest from Jira fields:
 
 ```json
 {
   "key": "MM-1234",
-  "summary": "...",
+  "summary": "[JiraTack] Hero image misaligned",
   "projectKey": "MM",
   "status": { "name": "In Progress", "category": "indeterminate", "colorName": "yellow" },
   "priority": { "id": "3", "name": "Medium" },
   "priorityId": "3",
   "issueTypeId": "10037",
-  "assignee": { "accountId": "...", "displayName": "...", "avatarUrl": "..." },
-  "reporter": { "accountId": "...", "displayName": "...", "avatarUrl": "..." },
+  "assignee": { "accountId": "…", "displayName": "…", "avatarUrl": "…" },
+  "reporter": { "accountId": "…", "displayName": "…", "avatarUrl": "…" },
   "pinPosition": "45.2,32.8",
   "selector": "#hero-image",
   "issueType": { "name": "Bug" },
@@ -235,7 +266,7 @@ Filtering happens server-side; hidden pins never reach the client. The client ca
 }
 ```
 
-`priority`, `assignee`, `reporter`, `selector` and `guest` may be `null`.
+`priority`, `assignee`, `reporter`, `selector`, `guest` may be `null`. `status.category` is Jira's `statusCategory.key`.
 
 ### 3.3 `createIssue`
 
@@ -243,94 +274,83 @@ Filtering happens server-side; hidden pins never reach the client. The client ca
 Request: {
   action: "createIssue",
   payload: {
-    canvasId: string,
-    url: string,
-    pinPosition: string,
-    selector: string | null,
-    summary: string,
-    descriptionAdf: object | null,
-    screenshotUploadId: string | null,
-    consoleLog: string | null,
-    issueTypeId: string,
-    projectKey: string,
-    priorityId: string | null,
-    assigneeAccountId: string | null,
-    parentKey: string | null
+    canvasId, url, pinPosition, selector, summary, descriptionAdf,
+    screenshotUploadId, consoleLog, issueTypeId, projectKey,
+    priorityId, assigneeAccountId, parentKey,
+    guestName?, guestEmail?
   }
 }
-Auth:     Bearer, scope create only
+Auth:     Bearer, scope create | guest_create
 Success:  { key, id, configVersion, warning? }
 ```
 
-Server behavior:
+Server behaviour:
 
-1. Validate JWT scope === `create` (else 403).
+1. Require non-empty `canvasId`, `url`, `pinPosition`, `summary`, `issueTypeId`, `projectKey` → else `BAD_REQUEST`.
 
-2. Validate `projectKey` is in `token.permittedProjects` OR `permittedProjects === "*"` (else 403 `INSUFFICIENT_SCOPE` — user cannot create pins in projects they can't browse).
+2. **Guest branch** (`scope === "guest_create"`):
+   - `canAccessCanvas(claims, canvasId)` → else `INSUFFICIENT_SCOPE`.
+   - `guestName` non-empty and `guestEmail` a valid address → else `VALIDATION_ERROR`.
+   - `assigneeAccountId` required, and must be a licensed JiraTack user (`jiratack_licensed_users:<accountId>`) → else `VALIDATION_ERROR`.
 
-3. Fetch `installationConfig` → `fieldRegistry`, project config.
+3. `canAccessProject(claims.permittedProjects, projectKey)` → else `INSUFFICIENT_SCOPE`.
 
-4. Verify project enabled → else 422 `PROJECT_DISABLED`.
+4. Project config `enabled === false` → `PROJECT_DISABLED`.
 
-5. Assemble `fields`:
-   
-   - `summary` = `[JiraTack]` + payload.summary (prefix enforced idempotently).
-   
-   - `description` = human-readable ADF built server-side (D18): bold header `[JiraTack Guest: {Name}]` or `[JiraTack]`, the client body, an optional console-output code block, and a footer paragraph linking the page URL. No JSON marker.
-   
-   - `<canvasFieldId>` = canvasName.
-   
-   - `<urlFieldId>` = normalized URL.
-   
-   - `<pinFieldId>` = pinPosition.
-   
-   - `<selectorFieldId>` = selector (omit if null).
-   
+5. Normalise the URL; reject anything not `http(s)` after normalisation → `VALIDATION_ERROR`.
+
+6. Assemble `fields`:
+
+   - `summary` = `[JiraTack]` + client summary, prefix enforced idempotently.
+   - `description` = human-readable ADF built server-side (§8.4).
    - `issuetype` = `{ id: issueTypeId }`.
-   
    - `project` = `{ key: projectKey }`.
-   
-   - `priority` = `{ id: priorityId }` if non-null.
-   
-   - `assignee` = `{ accountId: assigneeAccountId }` if non-null.
-   
-   - `parent` = `{ key: parentKey }` if non-null.
-   
-   - `reporter` = `{ accountId: jwt.sub }` — never from client.
-   
-   - `labels` = `["jiratack"]`, plus `"jiratack-guest"` for `guest_create`.
+   - `labels` = `["jiratack"]`, plus `"jiratack-guest"` for guests.
+   - `reporter` = `{ accountId: claims.sub }` — **non-guests only**, never from client.
+   - `priority`, `assignee`, `parent` when supplied.
+   - **No custom-field entries.** Canvas, URL, position and selector go into the property, not into fields.
 
-6. POST `/rest/api/3/issue`. On success, write the issue property: `PUT /rest/api/3/issue/{key}/properties/com.jiratack.metadata` with `{ guest?, pin: { canvas, url, position, selector }, version: 1 }` (retry once; the property is the source of truth).
+7. `POST /rest/api/3/issue?overrideScreenSecurity=true&overrideEditableFlag=true`.
 
-7. If `screenshotUploadId` (per D20): assemble the chunks via `readScreenshotUpload`, attach via `/rest/api/3/issue/{key}/attachments` with `X-Atlassian-Token: no-check`, then delete the upload. Missing/expired upload → log and proceed without a screenshot; attachment failure → log, proceed; the ticket is never blocked on the image.
+8. Write the property: `PUT /rest/api/3/issue/{key}/properties/com.jiratack.metadata` with `{ guest?, pin, version: 1 }`, retry once. On persistent failure the call still succeeds with `warning: "metadata-not-stored"` — the ticket exists but is invisible to every JiraTack surface, so the SDK must say so.
+
+9. If `screenshotUploadId`: assemble chunks via `readScreenshotUpload`, attach via `/rest/api/3/issue/{key}/attachments` with `X-Atlassian-Token: no-check`, then delete the upload. Missing/expired upload → log, proceed. Attachment failure → log, proceed. The ticket is never blocked on the image, and the metadata write is never rolled back.
+
+10. Jira 400/422 → `VALIDATION_ERROR` with `details: { status, errorMessages, errors }`. Other non-2xx → `INTERNAL`. There is no field-dropping retry: no JiraTack-created field exists to drop.
 
 ### 3.3b `beginScreenshotUpload` / `uploadScreenshotChunk` (D20)
 
 ```text
 beginScreenshotUpload  → { uploadId, chunkSize }
-  payload: { mimeType: "image/*", size: number }   // size = base64 length, ≤ 4 MiB
+  payload: { mimeType: "image/*", size: number }      // size = total base64 length
 uploadScreenshotChunk  → { received: index }
-  payload: { uploadId, index: number, data: string } // data ≤ 200 KiB base64
+  payload: { uploadId, index, data: string }          // data ≤ chunkSize base64 chars
 ```
 
-Auth: `create` / `universal` / `guest_create`. `uploadId` is random (32 hex) and bound to the JWT subject; a chunk from another session is reported as `NOT_FOUND` (existence is not disclosed). Manifest + chunks live in KVS with a 15-minute TTL and are deleted after attachment. The client-observed 5 MiB web-trigger body limit is never approached because no request carries the whole image; the KVS 240 KiB per-value limit is why chunks are capped at 200 KiB base64.
+- `CHUNK_SIZE` = 200 KiB of base64 characters (`200 * 1024`); `MAX_CHUNKS` = 20; so `size` must be an integer with `0 < size ≤ 4,096,000`.
 
-8. Return. If the property write failed after both attempts the call still succeeds (the ticket exists in Jira) but includes `warning: "metadata-not-stored"`; the SDK surfaces a distinct message because the ticket will not appear in any canvas until the property is written.
+- `uploadId` is 32 hex chars, bound to `claims.sub`.
 
-9. Jira 400 → 422 `VALIDATION_ERROR` with `details.fieldErrors`.
+- Manifest and chunks live at `screenshot:<uploadId>` and `screenshot:<uploadId>:NNN` with a 15-minute TTL, deleted after attachment.
+
+- Another session's upload reports `NOT_FOUND`, not `FORBIDDEN`; existence is not disclosed.
+
+- Errors: `BAD_REQUEST` (invalid id/index), `VALIDATION_ERROR` (chunk empty or oversized), `NOT_FOUND` (missing, expired, or wrong owner).
+
+- No request carries the whole image, so the ~5 MiB web-trigger body limit is never approached; the KVS 240 KiB per-value limit is why chunks are capped as they are.
 
 ### 3.4 `getTransitions`
 
 ```text
 Request:  { action: "getTransitions", payload: { issueKey } }
-Auth:     Bearer, scope create, view, universal, or guest_create
-Success:  { transitions: [{ id, name, to: { id, name, statusCategory: { key } } }], descriptionText: string | null }
+Auth:     Bearer, scope create | view | guest_create
+Success:  { transitions: [{ id, name, to: { id, name, statusCategory: { key } } }],
+            descriptionText: string | null }
 ```
 
-Behavior:
+- Loads the issue through `loadJiraTackIssue`, enforcing Part 3.5 rules 1–2. Non-JiraTack issues and out-of-scope canvases/projects return `INSUFFICIENT_SCOPE`.
 
-- Loads the issue and enforces JiraTack edit authorization (Part 3.5, rules 1–2). Non-JiraTack issues and issues outside the caller's canvas/project access return `INSUFFICIENT_SCOPE`.
-- Returns the user-authored description body as `descriptionText` alongside transitions (single round-trip for the inline editor). `null` when the description is missing the pin marker.
+- `descriptionText` is the user-authored body alone, with the header, console block, and page footer removed. It is `null` when the description does not begin with a `[JiraTack…]` header.
 
 ### 3.5 `updateIssue`
 
@@ -338,228 +358,265 @@ Behavior:
 Request: {
   action: "updateIssue",
   payload: {
-    issueKey: string,
+    issueKey,
     fields: {
-      statusId?: string,
-      priorityId?: string | null,
-      assigneeAccountId?: string | null,
-      summary?: string,
-      descriptionText?: string
+      statusId?, priorityId?, assigneeAccountId?, summary?, descriptionText?
     }
   }
 }
-Auth:     Bearer, scope create, universal, or guest_create
+Auth:     Bearer, scope create | guest_create
 Success:  { configVersion }
 ```
 
-Authorization (applies to all scopes, including guests):
+Authorization, all scopes including guests:
 
-1. The issue must carry the `jiratack` label, else `INSUFFICIENT_SCOPE`.
-2. The caller's `permittedProjects` must include the issue's project, and `canAccessCanvas` must allow the issue's canvas (from `com.jiratack.metadata.pin.canvas`), else `INSUFFICIENT_SCOPE`.
-3. Guest (`guest_create`) assignee targets must hold a JiraTack license, else `VALIDATION_ERROR`.
+1. The issue must carry the `jiratack` label → else `INSUFFICIENT_SCOPE`.
+2. `permittedProjects` must include the issue's project, and `canAccessCanvas` must allow `com.jiratack.metadata.pin.canvas` → else `INSUFFICIENT_SCOPE`.
+3. A guest `assigneeAccountId` must hold a JiraTack license → else `VALIDATION_ERROR`.
+4. `descriptionText`, when present, must be a string → else `BAD_REQUEST`.
 
-Behavior:
+Behaviour:
 
-- `fields.statusId` → `POST /rest/api/3/issue/{key}/transitions` with `{ transition: { id } }`.
-
-- `fields.priorityId`, `fields.assigneeAccountId`, `fields.summary`, or `fields.descriptionText` → single `PUT /rest/api/3/issue/{key}` with the corresponding `fields`:
-  - `priority: { id }` (or `null`),
-  - `assignee: { accountId }` (or `null`),
-  - `summary` re-adds the `[JiraTack]` prefix idempotently; empty or >215 chars → `VALIDATION_ERROR`,
-  - `description` replaces only the user-authored body, preserving the `[Guest: …]` prefix, console block, and `📌 JiraTack pin:` marker verbatim. Missing marker → `VALIDATION_ERROR`.
-
-- Transition is applied before the field PUT. Jira 400 → 422 `VALIDATION_ERROR`.
+- `statusId` → `POST /rest/api/3/issue/{key}/transitions` with `{ transition: { id } }`.
+- `priorityId`, `assigneeAccountId`, `summary`, `descriptionText` → one `PUT /rest/api/3/issue/{key}`.
+  - `priority: { id }` | `null`.
+  - `assignee: { accountId }` | `null`.
+  - `summary` re-adds `[JiraTack]`; empty or >215 chars → `VALIDATION_ERROR`.
+  - `description` replaces **only the user body**. The server splits the existing ADF, keeps the header, console block, and page footer verbatim, and re-merges (`splitDescription` / `mergeDescription`). A description without the `[JiraTack…]` header → `VALIDATION_ERROR` ("This description is missing the JiraTack header. Edit it in Jira instead.").
+- Transition applies before the field PUT. Jira 400 → `VALIDATION_ERROR`.
 
 ### 3.6 `searchUsers`
 
 ```text
 Request:  { action: "searchUsers", payload: { projectKey, query } }
-Auth:     Bearer, scope create, universal, or guest_create
+Auth:     Bearer, scope create | guest_create
 Success:  { users: [{ accountId, displayName, avatarUrl }] }
 ```
 
-Proxies `GET /rest/api/3/user/assignable/search?project={projectKey}&query={query}&maxResults=10`. Handle both plain array and `{ values: [] }` response shapes. For `guest_create`, results are filtered to licensed JiraTack users (`maxResults=50` pre-filter).
+Proxies `GET /rest/api/3/user/assignable/search?project={projectKey}&query={query}&maxResults=N`. Handles both a plain array and `{ values: [] }`.
+
+- Non-guest `maxResults=10`.
+- Guest `maxResults=50`, then filtered to `jiratack_licensed_users` via one batched read (`findLicensedUsers`), because guests may only assign to licensed users.
+- Jira 404 → `NOT_FOUND`.
 
 ### 3.7 `getIssueTypes`
 
 ```text
 Request:  { action: "getIssueTypes", payload: { projectKey } }
-Auth:     Bearer, scope create only
+Auth:     Bearer, scope create | guest_create
 Success:  { issueTypes: [{ id, name, subtask }] }
 ```
 
-Proxies `GET /rest/api/3/issue/createmeta/{projectKey}/issuetypes`. Handle both `{ issueTypes: [] }` and `{ values: [] }` response shapes.
+`projectKey` is uppercased and trimmed. Proxies `GET /rest/api/3/issue/createmeta/{projectKey}/issuetypes`; accepts `{ issueTypes: [] }` or `{ values: [] }`. `id` is returned as a string. Jira 404 → `NOT_FOUND`.
 
 ### 3.8 `listCanvasesForUser`
 
 ```text
 Request:  { action: "listCanvasesForUser", payload: {} }
-Auth:     Bearer, scope universal only
-Success:  { canvases: [{ canvasName, urlCount }] }
+Auth:     Bearer, scope create | view          // guests are NOT allowed
+Success:  { canvases: [{ canvasName, urlCount, urls: [string] }] }
 ```
 
-Queries `labels = "jiratack" ORDER BY created DESC` (paginated up to 2,000), skips tickets whose canvas field is empty, and aggregates distinct canvas names with a distinct URL count per canvas. Used by the universal bookmarklet launcher.
+Scans `labels = "jiratack"` with properties (pages of 100, up to 2,000), groups by `pin.canvas`, and returns canvases that:
 
----
+- overlap `permittedProjects` (a canvas with no project keys is allowed through),
+- and are neither archived nor deleted.
+
+Used by the personal bookmarklet's launcher. Guests get their canvas list from the JWT instead.
 
 ### 3.9 `createCanvas` — admin only (D21)
 
 ```text
-Request:  { action: "createCanvas", payload: { canvasName, targetUrl, projectKey?, issueTypeId? } }
-Auth:     Bearer, scope create or universal, AND claims.isAdmin === true
-Success:  { canvasName, key, id }   // seed ticket
+Request:  { action: "createCanvas", payload: { canvasName, targetUrl?, projectKey?, issueTypeId? } }
+Auth:     Bearer, scope create, AND claims.isAdmin === true
+Success:  { canvasName, key, id }              // seed ticket
 ```
 
-Creates the canvas seed ticket. **Scope alone is insufficient:** the handler enforces the `isAdmin` claim (D21) before any business logic, returning 403 `INSUFFICIENT_SCOPE` otherwise. A guest token never reaches this action (its scope is not allowlisted) and guest claims are always `isAdmin: false`. Because admin rights are stamped at issuance, a token minted before D21 has no claim and is treated as non-admin until re-issued.
+- **Scope alone is insufficient.** `requireAdminClaims` runs before any business logic → 403 `INSUFFICIENT_SCOPE`.
+- A guest token never reaches this action (its scope is not allowlisted), and guest claims are always `isAdmin: false`.
+- The seed ticket is `summary: "Canvas created"`, description built with body text `JiraTack canvas created: <name>`, label `jiratack`, and metadata `{ pin: { canvas, url, position: "0,0", selector: null }, version: 1 }`.
+- `url` = normalised `targetUrl` if it is `http(s)`, else `https://example.com`.
+- Project is `payload.projectKey`, else the first enabled configured project the caller may use, else the first permitted project; none → `BAD_REQUEST`.
+- Issue type is `payload.issueTypeId`, else the project config default, else the first non-subtask type; none → `BAD_REQUEST`.
+- Seed ticket created but metadata write failed → `INTERNAL` (the canvas would be invisible, so it is reported as a failure).
+
+### 3.10 `getPriorities`
+
+```text
+Request:  { action: "getPriorities", payload: {} }
+Auth:     Bearer, scope create | guest_create
+Success:  { priorities: [{ id, name }] }
+```
+
+Proxies `GET /rest/api/3/priority` as the app. Accepts a plain array or `{ values: [] }`.
+
+---
 
 ## Part 4 — Resolver contracts
-### 4.0 Access model (per D19)
 
-Resolvers are invoked from app UI that **any logged-in site user can open**, so hiding a control is not authorisation. Enforcement is per-operation, server-side, via `requireAdmin(context)` (`src/lib/access.js`) which reads `context.userAccess.isAdmin` and falls back to an `ADMINISTER` permission lookup.
+### 4.0 Access model (D19, D21)
 
-| Resolver | Caller |
-| --- | --- |
-| `getInstallationConfig`, `setInstallationConfig`, `getProjectConfig`, `setProjectConfig`, `listCanvasTokens`, `revokeCanvasToken`, `createCanvas`, `deleteCanvas`, `archiveCanvas` | **Jira admin only** → else `INSUFFICIENT_SCOPE` |
-| `generateCanvasToken`, `generateUserToken`, `generateGuestToken`, `dashboardAggregate`, `epicPanelData`, `issuePanelData` | Any user holding a **JiraTack seat** (Jira's own project permissions still apply). A missing seat returns `LICENSE_INACTIVE` where enforced |
+Resolvers are invoked from app UI that **any logged-in site user can open**, so hiding a control is not authorisation. Enforcement is per-operation and server-side.
 
-Canvas **creation** is deliberately open (it is additive, and Jira enforces project create permission); **deletion/archival** is admin-only.
+| Resolver | Authority | Mechanism |
+| --- | --- | --- |
+| `getInstallationConfig`, `setInstallationConfig` | Jira site admin | `requireAdmin(context)` |
+| `getProjectConfig`, `setProjectConfig` | Jira site admin | `requireAdmin(context)` |
+| `listCanvasTokens`, `revokeCanvasToken` | Jira site admin | `requireAdmin(context)` |
+| `createCanvas`, `deleteCanvas`, `archiveCanvas` | Jira site admin | `requireAdmin(context)` |
+| `generateCanvasToken`, `generateUserToken`, `generateGuestToken` | JiraTack seat | Seat check at issuance |
+| `dashboardAggregate` | Any Jira user | Jira permissions via `asUser()` |
+| `epicPanelData`, `issuePanelData` | Any Jira user | Jira permissions via `asUser()` |
+
+Canvas creation is **admin-only on both paths** (D21); the earlier "creation is open" rule was superseded. Panels are read surfaces scoped by Jira's own permissions, which is why page-level `access` scopes cannot be the control.
 
 ### 4.1 `generateCanvasToken`
 
 ```text
-generateCanvasToken(context, payload) → { ok, data: { token, apiUrl, sdkUrl, sdkVersion, scope, permittedProjects } } | { ok: false, error }
+generateCanvasToken(context, payload)
+  → { ok, data: { token, sessionJwt, apiUrl, sdkUrl, sdkVersion,
+                  canvasId, canvasName, scope, permittedProjects } }
 Payload: { canvasName: string, scope: "create" | "view" }
 ```
 
-Behavior:
+1. **Validation:** `canvasName` 1–255 chars; `scope` must be `create` or `view` → else `BAD_REQUEST`.
 
-1. **Scope check:**
-   
-   - `scope === "create"`: `if (context.userAccess?.hasAccess === false) return LICENSE_INACTIVE`.
-   
-   - `scope === "view"`: no `hasAccess` check.
+2. **Seat check:** `scope === "create"` and `userAccess.hasAccess === false` → `LICENSE_INACTIVE`. `view` is not seat-checked.
 
-2. **Compute `permittedProjects`** (per D9):
-   
-   ```javascript
-   const mode = installationConfig.viewPermissionMode; // "per_user_projects" | "open"
-   let permittedProjects;
-   if (mode === "open") {
-    permittedProjects = "*";
-   } else {
-    const raw = await asUser().requestJira('/rest/api/3/project/search?action=browse&maxResults=100');
-    const values = raw.values ?? raw;
-    permittedProjects = values.length >= 100
-      ? "*"                       // treat as admin-level
-      : values.map(p => p.key);
-   }
-   ```
+3. **`computePermittedProjects(mode, canvasName)`:**
+   - `mode === "open"` → `"*"`.
+   - Else `GET /rest/api/3/project/search?action=browse&maxResults=100` as the user; `projects.length >= 100` → `"*"`, else the key array.
+   - With a canvas name and a non-`*` list: search `labels = "jiratack"` (100 max), collect the project keys of that canvas's tickets, intersect. Non-empty canvas and empty intersection → `NO_CANVAS_ACCESS`. An empty canvas issues the token; the viewer sees an empty overlay.
+   - With no canvas name (personal and guest tokens) the intersection step is skipped.
 
-3. **View-scope access check:** If `scope === "view"` and `permittedProjects !== "*"`, verify at least one pin in the canvas is in a permitted project:
-   
-   ```javascript
-   const pins = await asUser().requestJira('/rest/api/3/search/jql', {
-    method: 'POST',
-    body: JSON.stringify({
-      jql: `"${canvasFieldName}" = "${canvasName}"`,
-      fields: ['project'],
-      maxResults: 100
-    })
-   });
-   const pinProjectKeys = [...new Set(pins.issues.map(i => i.fields.project.key))];
-   const intersection = pinProjectKeys.filter(k => permittedProjects.includes(k));
-   if (pinProjectKeys.length > 0 && intersection.length === 0) {
-    return { ok: false, error: { code: 'NO_CANVAS_ACCESS', ... } };
-   }
-   ```
-   
-   If canvas has no tickets yet, issue token anyway (viewer will see empty overlay; correct behavior).
-
-4. **Mint token:** Write KVS record (Part 2.1), sign JWT with `permittedProjects` (Part 2.2), return with `apiUrl`, `sdkUrl`, and `sdkVersion` (D10, D13).
+4. **Mint:** 64-hex token, record per §2.1 including `isAdmin`, TTL 30 days, plus a signed JWT so the caller can skip an exchange round-trip. Returns `apiUrl` and `sdkUrl` resolved independently (D10) and `sdkVersion` (D13).
 
 ### 4.2 `dashboardAggregate`
 
 ```text
-dashboardAggregate(context) → { ok, data: { canvases: [CanvasSummary], configVersion } }
-CanvasSummary: { canvasName, ticketCount, openCount, urlCount, lastUpdated, projectKeys: [string], participants: [{ accountId, displayName, avatarUrl }] }
+dashboardAggregate(context) → { ok, data: {
+  canvases: [CanvasSummary], configVersion, hasAccess, isAdmin, jiraBaseUrl
+} }
+CanvasSummary: { canvasName, ticketCount, openCount, urlCount,
+                 urls: [{ url, ticketCount }], lastUpdated,
+                 projectKeys: [string],
+                 participants: [{ accountId, displayName, avatarUrl }],
+                 archived: boolean }
 ```
 
-JQL: `<canvasField> is not EMPTY ORDER BY created DESC`. Fetch `<canvasField>,status,updated,assignee,reporter,project`. Paginate up to 2000 tickets. Group by `canvasField`. `projectKeys` = distinct project keys across the canvas's tickets (used by admin UI to show "this canvas spans N projects" warning in restricted mode).
-
-Dashboard does **not** filter by `permittedProjects` — it shows all tickets the requesting user can browse via `asUser()` context. Since dashboard runs in resolver context (not webtrigger), Jira natively enforces project permissions on the query.
+- Query: `labels = "jiratack"` with properties, `ORDER BY created DESC`, pages of 100, cap 2,000.
+- Group by `metadata.pin.canvas`; `openCount` counts status category ≠ `done`; `urls` counts per normalised URL, sorted by count then URL; `participants` is capped at 5 (assignee and reporter).
+- `deletedCanvases` are filtered out entirely; `archivedCanvases` are returned with `archived: true`.
+- Sorted by `lastUpdated` descending, then canvas name.
+- Runs `asUser()`, so Jira enforces project permissions natively. No `permittedProjects` filtering here.
+- `hasAccess` reflects `context.userAccess.hasAccess !== false`; `isAdmin` is resolved per §4.0. Both drive UI affordances only.
 
 ### 4.3 `epicPanelData`
 
 ```text
-epicPanelData(context, payload) → { ok, data: { canvases: [EpicCanvasSummary] } }
+epicPanelData(context, payload) → { ok, data: { canvases: [EpicCanvasSummary], warnings, jiraBaseUrl } }
 Payload: { epicKey: string }
 EpicCanvasSummary: { canvasName, epicTicketCount, totalTicketCount, urlCount }
 ```
 
-Dual-query, merge results:
-
-- Company-managed: `"Epic Link" = <epicKey> AND <canvasField> is not EMPTY`
-
-- Team-managed: `parent = <epicKey> AND <canvasField> is not EMPTY`
-
-Group by `canvasField`. For each canvas, one additional count query. Runs in resolver context; Jira enforces project permissions natively.
+- Two queries merged by issue key: company-managed `"Epic Link" = <epicKey>`, team-managed `parent = <epicKey>`.
+- Group by `metadata.pin.canvas`; `urlCount` is the distinct normalised URL count.
+- One failing query produces a warning; both failing → `INTERNAL`.
+- **Known defect:** `totalTicketCount` is currently assigned `epicTicketCount`, not the canvas total. Treat it as unreliable until wired to a full canvas scan.
 
 ### 4.4 `issuePanelData`
 
 ```text
-issuePanelData(context, payload) → { ok, data: { canvasName, url, relatedTickets, deepLink } }
+issuePanelData(context, payload) → { ok, data: {
+  isJiraTack, canvasName, url, guest, pin, screenshot, relatedTickets, deepLink, jiraBaseUrl
+} }
 Payload: { issueKey: string }
 ```
 
-Reads the issue property `com.jiratack.metadata` (via `readMetadataBySearch`, Part 3.x) — if absent → `{ ok: true, data: { isJiraTack: false } }`. Related tickets are found by scanning `labels = "jiratack"` with `properties` and matching `pin.canvas` + `pin.url` in memory via `asUser()` so project permissions apply. The screenshot is fetched with `asApp().requestJira('/rest/api/3/attachment/content/{id}')` and returned as a **base64 `data:` URL**, because Forge UI Kit cannot authenticate a raw Jira attachment URL.
+- Reads the property via `readMetadataBySearch` (`key = "<key>"` with `properties`). Absent → `{ ok: true, data: { isJiraTack: false } }`.
+- A failed lookup returns `INTERNAL`, never `isJiraTack: false`, so "could not verify" is not reported as "not JiraTack".
+- `pin` is the full `{ canvas, url, position, selector }`; `guest` is `{ name, email }` or `null`.
+- `screenshot` is `{ filename, mimeType, dataUrl }` or `null`. It is fetched with `asApp()` from `/rest/api/3/attachment/content/{id}` and returned as a base64 `data:` URL, because UI Kit cannot authenticate a raw Jira attachment URL.
+- `relatedTickets` scans `labels = "jiratack"` (cap 2,000, result cap 20) matching `pin.canvas` and `pin.url` exactly, excluding self, via `asUser()`.
+- `deepLink` is the page URL with `jiratack_ticket=<key>` appended.
+- Jira 404 on the issue → `NOT_FOUND`.
 
-A failed metadata lookup returns `INTERNAL` rather than `isJiraTack: false`, so "could not verify" is never reported as "not a JiraTack ticket".
+### 4.5 `fieldMappingAudit` — retired (D18)
 
-### 4.5 `fieldMappingAudit` — retired (D18/D19)
-
-Removed with custom-field provisioning; there is no field mapping left to audit.
+Removed with custom fields. There is nothing to audit.
 
 ### 4.5b Token management
 
 ```text
-listCanvasTokens(context) → { ok, data: { tokens: [{ tokenRef, canvasName, userId, scope, issuedAt, expiresAt, revoked }] } }
+listCanvasTokens(context) → { ok, data: { tokens: [{ tokenRef, canvasName, userId, scope,
+                                                      issuedAt, expiresAt, revoked }] } }
 revokeCanvasToken(context, payload) → { ok, data: { revoked: true } }
 Payload: { tokenRef?: string, token?: string }
 ```
 
-- Both require Jira admin (Part 4.0).
-- **`tokenRef` is a non-reversible SHA-256 prefix (12 hex chars) of the token.** Raw bearer tokens are never returned by any resolver — they are credentials, and the admin UI only needs to identify records.
-- `revokeCanvasToken` resolves `tokenRef` back to the KVS key by scanning `canvasTokens:*` (cap 1000); `token` is still accepted for programmatic callers.
-- Revoking deletes the record, so new `exchangeToken` calls fail immediately; live session JWTs remain valid until expiry (Part 2.2). The SDK now re-exchanges on `TOKEN_EXPIRED`/`TOKEN_INVALID` (§5.x), which bounds the practical window.
+- Both require Jira admin (§4.0).
+- `tokenRef` is a non-reversible SHA-256 prefix (12 hex chars). Raw bearer tokens are never returned by any resolver.
+- Scans `canvasTokens:*` (cap 1,000), sorted by `issuedAt` descending.
+- Guest records appear with `canvasName` and `userId` undefined and `scope: "guest_create"`.
+- `revokeCanvasToken` resolves `tokenRef` back to the KVS key; a raw `token` is still accepted for programmatic callers. Revoking deletes the record, so new exchanges fail immediately; live JWTs survive until `exp` (≤8 h). The SDK re-exchanges on `TOKEN_EXPIRED`/`TOKEN_INVALID`, which bounds the practical window.
 
 ### 4.5c `generateGuestToken` — seat-licensed (D19)
 
 ```text
-generateGuestToken(context, payload) → { ok, data: { token, installerUrl, scope: "guest_create", permittedCanvases, permittedProjects, expiresAt } }
-Payload: { permittedCanvases: string[] }   // 1–50 entries, each ≤255 chars
+generateGuestToken(context, payload)
+  → { ok, data: { token, installerUrl, scope: "guest_create",
+                  permittedCanvases, permittedProjects, expiresAt } }
+Payload: { permittedCanvases: string[] }   // 1–50 distinct entries, each 1–255 chars
 ```
 
-Requires a **JiraTack seat** (`userAccess.hasAccess !== false`), not site-admin rights; a missing seat returns `LICENSE_INACTIVE`. `permittedProjects` is frozen at issuance (Part 4.1 step 2 with `canvasName = null`).
-
-Accepted trade-off (D19): the guest session inherits the **issuer's** browse access for the selected canvases, so a seat holder can grant an external reviewer visibility into projects that holder can see. Seat gating is deliberate; link expiry (365 days) and canvas scoping are the compensating controls.
+- Requires a **seat** (`hasAccess !== false`), not site-admin rights → else `LICENSE_INACTIVE`.
+- `permittedProjects` is frozen at issuance via `computePermittedProjects(mode, null)`.
+- Record per §2.1 with 365-day TTL and `isAdmin: false`.
+- `installerUrl` = install web trigger with `?token=<guestToken>`; `null` if URL resolution fails.
+- **Accepted trade-off (D19):** the guest session inherits the **issuer's** browse access for the selected canvases. Seat gating, canvas scoping, and the 365-day expiry are the compensating controls.
 
 ### 4.6 `recoverPinsFromDescriptions` — retired (D18)
 
-Removed. Metadata lives in the issue property and the description marker no longer exists, so description-based recovery is not possible.
+Removed with the description marker. The issue property is the source of truth, and there is no description-based recovery path.
 
 ### 4.7 `generateUserToken`
 
 ```text
-generateUserToken(context) → { ok, data: { token, apiUrl, sdkUrl, sdkVersion } } | { ok: false, error }
+generateUserToken(context) → { ok, data: { token, apiUrl, sdkUrl, sdkVersion } }
 ```
 
-Behavior:
+1. `trackLicensedUser(context)` records the seat when present (best-effort, never throws).
+2. `scope` = `view` when `userAccess.hasAccess === false`, else `create`. **A missing seat does not error.**
+3. `permittedProjects` via `computePermittedProjects(mode, null)`.
+4. Mint 64-hex token, record per §2.3, TTL 90 days.
+5. Return token plus `apiUrl`, `sdkUrl`, `sdkVersion`.
 
-1. **License check:** if `context.userAccess?.hasAccess === false` → `LICENSE_INACTIVE`.
+### 4.8 `deleteCanvas` / `archiveCanvas`
 
-2. **Mint user token:** `crypto.randomBytes(32).toString('hex')`; write `userTokens:<token>` record (Part 2.3) with TTL 90 days.
+```text
+deleteCanvas(context, payload)  → { ok, data: { canvasName, deleted: true, ticketCount } }
+archiveCanvas(context, payload) → { ok, data: { canvasName, archived: true } }
+Payload: { canvasName: string }
+```
 
-3. **Return** the token plus `apiUrl`, `sdkUrl` (D10), and `sdkVersion` (D13).
+- Admin only. Scans `labels = "jiratack"` (cap 2,000) filtered to the canvas.
+- Delete is refused while any ticket is not in status category `done` → `CANVAS_NOT_EMPTY` (409) with `{ openCount, total }`.
+- Delete appends the name to `deletedCanvases` and removes it from `archivedCanvases`.
+- Archive appends to `archivedCanvases`. Neither touches Jira issues.
+
+### 4.9 Configuration resolvers
+
+```text
+getInstallationConfig(context) → { ok, data: installationConfig }
+setInstallationConfig(context, payload) → { ok, data: installationConfig }
+getProjectConfig(context, payload) → { ok, data: ProjectConfig }
+setProjectConfig(context, payload) → { ok, data: ProjectConfig }
+Payload (project): { projectKey, settings? }
+```
+
+- All four require Jira admin.
+- `setInstallationConfig` merges `payload.projects` shallowly; the rest of the payload is assigned onto a draft, then `configVersion` and `updatedAt` are recomputed inside `mutateInstallationConfig`.
+- `getProjectConfig` returns `PROJECT_DEFAULTS` merged with the stored entry, so an unknown project reads as `{ enabled: true, retirementDays: 0, … }`.
 
 ---
 
@@ -572,7 +629,9 @@ window.__jiratackInit(config)
 // config: { token, apiUrl, sdkUrl, canvasId, canvasName, sdkVersion }
 ```
 
-Called by bookmarklet bootstrap after SDK script loads. If `window.__jiratackActiveCanvas === config.canvasId`, calls `__jiratackClose()` and returns.
+Called by the bootstrap after the SDK script loads. If `window.__jiratackActiveCanvas === config.canvasId`, it calls `__jiratackClose()` and returns.
+
+`canvasId === "universal"` selects launcher mode and must not be treated as a canvas name.
 
 ### 5.2 Overlay DOM contract
 
@@ -580,237 +639,248 @@ Called by bookmarklet bootstrap after SDK script loads. If `window.__jiratackAct
 #jiratack-overlay            position: fixed; inset: 0; pointer-events: none; z-index: 2147483647
   #jiratack-pins             position: absolute; inset: 0; pointer-events: none
     .jiratack-pin[data-key]  position: absolute; pointer-events: auto
-  #jiratack-sidebar          position: fixed; right: 0; top: 0; width: 320px; height: 100vh; pointer-events: auto
+    .jiratack-detached-cluster
+  #jiratack-sidebar          position: fixed; right: 0; top: 0; width: 320px; height: 100vh
     .jiratack-sidebar-header
+    .jiratack-filter-toggle
     .jiratack-ticket-list
+      .jiratack-ticket-card[data-key]
     .jiratack-new-ticket-form
   #jiratack-toast-container  position: fixed; bottom: 16px; right: 16px
 ```
 
-All classes prefixed `jiratack-`. All overlay elements removed on `__jiratackClose()`.
+All classes are prefixed `jiratack-`. All overlay elements are removed on `__jiratackClose()`.
 
-### 5.3 Session storage keys
+### 5.3 `sessionStorage` keys
 
-- `jiratack_jwt_<canvasId>` → `{ jwt, expiresAt, scope, permittedProjects }`
+| Key | Value |
+| --- | --- |
+| `jiratack_jwt_<canvasId>` | `{ jwt, expiresAt, scope, permittedProjects, … }` |
+| `jiratack_layout_mode` | `"push"` \| `"fit"` |
+| `jiratack_nav_state` | `{ canvasName, filter, selectedKey }` |
 
-- Nothing else. Never `localStorage`.
+Nothing else. Never `localStorage`. `createSessionManager(storage)` accepts an injected storage adapter with `getItem`/`setItem`/`removeItem`/`keys` so a content-script extension can supply its own.
 
 ### 5.4 Close contract
 
 `window.__jiratackClose()` must:
 
-1. Remove all `.jiratack-*` elements.
-
-2. Restore original `console.error` / `console.warn`.
-
-3. Remove all SDK-registered event listeners.
-
+1. Remove all `.jiratack-*` elements and the injected style.
+2. Restore the original `console.error` / `console.warn`.
+3. Remove all SDK-registered listeners and destroy layout controllers (fixed-shift, fit-scale).
 4. Set `window.__jiratackActiveCanvas = null`.
-
 5. Be idempotent.
 
 ---
 
-## Part 6 — URL normalization (client and server must match)
+## Part 6 — URL normalisation (client and server must match)
 
-Single module `src/shared/urlNormalize.js` bundled into both.
+Single module `src/shared/urlNormalize.js`, bundled into both.
 
 ### 6.1 Algorithm
 
 ```javascript
-function normalizeUrl(input) {
+export function normalizeUrl(input) {
   if (!input) return '';
   let u;
   try { u = new URL(input); } catch { return input.trim(); }
   u.hash = '';
-  const trackingParams = [
-    'utm_source','utm_medium','utm_campaign','utm_term','utm_content',
-    'fbclid','gclid','mc_cid','mc_eid','_hsenc','_hsmi','ref'
-  ];
-  for (const p of trackingParams) u.searchParams.delete(p);
-  u.hostname = u.hostname.toLowerCase();
+  u.search = '';                 // the ENTIRE query string is dropped
   u.protocol = u.protocol.toLowerCase();
+  u.hostname = u.hostname.toLowerCase();
   if (u.pathname !== '/' && u.pathname.endsWith('/')) {
     u.pathname = u.pathname.slice(0, -1);
   }
-  const sorted = [...u.searchParams.entries()].sort(([a],[b]) => a.localeCompare(b));
-  u.search = sorted.length
-    ? '?' + sorted.map(([k,v]) => `${encodeURIComponent(k)}=${encodeURIComponent(v)}`).join('&')
-    : '';
   return u.toString();
 }
 ```
 
-- Do not coerce http → https.
+- Do not coerce `http` → `https`.
+- **All query parameters are removed**, not only tracking parameters. Page identity is path-based.
+- Path case, port and non-root trailing-slash semantics are preserved exactly.
 
-- Do not strip non-tracking query params.
+**Consequence to keep in mind:** `?page=2`, `?filter=x`, `?variant=b` and `?utm_source=…` all collapse to the same page. Two URLs differing only by query string share one pin set. This is shipped behaviour and a product decision to confirm; do not "fix" it without a decision entry.
 
-- Path preserved exactly.
+### 6.2 Test vectors (acceptance gate — `src/shared/urlNormalize.test.js`)
 
-### 6.2 Test vectors (acceptance gate)
+| Input | Output |
+| --- | --- |
+| `https://example.com/page` | `https://example.com/page` |
+| `https://example.com/page/` | `https://example.com/page` |
+| `https://example.com/page#section` | `https://example.com/page` |
+| `https://Example.COM/Page` | `https://example.com/Page` |
+| `https://example.com/page?cat=x` | `https://example.com/page` |
+| `https://example.com/page?id=42` | `https://example.com/page` |
+| `https://example.com/page?utm_source=x&id=42#section` | `https://example.com/page` |
+| `https://example.com/page/?cat=x` | `https://example.com/page` |
+| `https://example.com/A` | `https://example.com/A` |
+| `https://example.com/a/` | `https://example.com/a` |
+| `http://example.com/page` | `http://example.com/page` |
+| `https://example.com/` | `https://example.com/` |
+| `https://example.com/?cat=x` | `https://example.com/` |
+| `https://example.com:8443/a?x=1` | `https://example.com:8443/a` |
+| `https://example.com/page?jiratack_ticket=KAN-15` | `https://example.com/page` |
 
-| Input                                         | Output                                 |
-| --------------------------------------------- | -------------------------------------- |
-| `https://example.com/page`                    | `https://example.com/page`             |
-| `https://example.com/page/`                   | `https://example.com/page`             |
-| `https://example.com/page#section`            | `https://example.com/page`             |
-| `https://Example.COM/Page`                    | `https://example.com/Page`             |
-| `https://example.com/page?utm_source=x&id=42` | `https://example.com/page?id=42`       |
-| `https://example.com/page?id=42&ref=twitter`  | `https://example.com/page?id=42`       |
-| `https://example.com/page?id=42&a=1`          | `https://example.com/page?a=1&id=42`   |
-| `http://example.com/page`                     | `http://example.com/page`              |
-| `https://example.com/`                        | `https://example.com/`                 |
-| `https://example.com/page?b=2&a=1&c=3`        | `https://example.com/page?a=1&b=2&c=3` |
+### 6.3 `stripDeepLinkParams`
+
+Separate helper, used for display paths that must keep other query parameters (dashboard URL breakdown, seed-ticket target):
+
+| Input | Output |
+| --- | --- |
+| `https://example.com/page?jiratack_ticket=KAN-15&foo=bar` | `https://example.com/page?foo=bar` |
+| `https://example.com/page?jiratack_canvas=Q3&foo=bar` | `https://example.com/page?foo=bar` |
+| `https://example.com/page?foo=bar` | `https://example.com/page?foo=bar` |
+
+Run the vector file with `node --test src/shared/urlNormalize.test.js` before touching either function.
 
 ---
 
 ## Part 7 — JQL templates
 
+All pin queries are label-plus-property. **No JQL references a custom field**; `jiratackCanvas` (the entity-property alias) may be used for canvas-exact filtering where indexed.
+
 ### 7.1 Overlay query (`getPinsForCanvasAndUrl`)
 
 ```text
-"<canvasFieldName>" = "<canvasName>"
-AND "<urlFieldName>" = "<normalizedUrl>"
-AND statusCategory != Done
-ORDER BY created ASC
+jql:        labels = "jiratack" ORDER BY created ASC
+properties: ["com.jiratack.metadata"]
+fields:     summary, status, priority, assignee, reporter, issuetype, created,
+            project, statuscategorychangedate
+maxResults: 100 (paginated, cap 2,000)
 ```
 
-Fields param: `summary,status,priority,assignee,reporter,issuetype,created,project,<canvasFieldId>,<urlFieldId>,<pinFieldId>,<selectorFieldId>`
+Canvas and URL matching happen in memory against the property (`metadata.pin.canvas`, `metadata.pin.url`). `project` is fetched so `permittedProjects` filtering is possible before anything reaches the client.
 
-Note: `project` is included in the fields param even though not returned to client — needed for `permittedProjects` filtering (Part 3.2).
+### 7.2 Retirement window
 
-### 7.2 Retirement window (if effective `retirementDays > 0`)
+**Effective `retirementDays` source (D14):** the project of the canvas's oldest ticket.
 
-**Effective `retirementDays` source (per D14):** project of the canvas's oldest ticket.
+1. Query `labels = "jiratack"` with properties, ordered by created ascending, and take the first issue whose `pin.canvas` matches.
+2. No ticket → `retirementDays = 0`.
+3. Else `projects[projectKey].retirementDays` from `installationConfig`.
+4. Cache at `canvasProjectCache:<canvasName>` → `{ projectKey, cachedAt }`, TTL 300 s.
 
-1. Query: `<canvasField> = "<canvasName>" ORDER BY created ASC`, `maxResults=1`, `fields=project`.
+When `> 0`, a Done ticket is included only if `statuscategorychangedate >= now − N days`. When `=== 0`, Done tickets are excluded entirely. There is no separate JQL variant; the filter is applied in memory during the overlay scan, so §7.1 is the only query.
 
-2. If no ticket: `retirementDays = 0`.
-
-3. Else: look up `projects[projectKey].retirementDays` from `installationConfig`.
-
-4. Cache in KVS `canvasProjectCache:<canvasName>` → `{ projectKey, cachedAt }` with TTL 300s.
-
-When `> 0`:
+### 7.3 Dashboard / canvas list
 
 ```text
-"<canvas>" = "<name>" AND "<url>" = "<url>"
-AND (statusCategory != Done
-     OR (statusCategory = Done AND statusCategoryChangedDate >= -<N>d))
-ORDER BY created ASC
-```
-
-When `=== 0`: overlay query is §7.1.
-
-### 7.3 Dashboard
-
-```text
-"<canvasFieldName>" is not EMPTY ORDER BY created DESC
+jql:        labels = "jiratack" ORDER BY created DESC
+properties: ["com.jiratack.metadata"]
+fields:     status, updated, assignee, reporter, project
+maxResults: 100 (paginated, cap 2,000)
 ```
 
 ### 7.4 Epic panel (merge two queries)
 
 ```text
-Company-managed: "Epic Link" = <epicKey> AND "<canvasFieldName>" is not EMPTY
-Team-managed:    parent = <epicKey> AND "<canvasFieldName>" is not EMPTY
+Company-managed: "Epic Link" = "<epicKey>"
+Team-managed:    parent = "<epicKey>"
+properties:      ["com.jiratack.metadata"]
+fields:          project
+maxResults:      100 each
 ```
+
+Both queries are issue-only; canvas membership is decided from the property after the merge.
 
 ### 7.5 Issue panel related
 
 ```text
-"<canvasFieldName>" = "<canvas>" AND "<urlFieldName>" = "<url>" AND key != <thisKey>
-ORDER BY created ASC
+jql:        labels = "jiratack" ORDER BY created ASC
+properties: ["com.jiratack.metadata"]
+fields:     summary, status, issuetype
+maxResults: 100 (paginated, cap 2,000; result cap 20)
 ```
+
+Matching on `pin.canvas` + `pin.url` happens in memory, excluding the current issue.
 
 ### 7.6 Recovery candidates — retired (D18)
 
-Removed with the description marker. No recovery pass exists; the issue property is the source of truth.
+Removed with the description marker. No recovery pass exists.
 
-### 8.1 ADF node shapes (client serializer)
+---
 
-| Tiptap node   | ADF output                                        |
-| ------------- | ------------------------------------------------- |
-| `paragraph`   | `{ type: "paragraph", content: [...] }`           |
-| `text`        | `{ type: "text", text: "..." }`                   |
-| `text` bold   | `{ ..., marks: [{ type: "strong" }] }`            |
-| `text` italic | `{ ..., marks: [{ type: "em" }] }`                |
-| `bulletList`  | `{ type: "bulletList", content: [listItem...] }`  |
-| `orderedList` | `{ type: "orderedList", content: [listItem...] }` |
-| `listItem`    | `{ type: "listItem", content: [paragraph...] }`   |
-| `hardBreak`   | `{ type: "hardBreak" }`                           |
+## Part 8 — ADF contracts
 
-Unsupported nodes: serialize as paragraph + text node with `console.warn`.
+### 8.1 Serializer output
 
-Root: `{ type: "doc", version: 1, content: [top-level nodes] }`.
+The ticket form uses a **plain textarea**, not a rich-text editor. `descriptionToAdf(text)` splits on newlines and runs each line through `serializeToAdf`:
+
+| Input | ADF output |
+| --- | --- |
+| empty or whitespace-only text | `null` (no description) |
+| blank line | `{ type: "paragraph" }` |
+| line of text | `{ type: "paragraph", content: [{ type: "text", text: "…" }] }` |
+
+Root: `{ type: "doc", version: 1, content: [nodes] }`.
+
+`serializeToAdf` accepts an ADF-shaped document and maps `paragraph`, `text`, `bulletList`, `orderedList`, `listItem`, and `hardBreak`; unsupported node types degrade to a paragraph with a `console.warn`. The client never constructs lists or marks, because the textarea cannot express them.
+
+`textToAdf()` is the server-side plain-text equivalent, used for seed tickets and for `descriptionText` merges. `adfToText()` is its inverse, used to extract the editable body.
 
 ### 8.2 Empty description
 
-If empty: `descriptionAdf = null`. Server omits client description but still appends pin marker (Part 8.4).
+Empty or whitespace-only input yields no body paragraphs. The server still emits the header and, when present, the console block and page footer.
 
 ### 8.3 Console log append (server-side)
 
-If `consoleLog` non-null and non-empty:
+If `consoleLog` is a non-empty string, insert before the footer:
 
 ```json
 [
-  { "type": "paragraph", "content": [{ "type": "text", "text": "Console output:" }] },
-  { "type": "codeBlock", "attrs": {}, "content": [{ "type": "text", "text": consoleLog }] }
+  { "type": "paragraph", "content": [{ "type": "text", "text": "Console output:", "marks": [{ "type": "strong" }] }] },
+  { "type": "codeBlock", "attrs": {}, "content": [{ "type": "text", "text": "<consoleLog>" }] }
 ]
 ```
 
-Client formats `consoleLog` as:
+Client formatting, one line per entry:
 
 ```text
 [error] TypeError: Cannot read property 'x' of undefined (at main.js:142)
 [warn] Deprecated API usage: getElementByClass (at app.js:89)
 ```
 
-Per entry: `[level] message (source)` when source non-null, `[level] message` when null. Level lowercase.
+`[level] message (source)` when a source is known, `[level] message` otherwise. Level lowercase. Buffer holds the last 50 entries.
 
-### 8.4 Pin metadata storage (server-side, per D18)
+### 8.4 Description structure and metadata storage
 
-Pin metadata is stored in the Jira issue property `com.jiratack.metadata`, never in the description. The description is human-readable ADF only. The property is written immediately after issue creation; no JSON marker is appended.
+The description is human-readable ADF only. Machine data lives in the property (§1.1); nothing is appended to or parsed out of the description.
 
-```json
-{
-  "type": "paragraph",
-  "content": [
-    {
-      "type": "text",
-      "text": "📌 JiraTack pin: {\"canvas\":\"Q3 Marketing\",\"url\":\"https://example.com/page\",\"position\":\"45.2,32.8\",\"selector\":\"#hero\"}"
-    }
-  ]
-}
+```text
+[ JiraTack ]                                   bold paragraph
+    or [ JiraTack Guest: <name> ]
+<user body paragraphs>
+Console output:                                bold, only when a log is included
+<codeBlock>
+Page: <link to normalised URL>                 footer paragraph
 ```
 
 Rules:
 
-- JSON string is single-line, keys in order: `canvas`, `url`, `position`, `selector`.
-
-- If `selector` is null or empty: omit the `selector` key from the JSON (not `"selector":null`).
-
-- Prefix `📌 JiraTack pin:` is exact and required. Recovery parses by finding a paragraph whose first text node starts with this prefix.
-
-- Descriptions no longer contain a machine-readable paragraph; all machine data lives in `com.jiratack.metadata`.
-
-Recovery parse (Part 4.6): find paragraph, strip prefix `📌 JiraTack pin:`, `JSON.parse()` the remainder. If parse fails, skip ticket.
+- The header is always the **first** node and must start with `[JiraTack`.
+- The footer is the **last** node and must start with `Page:`.
+- The console block, when present, sits immediately before the footer.
+- `splitDescription()` identifies these three blocks by those markers; `mergeDescription()` re-emits them in the same order around a new body.
+- Editing a description with no recognisable header fails closed (`VALIDATION_ERROR`) rather than rebuilding the document, so a malformed ticket cannot lose its guest identity.
+- The property is written immediately after issue creation and is the source of truth. There is no JSON in the description and no marker to recover from.
 
 ---
 
 ## Part 9 — Error code registry
 
-| Code                 | HTTP | Meaning                                                                   | User-facing behavior                                                                                |
-| -------------------- | ---- | ------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------- |
-| `BAD_REQUEST`        | 400  | Malformed payload                                                         | Toast "Something went wrong — check the form and try again."                                        |
-| `TOKEN_INVALID`      | 401  | JWT signature invalid / canvas token not found                            | "Session expired. Reopen the bookmarklet."                                                          |
-| `TOKEN_EXPIRED`      | 401  | Canvas token or JWT expired                                               | Same; suggest regenerating bookmarklet from Jira                                                    |
-| `INSUFFICIENT_SCOPE` | 403  | JWT scope doesn't allow this action (or project not in permittedProjects) | Hidden in client (UI-gated); if reached: "View-only or no access to this project."                  |
-| `LICENSE_INACTIVE`   | 403  | Installation license inactive                                             | Persistent red banner in sidebar                                                                    |
-| `NO_CANVAS_ACCESS`   | 403  | User has no browse permission for any project in the canvas               | Admin UI error on "Copy review bookmarklet": "You don't have access to any project in this canvas." |
-| `NOT_FOUND`          | 404  | Ticket / project / canvas not found                                       | Toast "Not found."                                                                                  |
-| `PROJECT_DISABLED`   | 422  | Target project has JiraTack disabled                                      | Inline error on project selector                                                                    |
-| `VALIDATION_ERROR`   | 422  | Jira rejected the field payload                                           | Inline field errors + toast "Fix highlighted fields."                                               |
-| `INTERNAL`           | 500  | Unexpected server error                                                   | Toast "Something went wrong — try again." + `[JiraTack]` log                                        |
+| Code | HTTP | Meaning | Client behaviour |
+| --- | --- | --- | --- |
+| `BAD_REQUEST` | 400 | Malformed payload | Toast: check the form and retry |
+| `TOKEN_INVALID` | 401 | Token missing, revoked, unknown, or signature invalid | Re-exchange once; then "Session expired. Reopen the bookmarklet." |
+| `TOKEN_EXPIRED` | 401 | Token or JWT past expiry | Same, with a hint to regenerate from Jira |
+| `INSUFFICIENT_SCOPE` | 403 | Scope, canvas, project, or admin claim denies the action | UI is gated; if reached, "View-only or no access to this project." |
+| `LICENSE_INACTIVE` | 403 | Installation or seat not licensed | Persistent red banner in the sidebar |
+| `NO_CANVAS_ACCESS` | 403 | No browse access to any project in the canvas | Shown when minting a token or guest link |
+| `CANVAS_NOT_EMPTY` | 409 | Delete refused; open tickets remain | Inline admin error with the open count |
+| `NOT_FOUND` | 404 | Ticket, project, canvas, or upload not found | Toast "Not found." |
+| `PROJECT_DISABLED` | 422 | JiraTack disabled for the target project | Inline error on the project selector |
+| `VALIDATION_ERROR` | 422 | Invalid input, expired upload, or Jira rejected the payload | Inline field errors plus Jira's messages |
+| `INTERNAL` | 500 | Unexpected server failure | Toast "Something went wrong — try again." plus a `[JiraTack]` log line |
 
 ---
 
@@ -833,10 +903,6 @@ permissions:
     - read:jira-user
     - manage:jira-project
     - manage:jira-configuration
-  external:
-    fetch:
-      backend:
-        - address: "*.atlassian.net"
 modules:
   jira:globalPage:
     - key: jiratack-dashboard
@@ -858,6 +924,14 @@ modules:
         function: resolver
       render: native
       title: JiraTack
+  jira:entityProperty:
+    - key: jiratack-metadata
+      entityType: issue
+      propertyKey: com.jiratack.metadata
+      values:
+        - path: pin.canvas
+          type: string
+          searchAlias: jiratackCanvas
   jira:issuePanel:
     - key: jiratack-epic-panel
       resource: epic-panel-ui
@@ -866,6 +940,8 @@ modules:
       render: native
       title: JiraTack Canvases
       icon: https://developer.atlassian.com/platform/forge/images/icons/issue-panel-icon.svg
+      displayConditions:
+        issueType: Epic
     - key: jiratack-issue-panel
       resource: issue-panel-ui
       resolver:
@@ -880,11 +956,15 @@ modules:
       handler: webtrigger/api.handler
     - key: webtrigger-sdk
       handler: webtrigger/sdk.handler
+    - key: webtrigger-install
+      handler: webtrigger/install.handler
   webtrigger:
     - key: jiratack-api
       function: webtrigger-api
     - key: jiratack-sdk
       function: webtrigger-sdk
+    - key: jiratack-install
+      function: webtrigger-install
 resources:
   - key: dashboard-ui
     path: dist/dashboard
@@ -900,23 +980,14 @@ resources:
 
 Key points:
 
-- `render: native` on UI Kit modules (admin, project-settings, epic, issue).
-
-- No `render: native` on `jira:globalPage` (dashboard is Custom UI).
-
-- Runtime `nodejs24.x` (D12 resolved: active LTS, EOL Oct 2027).
-
-- UI Kit panels use `@forge/react`.
-
-- `permissions` is a top-level key; it must not be nested under `app`.
-
-- No `external` egress is declared. The backend makes no external fetch calls (all Jira traffic is `requestJira`); the `*.atlassian.net` egress entry was removed 2026-10-27 as unused. (Dynamic webtriggers remain, so the app is still not Runs-on-Atlassian eligible — see D16.)
-
-- `function.handler` paths are relative to `src/` and omit the `src/` prefix (e.g., `resolvers/index.handler`).
-
-- UI Kit `resources.path` includes the entry filename (e.g., `src/ui-kit/epic-panel/index.jsx`). The Custom UI dashboard resource remains a directory (`dist/dashboard`).
-
-- `jira:issuePanel` modules require an `icon` (standard Atlassian SVG).
+- `render: native` on the four UI Kit surfaces; **not** on `jira:globalPage` (Custom UI).
+- `jira:entityProperty` is required for the `jiratackCanvas` alias. Indexing is not retroactive.
+- Three web triggers: API, SDK bundle, guest installer page. The installer is public HTML and must stay dependency-free.
+- No `external.fetch.backend` egress (removed 2026-10-27, D16). The app makes no outbound HTTP outside `requestJira`. Dynamic web triggers mean the app is not Runs-on-Atlassian eligible.
+- `permissions` is top-level, not nested under `app`.
+- `function.handler` paths are relative to `src/` (no `src/` prefix).
+- UI Kit `resources.path` includes the entry filename; the dashboard resource stays a directory.
+- `jira:issuePanel` entries require an `icon`.
 
 ### 10.2 `package.json`
 
@@ -951,12 +1022,12 @@ Key points:
 }
 ```
 
-Sprint 4 adds `@tiptap/react`, `@tiptap/pm`, `@tiptap/starter-kit` at `^2.11.5`.
+No Tiptap dependency: the form uses a textarea and `serializeToAdf`. `npm run build` regenerates `dist/bookmarklet/jiratack.js`, `src/lib/sdk-bundle.js`, and `src/lib/version.js` (`SDK_VERSION` = first 12 hex of the bundle hash, D13).
 
 ---
 
-## Part 11 — Open decisions
+## Part 11 — Decisions
 
-All open decisions tracked in `DECISIONS.md`. Remaining open at contract level:
+All decisions live in `DECISIONS.md`, which is authoritative. There are no open decisions at contract level: D10 (web trigger URL discovery) and D13–D17 are resolved, and D18–D22 cover storage, authorisation, uploads, the admin claim, and the delivery channel.
 
-- D10 (webtrigger URL discovery) — affects §2.1 and §4.1
+If a contract here contradicts a decision, the decision wins — and this file is the thing to fix.
