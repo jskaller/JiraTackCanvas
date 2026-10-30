@@ -3,6 +3,7 @@
 **Audience:** OpenCode, human tester. Per-sprint verification commands and assertions.
 **Precedence:** If a test conflicts with CONTRACTS.md, CONTRACTS.md wins. This document tells you *how* to verify; CONTRACTS.md tells you *what* the correct behavior is.
 **Rule:** A sprint is not complete until every assertion in its section passes. Do not proceed to the next sprint on partial passes.
+**Verified against:** `src/` at commit `acde065`, app 4.92.0, SDK `731d221968a1`, 2026-10-30. Parts 1 and 6 were pruned of the retired custom-field/provisioning/audit/recovery tests (D18); Parts 2, 3, 5, 7 and 8 carry the current assertions.
 
 ---
 
@@ -16,7 +17,7 @@
 | `curl`                     | Webtrigger API testing                        | Preinstalled on macOS/Linux    |
 | `jq`                       | JSON parsing in curl tests                    | `brew install jq` (macOS)      |
 | Browser with DevTools      | Bookmarklet SDK testing                       | Chrome / Firefox               |
-| Jira dev site admin access | Field provisioning, KVS inspection            | `https://<site>.atlassian.net` |
+| Jira dev site admin access | KVS inspection, property checks             | `https://<site>.atlassian.net` |
 
 ### 0.2 The three testing modes
 
@@ -102,7 +103,7 @@ Verify:
 
 ---
 
-## Part 1 — Sprint 1 tests: Scaffolding, Field Provisioning, Admin Config
+## Part 1 — Sprint 1 tests: Scaffolding, Metadata, Admin Config
 
 ### 1.1 Deploy and install
 
@@ -116,83 +117,82 @@ forge install -e development
 
 # Assert: exits 0, or "already installed" if re-running
 
-### 1.2 All six surfaces render
+### 1.2 All five surfaces render
 
 | Surface          | How to reach                                     | Assert                                            |
 | ---------------- | ------------------------------------------------ | ------------------------------------------------- |
-| Global page      | Jira → Apps → **JiraTack Canvases**              | "JiraTack Dashboard — coming in Sprint 5" renders |
-| Admin page       | Jira Settings → Apps → **JiraTack**              | Admin config renders with provisioning button     |
+| Global page      | Jira → Apps → **JiraTack Canvases**              | Dashboard renders with the canvas table |
+| Admin page       | Jira Settings → Apps → **JiraTack**              | Admin config renders with `viewPermissionMode` and token list |
 | Project settings | Project Settings → Apps → **JiraTack**           | Project config form renders                       |
-| Epic panel       | Open any epic → Panels → **JiraTack Canvases**   | "coming in Sprint 6" stub renders                 |
-| Issue panel      | Open any issue → Panels → **JiraTack**           | "coming in Sprint 6" stub renders                 |
-| Webtrigger       | `curl -s $WT/api -X POST -d '{"action":"ping"}'` | Returns 501 `NOT_IMPLEMENTED` (stub)              |
+| Epic panel       | Open any epic → Panels → **JiraTack Canvases**   | Panel renders (empty state is correct)            |
+| Issue panel      | Open any issue → Panels → **JiraTack**           | Panel renders ("Not a JiraTack ticket" for unindexed issues) |
+| Webtrigger       | `curl -s $WT/api -X POST -d '{"action":"getPriorities"}' -H "Authorization: Bearer $JWT"` | Returns `{ ok: true, data: { priorities: [...] } }` |
 
 Browser console for each surface: **no red errors**. Warnings are acceptable if from Jira itself.
 
 After updating manifest scopes, run `forge install --upgrade -e development` to authorize them.
 
-### 1.3 Field provisioning
+### 1.3 Metadata and labels (replaces field provisioning)
 
-1. Open admin page.
+There is nothing to provision. Verify the storage model instead (D18):
 
-2. Click **"Provision fields"**.
+1. Create a ticket from a write bookmarklet on a test page (Part 4 if not yet possible), or create one via `createIssue`.
 
-3. Assert: success message with four field IDs.
+2. Fetch the property:
 
-Verify in Jira admin:
+```bash
+curl -s -u "$EMAIL:$API_TOKEN" \
+  "https://<site>.atlassian.net/rest/api/3/issue/<KEY>/properties/com.jiratack.metadata" | jq .
+```
 
-bash
+3. Assert the value is:
 
-# No CLI command — use Jira UI:
+```json
+{
+  "pin": { "canvas": "<canvas>", "url": "<normalised url>", "position": "<relX,relY>", "selector": "#x" },
+  "version": 1
+}
+```
 
-# Settings → Issues → Custom Fields
+4. Assert the issue labels include `jiratack`, and `jiratack-guest` for a guest-created ticket.
 
-# Assert four fields exist with exact names:
-
-# - JiraTack Canvas (text)
-
-# - Page URL (URL, or text if URL unavailable)
-
-# - Pin Position (text)
-
-# - Pinned Selector (text)
+5. Assert **no** JiraTack custom fields exist: Jira admin → Settings → Issues → Custom Fields contains no `JiraTack Canvas`, `Page URL`, `Pin Position`, or `Pinned Selector` created by the app.
 
 ### 1.4 `installationConfig` in KVS
 
-Open Developer Console → Storage → installationConfig.
+Open Developer Console → Storage → `installationConfig`, or read it via the admin resolver.
 
 Assert shape:
 
-json
-
+```json
 {
-  "fieldRegistry": {
-    "canvasField": "customfield_NNNNN",
-    "urlField": "customfield_NNNNN",
-    "pinField": "customfield_NNNNN",
-    "selectorField": "customfield_NNNNN"
-  },
   "viewPermissionMode": "per_user_projects",
   "projects": {},
+  "archivedCanvases": [],
+  "deletedCanvases": [],
   "configVersion": "<64-hex>",
+  "updatedAt": 1234567890,
   "schemaVersion": 1
 }
+```
+
+Assert: **no `fieldRegistry` key.**
 
 ### 1.5 `viewPermissionMode` toggle
 
-1. Admin page: change toggle from `per_user_projects` to `open`.
+1. Admin page: change the toggle from `per_user_projects` to `open`.
 
-2. Assert: success message, `configVersion` in KVS changes.
+2. Assert: success message, and `configVersion` in KVS changes.
 
 3. Toggle back. Assert `configVersion` changes again.
 
-### 1.6 Manual field override
+### 1.6 No provisioning or audit surface (D18)
 
-1. Admin page: change `pinField` ID to a different valid custom field.
+1. Open the admin page.
 
-2. Assert: KVS `fieldRegistry.pinField` updated.
+2. Assert: there is **no** "Provision fields" button, no field-ID selects, no field mapping audit panel, and no recovery action.
 
-3. Change back.
+3. Assert: the page loads without errors and shows license status, `viewPermissionMode`, the token list, and the archived/deleted canvas lists.
 
 ### 1.7 Project config round-trip
 
@@ -206,24 +206,25 @@ json
 
 ### 1.8 Webtrigger URL discovery (D10)
 
-Check whether `@forge/api` exposes webtrigger URLs:
+D10 is resolved: `webTrigger.getUrl('<triggerKey>')` works from resolver context, so no admin-side discovery or KVS caching is required.
 
-javascript
+1. In a resolver, resolve all three and log them:
 
-// In resolver: attempt
+```javascript
 const { webTrigger } = require('@forge/api');
-const urls = await webTrigger.queryUrls();
-console.log('Webtrigger URLs:', JSON.stringify(urls));
-// Assert: if this returns an object with URLs, D10 = "API discovery works"
-// If it throws "not a function" or returns undefined, D10 = "must store in KVS"
+const api = await webTrigger.getUrl('jiratack-api');
+const sdk = await webTrigger.getUrl('jiratack-sdk');
+const install = await webTrigger.getUrl('jiratack-install');
+console.log('[JiraTack] urls', { api, sdk, install });
+```
 
-Record outcome in `DECISIONS.md` D10.
+2. Assert: all three return absolute HTTPS URLs.
 
-If API discovery fails:
+3. Assert: `generateCanvasToken` returns both `apiUrl` and `sdkUrl`, and they are **different** URLs (the SDK is not derived from the API URL).
 
-1. Admin page: "Provision fields" also writes `webtriggerUrls` to KVS.
+4. Assert: `generateGuestToken` returns an `installerUrl` of the form `<install>?token=<token>`.
 
-2. Assert: KVS `webtriggerUrls` contains `{ api: "...", sdk: "..." }`.
+`resolveWebtriggerUrls()` still honours a `webtriggerUrls` value in `installationConfig` if one is present, so an operator can pin URLs; nothing writes that key in normal operation.
 
 ### 1.9 Logs are clean
 
@@ -237,7 +238,7 @@ forge logs -e development
 
 ### Sprint 1 exit criteria
 
-All of 1.1–1.10 pass. Commit: `feat(s1): scaffolding, field provisioning, admin config`.
+All of 1.1–1.10 pass. Commit: `feat(s1): scaffolding, metadata model, admin config`.
 
 ---
 
@@ -390,7 +391,7 @@ curl ... # same as above
 
 ### 2.9 `getPinsForCanvasAndUrl` — happy path
 
-**Prerequisite:** At least one ticket exists with `JiraTack Canvas = "Q3 Marketing"`, `Page URL` set, and a `Pin Position`.
+**Prerequisite:** At least one ticket exists whose `com.jiratack.metadata` has `pin.canvas = "Q3 Marketing"`, a `pin.url`, and a `pin.position`.
 
 bash
 
@@ -483,28 +484,27 @@ curl -s -X POST "$WT/api" \
 
 - Reporter = the user who owns the JWT
 
-- `JiraTack Canvas` = "Q3 Marketing"
+- Labels include `jiratack`
 
-- `Page URL` = "https://example.com/test-page"
+- Issue property `com.jiratack.metadata`:
 
-- `Pin Position` = "45.2,32.8"
+  ```json
+  { "pin": { "canvas": "Q3 Marketing", "url": "https://example.com/test-page",
+             "position": "45.2,32.8", "selector": "#hero" }, "version": 1 }
+  ```
 
-- `Pinned Selector` = "#hero"
+- Description is human-readable ADF only: bold `[JiraTack]` header, the body, and a `Page: <link>` footer. No JSON, no marker.
 
-- Description ends with paragraph: `📌 JiraTack pin: {"canvas":"Q3 Marketing","url":"https://example.com/test-page","position":"45.2,32.8","selector":"#hero"}`
+### 2.12 `createIssue` — property round-trip
 
-### 2.12 `createIssue` — pin marker parse round-trip
-
-bash
-
-# Extract pin marker from description via Jira API
-
+```bash
 curl -s -u "$EMAIL:$API_TOKEN" \
-  "https://<site>.atlassian.net/rest/api/3/issue/<KEY>?fields=description" \
-  | jq '.fields.description.content[] | select(.type=="paragraph") | .content[0].text' \
-  | grep "JiraTack pin:"
+  "https://<site>.atlassian.net/rest/api/3/issue/<KEY>/properties/com.jiratack.metadata" | jq .
 
-# Assert: output matches the expected JSON blob
+# Assert: .value.pin.canvas / .url / .position / .selector match the form values
+# Assert: .value.version == 1
+# Assert: description contains no "JiraTack pin:" text
+```
 
 ### 2.13 `createIssue` — scope enforcement
 
@@ -570,11 +570,14 @@ curl ... updateIssue {"issueKey":"<KEY>","fields":{"summary":"New title"}}
 
 # Assert: .ok == true; Jira summary == "[JiraTack] New title"
 
-# Description (only the user body is replaced; guest prefix, console block, pin marker preserved)
+# Description (only the user body is replaced; guest header, console block and page footer preserved)
 
 curl ... updateIssue {"issueKey":"<KEY>","fields":{"descriptionText":"line one\n\nline two"}}
 
-# Assert: .ok == true; description still ends with the 📌 JiraTack pin marker paragraph
+# Assert: .ok == true
+# Assert: description still starts with the [JiraTack…] header and ends with the Page: link
+# Assert: console block (if present) still sits immediately before the footer
+# Assert: a ticket whose description lacks the [JiraTack…] header → 422 VALIDATION_ERROR
 
 # Authorization (all scopes, including create/universal):
 
@@ -730,7 +733,7 @@ javascript:(function(){
    
    - Sidebar lists tickets with status, priority, assignee, reporter.
    
-   - Canvas header shows "📌 Q3 Marketing".
+   - Sidebar header shows the canvas name.
    
    - Scope badge shows nothing (create scope).
 
@@ -924,9 +927,11 @@ All of 3.1–3.11 pass. Commit: `feat(s3): bookmarklet SDK scaffold`.
   
   - Jira ticket exists with all fields populated.
   
-  - Description has `📌 JiraTack pin: {...}` as last paragraph.
+  - Issue labels include `jiratack`, and `jiratack-guest` for guest tickets.
   
-  - Description has console block before pin marker (if console checked).
+  - Issue property `com.jiratack.metadata` matches the capture values.
+  
+  - Description is ADF only: header, body, optional console block, `Page:` footer.
 
 ### 4.9 Cancel
 
@@ -934,25 +939,25 @@ All of 3.1–3.11 pass. Commit: `feat(s3): bookmarklet SDK scaffold`.
 
 - Assert: form closes, no ticket created, no server call (check Network tab).
 
-### 4.10 Description ADF round-trip
+### 4.10 Description round-trip (plain text)
 
-- Enter rich text: bold, italic, bulleted list, ordered list, line break.
+The form uses a plain textarea, not a rich-text editor.
+
+- Enter three lines with a blank line between the second and third.
 
 - Submit.
 
-- Assert ticket description ADF matches CONTRACTS §8.1 node shapes.
+- Assert the description ADF matches CONTRACTS §8.1: one paragraph per line, a contentless paragraph for the blank line, and no marks or list nodes.
 
-### 4.11 Pin marker integrity
+### 4.11 Metadata integrity
 
-- After submit, fetch the created ticket via Jira API.
+- After submit, fetch `com.jiratack.metadata` via the properties API.
 
-- Extract the pin marker paragraph text.
+- Assert `pin.canvas`, `pin.url`, `pin.position`, `pin.selector` match the capture.
 
-- `JSON.parse()` the part after `📌 JiraTack pin:`.
+- Assert `pin.selector` is `null` when no selector was found (the key is present and null — there is no key-omission rule any more).
 
-- Assert: `{ canvas, url, position, selector? }` match form values.
-
-- Assert: if no selector, `selector` key absent (not `null`).
+- Assert `version === 1`.
 
 ### Sprint 4 exit criteria
 
@@ -1058,7 +1063,7 @@ All of 4.1–4.11 pass. Commit: `feat(s4): capture flow`.
 
 - Click "Open in Jira" for a canvas.
 
-- Assert: new tab opens with JQL search `"JiraTack Canvas" = "Q3 Marketing"`.
+- Assert: new tab opens with JQL `jiratackCanvas = "Q3 Marketing"` (the entity-property search alias). If the canvas does not appear, the index has not caught up — verify the alias is declared in `manifest.yml` before treating it as a bug.
 
 - Assert: results match canvas tickets.
 
@@ -1068,7 +1073,7 @@ All of 5.1–5.11 pass. Commit: `feat(s5): canvas dashboard`.
 
 ---
 
-## Part 6 — Sprint 6 tests: Epic Panel, Issue Panel, Audit, Recovery
+## Part 6 — Sprint 6 tests: Epic Panel and Issue Panel
 
 **Prerequisite:** Sprint 5 complete, at least 1 company-managed epic + 1 team-managed epic with JiraTack tickets.
 
@@ -1106,7 +1111,7 @@ All of 5.1–5.11 pass. Commit: `feat(s5): canvas dashboard`.
 
 ### 6.5 Issue panel — JiraTack ticket
 
-- Open a ticket with `JiraTack Canvas` set.
+- Open a ticket whose `com.jiratack.metadata` is set.
 
 - Assert panel shows:
   
@@ -1122,7 +1127,7 @@ All of 5.1–5.11 pass. Commit: `feat(s5): canvas dashboard`.
 
 ### 6.6 Issue panel — non-JiraTack ticket
 
-- Open a ticket with no `JiraTack Canvas`.
+- Open a ticket with no `com.jiratack.metadata`.
 
 - Assert panel shows "Not a JiraTack ticket."
 
@@ -1146,63 +1151,18 @@ All of 5.1–5.11 pass. Commit: `feat(s5): canvas dashboard`.
 
 - Assert cap at 20 (create 25 related → only 20 shown).
 
-### 6.10 Field mapping audit
+### 6.10 Field audit and recovery — retired (D18)
 
-- Admin page → Field Audit section.
+Sections 6.10–6.14 described the custom-field mapping audit, description-marker recovery, and the dry-run/actual/malformed/no-marker cases. All of it is gone: there are no custom fields to map and no marker to recover from.
 
-- Assert: lists projects with JiraTack tickets.
+Replace those tests with one assertion:
 
-- Assert: projects missing one field show warning with fix link.
-
-- Click fix link → Jira field configuration screen opens.
-
-- Assert: projects with all fields mapped show green checkmark.
-
-### 6.11 Recovery — dry run
-
-- Seed a ticket with a valid pin marker.
-
-- Manually clear its `JiraTack Canvas` field via Jira UI or API.
-
-- Admin page → "Scan for lost pin fields" → dry run.
-
-- Assert: reports `would recover: 1`.
-
-- Assert: no writes occurred (field still empty).
-
-### 6.12 Recovery — actual run
-
-- Run recovery (not dry run).
-
-- Assert: reports `recovered: 1`.
-
-- Assert: field repopulated via Jira API.
-
-- Assert: `getPinsForCanvasAndUrl` now returns the ticket.
-
-- Assert: running recovery again reports `recovered: 0` (idempotent).
-
-### 6.13 Recovery — malformed marker
-
-- Create a ticket, manually edit description marker to be invalid JSON (`📌 JiraTack pin: {broken`).
-
-- Clear canvas field.
-
-- Run recovery.
-
-- Assert: `skipped: 1`, no field write, no crash.
-
-### 6.14 Recovery — no marker
-
-- Create a ticket with empty canvas field and no marker.
-
-- Run recovery.
-
-- Assert: not counted (query filters `text ~ "JiraTack pin:"`).
+- Admin page has no field-audit section and no recovery action.
+- A ticket created without `com.jiratack.metadata` does not appear in the dashboard, epic panel, issue panel, or overlay, and no error is raised. This is expected, not a defect.
 
 ### Sprint 6 exit criteria
 
-All of 6.1–6.14 pass. Commit: `feat(s6): epic panel, issue panel, field audit, recovery`.
+All of 6.1–6.10 pass. Commit: `feat(s6): epic panel and issue panel`.
 
 ---
 
@@ -1336,7 +1296,7 @@ All of 6.1–6.14 pass. Commit: `feat(s6): epic panel, issue panel, field audit,
 
 - `docs/MARKETPLACE.md` exists, covers listing copy, screenshots list, support URLs.
 
-- Assert privacy policy mentions: canvas tokens, session JWTs, `permittedProjects`, pin markers in descriptions.
+- Assert privacy policy mentions: canvas tokens, session JWTs, `permittedProjects`, the `com.jiratack.metadata` issue property, guest name/email capture, and that screenshots transit the Forge app.
 
 ### 7.13 Full flow
 
@@ -1352,9 +1312,9 @@ All of 6.1–6.14 pass. Commit: `feat(s6): epic panel, issue panel, field audit,
 
 - Summary shorter than 3 chars → assert inline error and revert.
 
-- Edit description → Save button enables only when text differs → Save → assert Jira description keeps the guest prefix, console block, and pin marker; only the body changed.
+- Edit description → Save enables only when text differs → Save → assert Jira description keeps the `[JiraTack…]` header, console block, and `Page:` footer; only the body changed.
 
-- Missing pin marker → assert description field shows "Edit it in Jira instead." and Save stays disabled.
+- Missing `[JiraTack…]` header → assert the description field shows "Edit it in Jira instead." and Save stays disabled.
 
 ### 7.15 Silent post-create hydration (D15)
 
@@ -1397,6 +1357,8 @@ All of 6.1–6.14 pass. Commit: `feat(s6): epic panel, issue panel, field audit,
 - Issue panel → assert guest identity, pin position/selector, and the screenshot render inline.
 - Confirm no custom fields, provisioning button, field audit, or recovery UI remain.
 
+- Confirm the dashboard shows a guest-link action for a seat holder and that it is absent for a user without a seat.
+
 ### Sprint 7 exit criteria
 
 All of 7.1–7.13 pass. Commit: `feat(s7): inline edit, done animation, retirement, license, marketplace`.
@@ -1429,11 +1391,15 @@ Run after all sprints complete.
 
 - Edge: full functionality.
 
-### 8.4 Recovery under load
+### 8.4 Metadata under load
 
-- 100 tickets with markers but missing fields.
+- Seed 100 tickets in one canvas, each with `com.jiratack.metadata`.
 
-- Run recovery → completes in < 30s, cap 500 respected.
+- Open the overlay and the dashboard.
+
+- Assert: the overlay returns within a few seconds, the dashboard aggregates correctly, and `truncated` is `false` (well under the 2,000 scan cap).
+
+- Seed past the cap and assert `truncated` is `true` and the UI says the list may be partial rather than implying completeness.
 
 ### 8.5 No `[JiraTack]` errors
 
@@ -1471,15 +1437,13 @@ npm run build && forge deploy -e development
 
 echo "$JWT" | cut -d. -f2 | base64 -d 2>/dev/null | jq .
 
-# Test webtrigger ping
+# Test webtrigger action
 
-curl -s -X POST "$WT/api" -d '{"action":"ping"}' | jq .
+curl -s -X POST "$WT/api" -H "Authorization: Bearer $JWT" -d '{"action":"getPriorities"}' | jq .
 
 # Run shared module tests
 
-node src/shared/urlNormalize.test.js
-node src/shared/adfSerializer.test.js
-node src/lib/tokens.test.js
+node --test src/shared/urlNormalize.test.js src/shared/adfSerializer.test.js src/shared/adfText.test.js src/shared/safeUrl.test.js
 
 # Check for window polyfill in Forge bundle (should be empty)
 
@@ -1494,8 +1458,10 @@ javascript
 if (payload.action === 'debugInvoke') {
   const { fn, args } = payload.payload;
   const fns = {
-    generateCanvasToken, provisionFields, dashboardAggregate,
-    epicPanelData, issuePanelData, fieldMappingAudit, recoverPinsFromDescriptions
+    generateCanvasToken, generateUserToken, generateGuestToken,
+    dashboardAggregate, epicPanelData, issuePanelData,
+    createCanvas, deleteCanvas, archiveCanvas,
+    listCanvasTokens, revokeCanvasToken
   };
   return fns[fn](context, args);
 }
