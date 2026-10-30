@@ -1,4 +1,4 @@
-# SPEC.md — v3.0
+# SPEC.md — v3.1
 
 **Status:** Current. Behaviour of shipped code only.
 **Verified against:** tag `baseline/pre-pivot-2026-10-30` (2026-10-30), app 4.92.0, SDK `d5d8edafeda5`.

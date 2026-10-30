@@ -16,7 +16,7 @@
 | Development last deployed | 2026-10-29T17:30:31Z | `forge environments list --json` |
 | SDK hash (deployed) | `731d221968a1` | `src/lib/version.js` at deploy time |
 | SDK hash (tree) | `d5d8edafeda5` | `src/lib/version.js` |
-| Bookmarklet bundle (tree) | 288,259 bytes (`dist/bookmarklet/jiratack.js`) | `npm run build` |
+| Bookmarklet bundle (tree) | 288,235 bytes (`dist/bookmarklet/jiratack.js`) | `npm run build` (byte-identical across rebuilds; `SDK_VERSION` is its SHA-256 prefix) |
 | Bookmarklet URL length | ~3,500 chars with a 64-char token | `buildBookmarklet()` |
 | Runtime | `nodejs24.x`, JavaScript only | `manifest.yml` |
 
