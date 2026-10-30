@@ -42,6 +42,18 @@ All notable changes to JiraTack.
 - Personal bookmarklet with a canvas launcher and inline canvas creation.
 - Dual layout modes, push vs fit (D17).
 - Form: Esc cancels, sticky Cancel, compact layout, issue-type default rules.
+- Bootstrap reports SDK load failures in-page (CSP, Trusted Types, failed
+  init, timeout) instead of removing the spinner silently (D22).
+
+### Fixes
+
+- Epic panel `totalTicketCount` is the canvas-wide count rather than a copy of
+  `epicTicketCount`.
+
+### Manifest
+
+- Dropped `manage:jira-project` and `manage:jira-configuration`, unused since
+  custom-field provisioning was removed (D18).
 
 ### Documentation
 

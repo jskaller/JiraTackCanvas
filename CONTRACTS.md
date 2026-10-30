@@ -521,8 +521,9 @@ EpicCanvasSummary: { canvasName, epicTicketCount, totalTicketCount, urlCount }
 
 - Two queries merged by issue key: company-managed `"Epic Link" = <epicKey>`, team-managed `parent = <epicKey>`.
 - Group by `metadata.pin.canvas`; `urlCount` is the distinct normalised URL count.
-- One failing query produces a warning; both failing → `INTERNAL`.
-- **Known defect:** `totalTicketCount` is currently assigned `epicTicketCount`, not the canvas total. Treat it as unreliable until wired to a full canvas scan.
+- `epicTicketCount` counts tickets in this epic; `totalTicketCount` comes from a separate `labels = "jiratack"` scan run as the viewer (cap 2,000), so it reflects what that user can see.
+- If the totals scan fails, `totalTicketCount` falls back to `epicTicketCount` and a warning is returned. If it hits the cap, a warning says totals may be incomplete.
+- One failing epic query produces a warning; both failing → `INTERNAL`.
 
 ### 4.4 `issuePanelData`
 
@@ -901,8 +902,6 @@ permissions:
     - read:jira-work
     - write:jira-work
     - read:jira-user
-    - manage:jira-project
-    - manage:jira-configuration
 modules:
   jira:globalPage:
     - key: jiratack-dashboard
@@ -981,6 +980,8 @@ resources:
 Key points:
 
 - `render: native` on the four UI Kit surfaces; **not** on `jira:globalPage` (Custom UI).
+- Only four scopes are requested. `manage:jira-project` and `manage:jira-configuration` were removed with custom-field provisioning (D18); any future field or screen manipulation needs both plus a decision entry.
+- Changing the scope list requires `forge install --upgrade -e development` before `forge deploy`, or Forge refuses the deploy.
 - `jira:entityProperty` is required for the `jiratackCanvas` alias. Indexing is not retroactive.
 - Three web triggers: API, SDK bundle, guest installer page. The installer is public HTML and must stay dependency-free.
 - No `external.fetch.backend` egress (removed 2026-10-27, D16). The app makes no outbound HTTP outside `requestJira`. Dynamic web triggers mean the app is not Runs-on-Atlassian eligible.

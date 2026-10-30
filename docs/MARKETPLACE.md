@@ -34,7 +34,8 @@ JiraTack lets QA and product teams pin issues directly on the pages they are rev
 - `read:jira-work`, `write:jira-work` — read issue data and create/update JiraTack tickets.
 - `read:jira-user` — resolve assignees and participants.
 - `storage:app` — store installation configuration, token records, and short-lived screenshot chunks.
-- `manage:jira-project`, `manage:jira-configuration` — **historically requested for custom-field provisioning, which has been removed.** No code path uses either scope today. Remove both from the manifest before submission; do not justify a permission the app does not need.
+
+No `manage:jira-project` or `manage:jira-configuration` scope is requested: the app creates no custom fields and never touches screens or field configuration.
 
 ## What the app does not do
 

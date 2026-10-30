@@ -253,7 +253,7 @@ Measured on live sites (2026-10-29/30, real deployed web trigger, Chromium):
 
 Consequences for this architecture:
 
-- The failure is **silent to the user today**: `src/shared/bookmarklet.js` removes the spinner on `onerror` and shows nothing.
+- The failure is now **explained in-page**: `src/shared/bookmarklet.js` catches `onerror`, a synchronous `s.src` throw (Trusted Types), a loaded script that never initialised, and a 15-second timeout, then replaces the spinner with a reason and a Dismiss button. The site still cannot run the client.
 
 - Inlining the SDK does not help — the bundle is 284 KB at this build, far beyond practical `javascript:` URL length, and injected inline scripts are themselves blocked on the strict sites above.
 
@@ -283,7 +283,7 @@ Any change to the delivery mechanism must preserve the property that the SDK tal
 
 8. **Guest links delegate the issuer's access.** Bounded by canvas scope and 365-day expiry; recorded in D19.
 
-9. **Strict-CSP sites cannot run the bookmarklet at all.** §11; the shipped mitigation is documentation, not code.
+9. **Strict-CSP sites cannot run the bookmarklet at all.** §11. The bootstrap now states why instead of failing silently; running there requires the extension channel (D22).
 
 ---
 

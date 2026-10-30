@@ -692,28 +692,14 @@ curl -s -i "$(echo $WT | sed 's|/api$||')/bookmarklet.js"
 
 ### 3.3 Generate bookmarklet
 
-**Admin UI or debug webtrigger:** generate a `create`-scoped token, then construct the `javascript:` URL.
+Use the dashboard's bookmarklet modal ("Copy") or `buildBookmarklet()` from `src/shared/bookmarklet.js`. Do not hand-build the bootstrap: it must carry the failure detection described in §3.12.
 
-Or use the debug webtrigger:
+Assert the generated URL:
 
-bash
-
-curl -s -X POST "$WT/api" \
-  -d '{"action":"debugGenerateToken","payload":{"canvasName":"Q3 Marketing","scope":"create"}}' \
-  | jq -r '.data.token' > /tmp/canvas_token.txt
-
-Build the bookmarklet string (replace placeholders):
-
-javascript
-
-javascript:(function(){
-  var c={token:"<TOKEN>",apiBase:"<WT>/api",canvasId:"Q3 Marketing",canvasName:"Q3 Marketing",sdkVersion:"<SDK_VERSION>"};
-  if(window.__jiratackActiveCanvas===c.canvasId){window.__jiratackClose();return;}
-  var s=document.createElement('script');
-  s.src=c.apiBase.replace('/api','/bookmarklet.js')+'?v='+c.sdkVersion;
-  s.onload=function(){window.__jiratackInit(c);};
-  document.head.appendChild(s);
-})();
+- starts with `javascript:` and stays under ~4,000 characters;
+- embeds `token`, `apiUrl`, `sdkUrl`, `canvasId`, `canvasName`, `sdkVersion`;
+- carries `sdkUrl` as a distinct URL — it must not be derived from `apiUrl` (D10);
+- ends with `?v=<SDK_VERSION>` appended to `sdkUrl` at load time, not baked into the stored URL.
 
 ### 3.4 Load on a test page
 
@@ -815,9 +801,25 @@ javascript:(function(){
 
 - Assert: no console buffer captured (console proxy is S4, not S3).
 
+### 3.12 CSP failure message (D22)
+
+- Open a strict-CSP site (github.com is reliable) with the browser console visible.
+
+- Click the bookmarklet.
+
+- Assert: the spinner is replaced by a card reading "JiraTack could not start on this page" with a CSP reason and a Dismiss button.
+
+- Assert: Dismiss removes the card and the injected style; the page is otherwise untouched.
+
+- Assert: the console contains a `[JiraTack]` error line naming the reason.
+
+- Repeat on a site that allows the script (example.com) and assert the overlay opens normally with no error card.
+
+- Optional Trusted Types check: on accounts.google.com, assert the reason names Trusted Types rather than a generic CSP block.
+
 ### Sprint 3 exit criteria
 
-All of 3.1–3.11 pass. Commit: `feat(s3): bookmarklet SDK scaffold`.
+All of 3.1–3.12 pass. Commit: `feat(s3): bookmarklet SDK scaffold`.
 
 ---
 
@@ -1086,6 +1088,8 @@ All of 5.1–5.11 pass. Commit: `feat(s5): canvas dashboard`.
 - Assert: each canvas row shows `epicTicketCount`, `totalTicketCount`, `urlCount`.
 
 - Assert: counts correct (verify via JQL).
+
+- Assert: `totalTicketCount` is the canvas-wide count and is **larger** than `epicTicketCount` when the canvas holds tickets outside this epic. (Before the fix both values were identical.)
 
 ### 6.2 Epic panel — team-managed
 

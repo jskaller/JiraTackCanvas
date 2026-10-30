@@ -304,21 +304,21 @@ GET <sdkUrl>?v=<sdkVersion>
 
 `<sdkUrl>` and `<apiUrl>` are separate web triggers and are never derived from one another (D10).
 
-The `javascript:` bookmarklet body is roughly 1,850–2,000 characters depending on canvas name and token length (1,854 measured with a 64-character token), and it is a bootstrap that:
+The `javascript:` bookmarklet body is roughly 3,500 characters (3,495 measured with a 64-character token), most of it the bootstrap's failure card, and it is a bootstrap that:
 
 1. Embeds `{ token, apiUrl, sdkUrl, canvasId, canvasName, sdkVersion }`.
 
 2. If `window.__jiratackActiveCanvas === canvasId`, calls `window.__jiratackClose()` and exits (toggle).
 
-3. Appends a centred "JiraTack is opening…" spinner with a 15-second auto-removal timer.
+3. Appends a centred "JiraTack is opening…" spinner.
 
 4. Injects `<script src="{sdkUrl}?v={sdkVersion}">`.
 
-5. On `load`, calls `window.__jiratackInit(config)`.
+5. On `load`, verifies `window.__jiratackInit` is a function, clears the bootstrap, and calls it.
 
-6. On `error`, removes the spinner and returns.
+6. On failure — `onerror`, a synchronous throw on `s.src` (Trusted Types), a missing `__jiratackInit`, or a 15-second timeout — replaces the spinner with an in-page card: "JiraTack could not start on this page", a reason, and a Dismiss button. The reason distinguishes a CSP block from a Trusted Types block, a script that loaded but did not initialise, and a timeout. Every failure is also logged as `[JiraTack] …` for diagnosis.
 
-**Known gap (documented as shipped, not as intended).** Step 6 is silent: a blocked script produces no user-visible message. Host-page CSP can block the external script entirely — measured on github.com, developer.mozilla.org, en.wikipedia.org, and accounts.google.com — and the user sees only a spinner that disappears. Improving this signal is tracked in D22 and the security review; the doc previously promised a toast that the code never showed.
+Host-page CSP can block the external script entirely — measured on github.com, developer.mozilla.org, en.wikipedia.org, and accounts.google.com — and the user now sees an explanation instead of a disappearing spinner. Running the client on those sites still requires the extension channel (D22); the message is honesty, not a fix.
 
 **Version coupling.** `sdkVersion` is a content hash (D13). Bookmarks embed the version at generation time, so an SDK change requires re-dragging the bookmarklet; an old bookmark keeps requesting the old hash.
 
@@ -571,9 +571,9 @@ Jira 400/422 is mapped to `VALIDATION_ERROR` with Jira's `errorMessages` and `er
 
 ### 8.2 Epic panel (`jira:issuePanel`, Epic condition)
 
-- Canvases referenced by the epic, with the epic ticket count and URL count per canvas.
+- Canvases referenced by the epic, with the epic ticket count, the canvas total ticket count, and the URL count per canvas.
 
-  `totalTicketCount` currently mirrors `epicTicketCount` rather than the canvas total; treat the field as unreliable until it is wired to the full canvas scan.
+  The total is counted in a separate `labels = "jiratack"` scan as the viewing user, so it reflects what that user can see. If that scan fails, the panel falls back to the epic count and reports a warning; if it hits the 2,000-issue cap, the panel reports that totals may be incomplete.
 
 - Merges a company-managed query (`"Epic Link" = <key>`) and a team-managed query (`parent = <key>`), deduplicating by key.
 
@@ -955,7 +955,7 @@ Retirement is a filter, never a deletion.
 
 | Condition | Behaviour |
 | --- | --- |
-| SDK script blocked by host CSP | **Silent today** — spinner disappears; no message (gap, D22) |
+| SDK script blocked by host CSP | In-page card: "JiraTack could not start on this page" with the reason (CSP, Trusted Types, failed init, or timeout) and a Dismiss button |
 | Session JWT expired | Silent re-exchange; if that fails, "Bookmarklet expired. Generate a new one from Jira." with a dashboard link |
 | Canvas/guest token revoked | Same as above |
 | Installation license inactive | Persistent red banner in the sidebar |
