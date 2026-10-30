@@ -1,7 +1,7 @@
 import api, { route } from '@forge/api';
 import { getInstallationConfig } from '../../lib/config.js';
 import { errorResult } from '../../lib/errors.js';
-import { normalizeUrl } from '../../shared/urlNormalize.js';
+import { canonicalUrl } from '../../shared/urlNormalize.js';
 import { canAccessCanvas, canAccessProject } from '../middleware/scope.js';
 import { isLicensedUser } from '../../lib/license.js';
 import { buildIssueDescription } from '../../lib/issueDescription.js';
@@ -165,15 +165,15 @@ export async function createIssue(payload, claims) {
     return errorResult('PROJECT_DISABLED', 'JiraTack is disabled for this project.');
   }
 
-  const normalizedUrl = normalizeUrl(rawUrl);
-  if (!/^https?:\/\//i.test(normalizedUrl)) {
+  const canonical = canonicalUrl(rawUrl);
+  if (!/^https?:\/\//i.test(canonical)) {
     return errorResult('VALIDATION_ERROR', 'url must be an absolute http(s) URL.');
   }
   const summary = rawSummary.startsWith('[JiraTack]') ? rawSummary : `[JiraTack] ${rawSummary}`;
   const description = buildIssueDescription({
     guest,
     bodyAdf: payload.descriptionAdf,
-    pageUrl: normalizedUrl,
+    pageUrl: canonical,
     consoleLog: payload.consoleLog,
   });
 
@@ -218,7 +218,7 @@ export async function createIssue(payload, claims) {
     guest: guest || undefined,
     pin: {
       canvas: canvasName,
-      url: normalizedUrl,
+      url: canonical,
       position: pinPosition,
       selector,
     },

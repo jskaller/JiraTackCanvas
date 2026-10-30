@@ -1,7 +1,7 @@
 import { route } from '@forge/api';
 import { getInstallationConfig } from './config.js';
 import { errorResult } from './errors.js';
-import { normalizeUrl, stripDeepLinkParams } from '../shared/urlNormalize.js';
+import { canonicalUrl } from '../shared/urlNormalize.js';
 import { buildIssueDescription } from './issueDescription.js';
 import { writeMetadata } from './metadata.js';
 
@@ -62,7 +62,7 @@ export async function createSeedTicket(options) {
   }
 
   const url = typeof targetUrl === 'string' && /^https?:\/\//i.test(targetUrl.trim())
-    ? normalizeUrl(stripDeepLinkParams(targetUrl.trim()))
+    ? canonicalUrl(targetUrl.trim())
     : 'https://example.com';
 
   const fields = {

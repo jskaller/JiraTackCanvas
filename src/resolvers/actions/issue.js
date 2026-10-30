@@ -1,5 +1,6 @@
 import api, { route } from '@forge/api';
 import { errorResult } from '../../lib/errors.js';
+import { normalizeUrl } from '../../shared/urlNormalize.js';
 import { METADATA_PROPERTY_KEY, metadataFromIssue, readMetadataBySearch } from '../../lib/metadata.js';
 
 const MAX_RELATED = 20;
@@ -83,7 +84,9 @@ async function loadRelatedTickets(issueKey, canvasName, url) {
         const metadata = metadataFromIssue(issue);
         if (!metadata) continue;
         if (metadata.pin.canvas !== canvasName) continue;
-        if (metadata.pin.url !== url) continue;
+        // Stored URLs keep their query now, so compare page identity rather than
+        // raw strings — otherwise page 1 and page 2 of the same URL stop relating.
+        if (!url || normalizeUrl(metadata.pin.url) !== normalizeUrl(url)) continue;
         const fields = issue.fields || {};
         results.push({
           key: issue.key,
