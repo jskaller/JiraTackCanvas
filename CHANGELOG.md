@@ -1,11 +1,57 @@
 # Changelog
 
-All notable changes to JiraTack. This project follows sprint-based milestones
-from `BUILD_PLAN.md`.
+All notable changes to JiraTack.
+
+> **Historical note.** Entries below `[Unreleased]` record the sprint build and
+> describe features that have since been removed (custom fields, provisioning,
+> the description marker, recovery). They are kept for history and are **not**
+> a description of current behaviour — see `SPEC.md` v3.0 for that. The
+> `0.9.0`-style headings track `package.json`, not the Forge app version
+> (currently 4.92.0 in development).
+
+## [Unreleased]
+
+### Delivery and platform
+
+- Measured host-page CSP behaviour for the bookmarklet; recorded the delivery
+  decision and adopted a content-script extension as the CSP-resilient channel
+  (D22). Bookmarklet unchanged; strict-CSP sites still fail silently.
+
+### Storage
+
+- Pin metadata moved to the Jira issue property `com.jiratack.metadata`;
+  descriptions are human-readable ADF only; labels `jiratack` /
+  `jiratack-guest`; custom fields, provisioning, mapping audit, description
+  marker, and recovery removed (D18).
+
+### Security
+
+- Per-operation server-side authorisation: `requireAdmin` on config, tokens,
+  delete/archive, canvas creation; seat-licensed guest-link minting (D19).
+- Token listings return `tokenRef` instead of raw credentials.
+- Screenshots uploaded in ≤200 KiB base64 chunks; `createIssue` takes
+  `screenshotUploadId`; all rendered URLs validated to `http(s)` (D20).
+- Admin-only web-trigger actions enforce an issuance-bound `isAdmin` claim,
+  failing closed when absent (D21).
+- Session auto re-exchange on `TOKEN_EXPIRED` / `TOKEN_INVALID`.
+
+### Client
+
+- Guest links with a public installer page, canvas dropdown, guest identity
+  capture, and licensed-assignee rule.
+- Personal bookmarklet with a canvas launcher and inline canvas creation.
+- Dual layout modes, push vs fit (D17).
+- Form: Esc cancels, sticky Cancel, compact layout, issue-type default rules.
+
+### Documentation
+
+- `SPEC.md` v3.0, `ARCHITECTURE.md` v2.0, and `CONTRACTS.md` rewritten against
+  shipped code; `DECISIONS.md` extended through D22; `TEST_PLAN.md` pruned of
+  retired feature tests.
 
 ## [0.9.0] — 2026-10-26
 
-MVP feature complete. Internal testing phase.
+MVP feature complete. Internal testing phase. **Superseded — see the note above.**
 
 ### Sprint 1 — Scaffolding, field provisioning, admin config
 

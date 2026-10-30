@@ -1,5 +1,10 @@
 # PRIOR_BUILD_TRIAGE.md
 
+> **Historical reference — do not cite as current.** Written on 2026-10-23,
+> before guest links, the issue-property metadata model (D18), and the
+> authorisation rewrite (D19–D21). Its port decisions concern code that no
+> longer exists in that form. Kept for provenance only.
+
 Reference document. Records what was reviewed from prior builds and what does not port. Does not override any spec, contract, or plan.
 
 ## Sources reviewed

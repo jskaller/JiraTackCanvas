@@ -1,6 +1,22 @@
 # BUILD_PLAN.md
 
-**Audience:** OpenCode. Second document to read, after CONTRACTS.md.
+> **HISTORICAL — do not cite as current.**
+>
+> This is the original seven-sprint plan that produced the first working build.
+> It predates guest links, the personal bookmarklet, the issue-property
+> metadata model (D18), per-operation authorisation (D19), chunked screenshot
+> upload (D20), the admin claim (D21), and the delivery-channel decision (D22).
+> It also still describes custom-field provisioning, which has been removed.
+>
+> Use it for sprint archaeology and acceptance-criteria history only. For
+> current behaviour read `SPEC.md` v3.0, `ARCHITECTURE.md` v2.0, and
+> `CONTRACTS.md`. For current verification read `TEST_PLAN.md`.
+>
+> Mapping: S1 → scaffolding/config, S2 → tokens/API, S3 → SDK scaffold,
+> S4 → capture, S5 → dashboard, S6 → panels, S7 → inline edit/retirement/license.
+> Everything the product does beyond that list was built after this plan.
+
+**Audience:** OpenCode. Historical reference.
 **Precedence:** Where this document disagrees with CONTRACTS.md, CONTRACTS.md wins. Where it disagrees with DECISIONS.md, DECISIONS.md wins.
 
 ---
