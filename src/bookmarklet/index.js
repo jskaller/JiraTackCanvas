@@ -452,6 +452,12 @@ function handleFilterChange(filter) {
   renderPinsAndSidebar();
 }
 
+function handleMatchModeChange(mode) {
+  if (!current) return;
+  current.matchMode = mode === 'exact' || mode === 'path' ? mode : 'smart';
+  renderPinsAndSidebar();
+}
+
 function clearPendingPin() {
   if (current && current.pendingPin) {
     current.pendingPin.destroy();
@@ -598,6 +604,9 @@ function renderPinsAndSidebar() {
 
   current.pinsController = renderPins(overlay.pinsEl, current.pins, {
     pageUrl,
+    // Pins are spatial: they only make sense on their own page, so the pin layer
+    // always uses the page matcher even when the list is showing all canvases.
+    matchMode: current.matchMode || 'smart',
     onSelect: (pin) => select(pin.key),
     onHover: handlePinHover,
   });
@@ -655,7 +664,9 @@ function renderPinsAndSidebar() {
     loadError: current.loadError || '',
     pageUrl,
     filter: current.filter || 'all',
+    matchMode: current.matchMode || 'smart',
     onFilterChange: handleFilterChange,
+    onMatchModeChange: handleMatchModeChange,
   });
 
   if (!current.loading && (!universal || hasCanvas)) {
@@ -959,6 +970,7 @@ async function init(config) {
       pins: [],
       canvasName: isLauncher ? (deepCanvas || null) : (config.canvasName || config.canvasId),
       filter: 'all',
+      matchMode: 'smart',
       loading: true,
       loadingLabel: 'Connecting to Jira…',
       loadError: null,

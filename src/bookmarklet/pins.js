@@ -1,4 +1,4 @@
-import { normalizeUrl, stripDeepLinkParams } from '../shared/urlNormalize.js';
+import { filterPinsByUrl } from '../shared/urlNormalize.js';
 
 const SELECTED_CLASS = 'jiratack-pin-selected';
 const HOVERED_CLASS = 'jiratack-pin-hovered';
@@ -42,10 +42,8 @@ function resolvePlacement(pin) {
 export function renderPins(container, pins, options = {}) {
   const onSelect = options.onSelect;
   const onHover = options.onHover;
-  const currentUrl = normalizeUrl(stripDeepLinkParams(options.pageUrl || window.location.href));
-  const visiblePins = (Array.isArray(pins) ? pins : []).filter(
-    (pin) => pin && pin.url && normalizeUrl(pin.url) === currentUrl,
-  );
+  const currentUrl = options.pageUrl || window.location.href;
+  const visiblePins = filterPinsByUrl(pins, currentUrl, options.matchMode || 'smart');
 
   container.innerHTML = '';
 

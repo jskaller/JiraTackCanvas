@@ -1132,6 +1132,62 @@ body.jiratack-pin-mode * {
   color: #ffffff;
 }
 
+.jiratack-match-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 16px 8px;
+}
+
+.jiratack-match-label {
+  flex: 0 0 auto;
+  font-size: 10px;
+  font-weight: 600;
+  color: #6b778c;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+
+.jiratack-match-btn {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 3px 4px;
+  border: 1px solid #dfe1e6;
+  border-radius: 3px;
+  background: #ffffff;
+  color: #42526e;
+  font-size: 10px;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.jiratack-match-btn:hover {
+  border-color: #4c9aff;
+}
+
+.jiratack-match-btn.jiratack-match-btn-active {
+  background: #deebff;
+  border-color: #0052cc;
+  color: #0747a6;
+}
+
+.jiratack-match-rescue {
+  margin-top: 6px;
+  padding: 3px 8px;
+  border: 1px solid #0052cc;
+  border-radius: 3px;
+  background: #ffffff;
+  color: #0052cc;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.jiratack-match-rescue:hover {
+  background: #deebff;
+}
+
 .jiratack-ticket-key {
   display: inline-block;
   color: #5e6c84;

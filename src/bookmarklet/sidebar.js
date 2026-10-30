@@ -1,5 +1,5 @@
 import { renderInlineEdit } from './inlineEdit.js';
-import { normalizeUrl } from '../shared/urlNormalize.js';
+import { normalizeUrl, filterPinsByUrl, countPinsByUrl } from '../shared/urlNormalize.js';
 import { toSafeHttpUrl } from '../shared/safeUrl.js';
 
 const SELECTED_CLASS = 'jiratack-ticket-selected';
@@ -114,6 +114,9 @@ function makeCloseButton() {
 export function renderSidebar(container, options) {
   const { canvasName, session, pins, config, onSelect, onToast, onDone, onEditStart, onHover } = options;
   const activeFilter = options.filter || 'all';
+  const matchMode = options.matchMode === 'exact' || options.matchMode === 'path'
+    ? options.matchMode
+    : 'smart';
   const pageUrl = options.pageUrl || '';
   const loadingLabel = options.loadingLabel || '';
   const loadError = options.loadError || '';
@@ -261,7 +264,6 @@ export function renderSidebar(container, options) {
     if (badges.childNodes.length > 0) header.appendChild(badges);
     header.appendChild(makeCloseButton());
     if (selectorContainer) renderFilterToggle(selectorContainer);
-    if (selectorContainer) renderFilterToggle(selectorContainer);
   }
 
   function renderFilterToggle(container) {
@@ -285,10 +287,46 @@ export function renderSidebar(container, options) {
     wrap.appendChild(allButton);
     wrap.appendChild(pageButton);
     container.appendChild(wrap);
+    if (activeFilter === 'page') renderMatchRow(container);
+  }
+
+  /**
+   * Offered only when the three modes disagree. The counts are the whole point:
+   * "Smart 2 / Whole page 5" tells a reviewer that four sibling URLs were merged
+   * without asking them to understand query strings.
+   */
+  function renderMatchRow(container) {
+    if (!pageUrl) return;
+    const counts = countPinsByUrl(pins, pageUrl);
+    if (counts.smart === counts.exact && counts.smart === counts.path) return;
+
+    const row = make('div', 'jiratack-match-row');
+    row.appendChild(make('span', 'jiratack-match-label', 'Match'));
+    const modes = [
+      { mode: 'smart', label: 'Smart', count: counts.smart, title: 'Ignore tracking and per-visit parameters' },
+      { mode: 'exact', label: 'Exact', count: counts.exact, title: 'Only this exact URL, query included' },
+      { mode: 'path', label: 'Whole page', count: counts.path, title: 'Every pin on this path, ignoring the query string' },
+    ];
+    modes.forEach(({ mode, label, count, title }) => {
+      const active = mode === matchMode;
+      const button = make(
+        'button',
+        `jiratack-match-btn${active ? ' jiratack-match-btn-active' : ''}`,
+        `${label} ${count}`,
+      );
+      button.type = 'button';
+      button.title = title;
+      button.setAttribute('aria-pressed', active ? 'true' : 'false');
+      button.addEventListener('click', () => {
+        if (options.onMatchModeChange) options.onMatchModeChange(mode);
+      });
+      row.appendChild(button);
+    });
+    container.appendChild(row);
   }
 
   const visiblePins = activeFilter === 'page' && pageUrl
-    ? (pins || []).filter((pin) => pin.url && normalizeUrl(pin.url) === normalizeUrl(pageUrl))
+    ? filterPinsByUrl(pins, pageUrl, matchMode)
     : (pins || []);
 
   const cards = new Map();
@@ -459,7 +497,23 @@ export function renderSidebar(container, options) {
     list.appendChild(skeletonTickets());
   } else if (!isUniversal || universalHasCanvas) {
     if (!visiblePins || visiblePins.length === 0) {
-      list.appendChild(make('div', 'jiratack-empty', options.emptyMessage || 'No pins on this page.'));
+      const counts = pageUrl ? countPinsByUrl(pins, pageUrl) : { smart: 0, exact: 0, path: 0 };
+      const canWiden = activeFilter === 'page'
+        && matchMode !== 'path'
+        && counts.path > (matchMode === 'exact' ? counts.exact : counts.smart);
+      if (canWiden) {
+        const empty = make('div', 'jiratack-empty', 'No pins match this URL.');
+        const rescue = make('button', 'jiratack-match-rescue', `Show all ${counts.path} on this page`);
+        rescue.type = 'button';
+        rescue.addEventListener('click', () => {
+          if (options.onMatchModeChange) options.onMatchModeChange('path');
+        });
+        empty.appendChild(document.createElement('br'));
+        empty.appendChild(rescue);
+        list.appendChild(empty);
+      } else {
+        list.appendChild(make('div', 'jiratack-empty', options.emptyMessage || 'No pins on this page.'));
+      }
     } else if (activeFilter === 'all') {
       const groups = new Map();
       visiblePins.forEach((pin) => {
