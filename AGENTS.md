@@ -11,12 +11,15 @@ defined by SPEC.md v3.0 and ARCHITECTURE.md v2.0.
 
 ## Read order
 
-1. DECISIONS.md — authoritative on every decision (through D22)
-2. CONTRACTS.md — wire-level contracts (signatures, shapes, error codes, manifest)
-3. SPEC.md — product behaviour of shipped code
-4. ARCHITECTURE.md — system shape, channels, storage, authorisation
-5. TEST_PLAN.md — verification commands (Parts 2, 3, 5, 7, 8 are current)
-6. BUILD_PLAN.md — historical sprint plan; do not treat as current scope
+1. `docs/BASELINE.md` — what is deployed versus the tree, and what is still open
+2. DECISIONS.md — authoritative on every decision (through D23)
+3. CONTRACTS.md — wire-level contracts (signatures, shapes, error codes, manifest)
+4. SPEC.md — product behaviour of shipped code
+5. ARCHITECTURE.md — system shape, channels, storage, authorisation
+6. TEST_PLAN.md — verification commands (Parts 2, 3, 5, 7, 8 are current)
+7. BUILD_PLAN.md — historical sprint plan; do not treat as current scope
+
+`docs/AI-CONTEXT.md` is a ten-minute brief for another agent context; `docs/SECURITY-REVIEW.md` holds findings and remediation.
 
 ## Precedence
 

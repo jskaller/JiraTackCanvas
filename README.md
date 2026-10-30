@@ -16,6 +16,9 @@ Development environment, app version **4.92.0** (SDK `d5d8edafeda5`). `package.j
 | [ARCHITECTURE.md](./ARCHITECTURE.md) | System shape, channels, storage, authorisation, delivery constraints (v2.0). | **Current** |
 | [TEST_PLAN.md](./TEST_PLAN.md) | Per-sprint verification commands and assertions. | **Current** for Parts 2, 3, 5, 7, 8 |
 | [AGENTS.md](./AGENTS.md) | Working rules and non-negotiables for agents. | **Current** |
+| [docs/BASELINE.md](./docs/BASELINE.md) | Deployed vs tree state, versions, verification status, open items. | **Snapshot** at `baseline/pre-pivot-2026-10-30` |
+| [docs/SECURITY-REVIEW.md](./docs/SECURITY-REVIEW.md) | Security findings, measurements and remediation ledger. | **Current** record of review |
+| [docs/AI-CONTEXT.md](./docs/AI-CONTEXT.md) | Dense brief for another AI context or a new engineer. | **Current** summary |
 | [BUILD_PLAN.md](./BUILD_PLAN.md) | The original seven-sprint build plan. | **Historical** — describes the pre-guest, pre-D18 build. Do not cite as current. |
 | [PRIOR_BUILD_TRIAGE.md](./PRIOR_BUILD_TRIAGE.md) | What was reviewed from JiraTack2/3 and ported. | **Historical** reference only |
 | [CHANGELOG.md](./CHANGELOG.md) | Release notes. | Historical, append per release |
