@@ -14,6 +14,7 @@ Machine-readable pin data lives in the Jira issue property `com.jiratack.metadat
 
 ```json
 {
+  "bindingId": "9f2c…64 hex…",
   "guest": { "name": "Ada Lovelace", "email": "ada@example.com" },
   "pin": {
     "canvas": "Q3 Marketing",
@@ -31,6 +32,7 @@ Machine-readable pin data lives in the Jira issue property `com.jiratack.metadat
 | `pin.url` | string | Required, non-empty. The URL **as captured** (`canonicalUrl`): absolute `http(s)`, fragment and deep-link params removed, query preserved and sorted. Identity is derived at read time (D23). |
 | `pin.position` | string | Required, non-empty. `relX,relY` or `absX,absY` (SPEC §12.2). |
 | `pin.selector` | string \| null | `null` when no stable selector was found. Empty strings normalise to `null`. |
+| `bindingId` | string | Optional. 64-char lowercase hex HMAC of the normalised guest email (D27/D24). Guest tickets only; absent means legacy. |
 | `guest.name`, `guest.email` | string | Optional; present only on guest tickets. |
 | `version` | number | `1`. Defaults to `1` when absent. |
 

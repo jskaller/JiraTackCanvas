@@ -6,6 +6,7 @@ import { canAccessCanvas, canAccessProject } from '../middleware/scope.js';
 import { isLicensedUser } from '../../lib/license.js';
 import { buildIssueDescription } from '../../lib/issueDescription.js';
 import { writeMetadata } from '../../lib/metadata.js';
+import { recordGuestPin } from '../../lib/bindings.js';
 import { readScreenshotUpload, deleteScreenshotUpload } from './screenshotUpload.js';
 
 function buildMultipartBody(fileBuffer, filename, mimeType) {
@@ -189,6 +190,10 @@ export async function createIssue(payload, claims) {
   };
   if (!isGuest) {
     fields.reporter = { accountId: claims.sub };
+  } else {
+    // P-03: the delegator is credited as reporter. If Jira refuses (issuer
+    // deactivated or not assignable), the create is retried without it below.
+    fields.reporter = { accountId: claims.sub };
   }
   if (payload.priorityId) {
     fields.priority = { id: payload.priorityId };
@@ -200,7 +205,24 @@ export async function createIssue(payload, claims) {
     fields.parent = { key: payload.parentKey };
   }
 
-  const attempt = await requestCreateIssue(fields);
+  let attempt = await requestCreateIssue(fields);
+  let reporterDropped = false;
+  if (
+    !attempt.ok
+    && isGuest
+    && fields.reporter
+    && (attempt.status === 400 || attempt.status === 422)
+  ) {
+    // The issuer may be deactivated or unassignable. Attribution is desirable,
+    // not essential: retry without reporter and report the degradation.
+    const withoutReporter = { ...fields };
+    delete withoutReporter.reporter;
+    const retry = await requestCreateIssue(withoutReporter);
+    if (retry.ok) {
+      attempt = retry;
+      reporterDropped = true;
+    }
+  }
   if (!attempt.ok) {
     console.error('[JiraTack] Jira createIssue rejected:', attempt.details);
     if (attempt.status === 400 || attempt.status === 422) {
@@ -214,7 +236,25 @@ export async function createIssue(payload, claims) {
     return errorResult('INTERNAL', 'Issue creation failed with an unknown response.');
   }
 
+  // Record the reviewer binding only after Jira has accepted the ticket, so a
+  // rejected create never consumes a slot or a pin count (D24). A binding
+  // failure must not fail the ticket.
+  let bindingId = null;
+  if (isGuest && guest) {
+    try {
+      const binding = await recordGuestPin({
+        email: guest.email,
+        issuedBy: claims.sub,
+        canvasName,
+      });
+      bindingId = binding ? binding.bindingId : null;
+    } catch (e) {
+      console.error('[JiraTack] Binding write failed:', e && e.message ? e.message : e);
+    }
+  }
+
   const metadataResult = await writeMetadata(created.key, {
+    bindingId: bindingId || undefined,
     guest: guest || undefined,
     pin: {
       canvas: canvasName,
@@ -249,13 +289,18 @@ export async function createIssue(payload, claims) {
     }
   }
 
+  const warnings = [];
+  if (!metadataResult.ok) warnings.push('metadata-not-stored');
+  if (reporterDropped) warnings.push('reporter-not-set');
+
   return {
     ok: true,
     data: {
       key: created.key,
       id: created.id,
       configVersion: config.configVersion || '',
-      warning: metadataResult.ok ? undefined : 'metadata-not-stored',
+      warning: warnings[0],
+      warnings,
     },
   };
 }

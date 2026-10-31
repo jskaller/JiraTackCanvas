@@ -45,6 +45,19 @@ All notable changes to JiraTack.
 - Bootstrap reports SDK load failures in-page (CSP, Trusted Types, failed
   init, timeout) instead of removing the spinner silently (D22).
 
+### Bindings and identity (D24–D27)
+
+- Guest pins now create or update a reviewer binding keyed by `HMAC(bindingSecret,
+  normalised email)`, with lifetime and monthly pin counters and per-canvas
+  access. Created at first pin; `issued → active` on success.
+- `bindingId` is written into `com.jiratack.metadata`; `normalizeMetadata` was
+  split into a pure model so the read-side drop is covered by tests.
+- Guest tickets now attempt `reporter = issuer` and degrade gracefully
+  (`reporter-not-set` warning) when Jira refuses the reporter.
+- KVS compare-and-set corrected: `{ version: { type: 'must_be_missing' } }` was
+  never a supported option, so secret creation was a plain overwrite. Now uses
+  `keyPolicy: 'FAIL_IF_EXISTS'`.
+
 ### Page identity (D23)
 
 - Normaliser rebuilt: tracking, cache-buster, version and random-value removal

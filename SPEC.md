@@ -153,6 +153,7 @@ Machine data lives in the issue property `com.jiratack.metadata`:
 
 ```json
 {
+  "bindingId": "9f2c…64 hex…",
   "guest": { "name": "Ada Lovelace", "email": "ada@example.com" },
   "pin": {
     "canvas": "Q3 Marketing",
@@ -163,6 +164,8 @@ Machine data lives in the issue property `com.jiratack.metadata`:
   "version": 1
 }
 ```
+
+- `bindingId` is present on guest tickets once the reviewer binding exists (D27). It is the HMAC of the normalised email, so it can be recomputed; absence means a legacy ticket.
 
 - `guest` is present only on guest-created tickets.
 
