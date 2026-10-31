@@ -138,7 +138,7 @@ A content-script browser extension is adopted as the CSP-resilient channel. Cont
 
 ### D24 — External reviewer binding model
 
-**Status:** Proposed (2026-10-31) — awaiting owner sign-off.
+**Status:** Resolved (2026-10-31).
 **Resolution:** An external reviewer is identified by email, claimed at the first pin and accepted **unverified** (`AD A-05`, `PR-03`). A binding is one record per unique reviewer per installation, keyed **globally**:
 
 ```text
@@ -166,7 +166,7 @@ Record: `bindingId` (the HMAC hex), `email` (plaintext, for the admin slot scree
 
 ### D25 — Capacity and metering model
 
-**Status:** Proposed (2026-10-31) — awaiting owner sign-off.
+**Status:** Resolved (2026-10-31).
 **Resolution:** Two meters, only one of which is new.
 
 - **Forge seat** (existing, D19): gates who may mint a token. Unchanged.
@@ -186,7 +186,7 @@ Slot semantics: consumed at first pin (`PR-09`); stays consumed for the month ev
 
 ### D26 — Guest invite TTL: 365 days → 72 hours
 
-**Status:** Proposed (2026-10-31) — awaiting owner sign-off.
+**Status:** Resolved (2026-10-31).
 **Resolution:** Newly minted guest tokens live **72 hours** (`AD A-03` "24–72h"; `TD §8(a)`). This amends D19's recorded compensating control, which named "canvas scoping and a 365-day expiry".
 
 **Existing tokens are not rewritten.** The old guest namespace is frozen read-only (S3): records already issued keep their original `expiresAt` and expire on their original schedule; nothing is silently shortened mid-review, and no new 365-day token is minted after cutover. The policy boundary is therefore visible: tokens minted before the cutover keep their TTL, tokens minted after get 72 h.
@@ -203,7 +203,7 @@ Slot semantics: consumed at first pin (`PR-09`); stays consumed for the month ev
 
 ### D27 — `bindingId` in `com.jiratack.metadata`
 
-**Status:** Proposed (2026-10-31) — awaiting owner sign-off.
+**Status:** Resolved (2026-10-31).
 **Resolution:** Extend D18's property with one **additive, optional** string field:
 
 ```json
@@ -222,7 +222,7 @@ Slot semantics: consumed at first pin (`PR-09`); stays consumed for the month ev
 
 ### D28 — `window.__jiratackInit` contract
 
-**Status:** Proposed (2026-10-31) — awaiting owner sign-off.
+**Status:** Resolved (2026-10-31).
 **Resolution:** **Accepted risk, documented, with the extension as the target date.** `window.__jiratackInit` stays as the SDK entry point. The exposure is recorded in `TD §2 #3` and in the security review's finding list.
 
 **Why not the alternatives now:**
