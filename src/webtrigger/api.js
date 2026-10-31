@@ -62,7 +62,7 @@ export const handler = async (req, context) => {
 
   try {
     if (action === 'exchangeToken') {
-      return envelope(await exchangeToken(payload));
+      return envelope(await exchangeToken(payload, req));
     }
 
     if (action === 'getPinsForCanvasAndUrl') {

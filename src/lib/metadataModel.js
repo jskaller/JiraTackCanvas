@@ -16,6 +16,7 @@ export const METADATA_VERSION = 1;
  */
 
 const BINDING_ID_RE = /^[a-f0-9]{64}$/;
+const PAIRING_ID_RE = /^[a-f0-9]{64}$/;
 
 export function normalizeMetadata(input) {
   if (!input || typeof input !== 'object') return null;
@@ -37,6 +38,10 @@ export function normalizeMetadata(input) {
 
   if (typeof input.bindingId === 'string' && BINDING_ID_RE.test(input.bindingId)) {
     metadata.bindingId = input.bindingId;
+  }
+
+  if (typeof input.pairingId === 'string' && PAIRING_ID_RE.test(input.pairingId)) {
+    metadata.pairingId = input.pairingId;
   }
 
   if (

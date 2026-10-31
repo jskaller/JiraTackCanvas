@@ -25,15 +25,23 @@ const base = {
 const withBinding = normalizeMetadata({ ...base, bindingId: BINDING });
 check('bindingId preserved', withBinding.bindingId, BINDING);
 
-// bindingId survives a read through metadataFromIssue (the read-side drop is the trap)
-const issue = { properties: { 'com.jiratack.metadata': { ...base, bindingId: BINDING } } };
+// pairingId survives normalisation on write
+const PAIRING = 'c'.repeat(64);
+const withPairing = normalizeMetadata({ ...base, pairingId: PAIRING });
+check('pairingId preserved', withPairing.pairingId, PAIRING);
+
+// Both survive a read through metadataFromIssue (read-side drop is the trap)
+const issue = { properties: { 'com.jiratack.metadata': { ...base, bindingId: BINDING, pairingId: PAIRING } } };
 check('bindingId readable', metadataFromIssue(issue).bindingId, BINDING);
+check('pairingId readable', metadataFromIssue(issue).pairingId, PAIRING);
 
-// Absent bindingId stays absent — legacy tickets are valid
+// Absent ids stay absent — legacy tickets are valid
 check('legacy has no bindingId', 'bindingId' in normalizeMetadata(base), false);
+check('legacy has no pairingId', 'pairingId' in normalizeMetadata(base), false);
 
-// Malformed bindingId is dropped rather than persisted
+// Malformed ids are dropped rather than persisted
 check('short id dropped', 'bindingId' in normalizeMetadata({ ...base, bindingId: 'abc' }), false);
+check('short pairing dropped', 'pairingId' in normalizeMetadata({ ...base, pairingId: 'abc' }), false);
 check('uppercase hex dropped', 'bindingId' in normalizeMetadata({ ...base, bindingId: BINDING.toUpperCase() }), false);
 
 // Guest + pin shape unchanged

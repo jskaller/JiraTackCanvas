@@ -7,7 +7,6 @@ import { isLicensedUser } from '../../lib/license.js';
 import { buildIssueDescription } from '../../lib/issueDescription.js';
 import { writeMetadata } from '../../lib/metadata.js';
 import { recordGuestPin } from '../../lib/bindings.js';
-import { markCredentialBinding } from '../../lib/credentials.js';
 import { readScreenshotUpload, deleteScreenshotUpload } from './screenshotUpload.js';
 
 function buildMultipartBody(fileBuffer, filename, mimeType) {
@@ -249,9 +248,6 @@ export async function createIssue(payload, claims) {
         canvasName,
       });
       bindingId = binding ? binding.bindingId : null;
-      if (binding && claims && claims.credentialId) {
-        await markCredentialBinding(claims.credentialId, binding.bindingId);
-      }
     } catch (e) {
       console.error('[JiraTack] Binding write failed:', e && e.message ? e.message : e);
     }
@@ -259,6 +255,7 @@ export async function createIssue(payload, claims) {
 
   const metadataResult = await writeMetadata(created.key, {
     bindingId: bindingId || undefined,
+    pairingId: isGuest && claims ? claims.pairingId : undefined,
     guest: guest || undefined,
     pin: {
       canvas: canvasName,

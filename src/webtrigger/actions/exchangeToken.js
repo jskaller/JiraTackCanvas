@@ -2,7 +2,8 @@ import api, { route } from '@forge/api';
 import { kvsGet } from '../../lib/kvs.js';
 import { getInstallationConfig } from '../../lib/config.js';
 import { generateSessionJwt } from '../../lib/tokens.js';
-import { authenticateCredential } from '../../lib/credentials.js';
+import { pairingService } from '../../lib/credentials.js';
+import { parseCompositeToken } from '../../lib/tokenParser.js';
 import { errorResult } from '../../lib/errors.js';
 import { resolveWebtriggerUrls } from '../../lib/webtriggerUrls.js';
 
@@ -46,6 +47,14 @@ function tokenFromPayload(payload) {
   return payload.canvasToken || payload.userToken || payload.token || '';
 }
 
+function headerValue(request, name) {
+  const headers = (request && request.headers) || {};
+  const key = Object.keys(headers).find((k) => k.toLowerCase() === name);
+  if (!key) return null;
+  const value = headers[key];
+  return Array.isArray(value) ? value[0] : value;
+}
+
 async function commonResponse(config, extra) {
   const { apiUrl, sdkUrl } = await resolveWebtriggerUrls(config);
   const jiraBaseUrl = await getJiraBaseUrl();
@@ -61,7 +70,7 @@ async function commonResponse(config, extra) {
   };
 }
 
-export async function exchangeToken(payload) {
+export async function exchangeToken(payload, request) {
   const token = tokenFromPayload(payload);
   if (typeof token !== 'string' || token.length === 0) {
     return errorResult('BAD_REQUEST', 'canvasToken is required.');
@@ -116,53 +125,69 @@ export async function exchangeToken(payload) {
     });
   }
 
-  const credentialResult = await authenticateCredential(token, now);
-  if (credentialResult && credentialResult.ok === false) {
-    return errorResult(credentialResult.code, credentialResult.message);
-  }
-  if (credentialResult && credentialResult.ok) {
-    const { credential, parent } = credentialResult;
-
-    let permittedProjects = '*';
-    if (typeof parent.permittedProjectsJson === 'string') {
-      try {
-        permittedProjects = JSON.parse(parent.permittedProjectsJson);
-      } catch (e) {
-        permittedProjects = [];
+  // Invite branch. A bare invite is the legacy form (installId ""); a composite
+  // is `inviteToken.installId`. Malformed composites fall through so a stray dot
+  // cannot mask a valid canvas token.
+  const parsed = parseCompositeToken(token);
+  if (!parsed.malformedComposite && parsed.inviteToken) {
+    const invite = await kvsGet(`canvasTokens:${parsed.inviteToken}`);
+    if (invite && invite.scope === 'guest_create') {
+      if (invite.revoked) {
+        return errorResult('TOKEN_INVALID', 'Invite token has been revoked.');
       }
+      if (invite.expiresAt && invite.expiresAt < now) {
+        return errorResult('TOKEN_EXPIRED', 'Invite token has expired.');
+      }
+
+      const pairing = await pairingService.recordPairing({
+        inviteToken: parsed.inviteToken,
+        installId: parsed.installId,
+        inviteRecord: invite,
+        userAgent: headerValue(request, 'user-agent'),
+        now,
+      });
+      if (!pairing.ok) return errorResult(pairing.code, pairing.message);
+
+      let permittedProjects = '*';
+      if (typeof invite.permittedProjectsJson === 'string') {
+        try {
+          permittedProjects = JSON.parse(invite.permittedProjectsJson);
+        } catch (e) {
+          permittedProjects = [];
+        }
+      }
+      const permittedCanvases = Array.isArray(invite.permittedCanvases) ? invite.permittedCanvases : [];
+
+      const sessionJwt = await generateSessionJwt({
+        iss: 'jiratack',
+        sub: invite.issuer,
+        aud: invite.installationId,
+        scope: 'guest_create',
+        issuer: invite.issuer,
+        permittedCanvases,
+        permittedProjects,
+        pairingId: pairing.pairingId,
+        isAdmin: false,
+        iat,
+        exp,
+      });
+
+      const config = await getInstallationConfig();
+      const displayName = await getDisplayName(invite.issuer);
+      return commonResponse(config, {
+        sessionJwt,
+        expiresAt: exp * 1000,
+        canvasId: null,
+        canvasName: null,
+        scope: 'guest_create',
+        issuer: invite.issuer,
+        permittedCanvases,
+        permittedProjects,
+        isAdmin: false,
+        displayName,
+        pairingId: pairing.pairingId,
+      });
     }
-    const permittedCanvases = Array.isArray(parent.permittedCanvases) ? parent.permittedCanvases : [];
-
-    const sessionJwt = await generateSessionJwt({
-      iss: 'jiratack',
-      sub: parent.issuer,
-      aud: parent.installationId,
-      scope: 'guest_create',
-      issuer: parent.issuer,
-      permittedCanvases,
-      permittedProjects,
-      credentialId: credential.credentialId,
-      bindingId: credential.bindingId || undefined,
-      isAdmin: false,
-      iat,
-      exp,
-    });
-
-    const config = await getInstallationConfig();
-    const displayName = await getDisplayName(parent.issuer);
-    return commonResponse(config, {
-      sessionJwt,
-      expiresAt: exp * 1000,
-      canvasId: null,
-      canvasName: null,
-      scope: 'guest_create',
-      issuer: parent.issuer,
-      permittedCanvases,
-      permittedProjects,
-      isAdmin: false,
-      displayName,
-      credentialId: credential.credentialId,
-    });
   }
 
   const record = await kvsGet(`canvasTokens:${token}`);
@@ -176,46 +201,10 @@ export async function exchangeToken(payload) {
     return errorResult('TOKEN_EXPIRED', 'Canvas token has expired.');
   }
 
+  // Guest invites are handled by the invite branch above; a guest record here
+  // would bypass pairing entirely, so it is refused rather than minted.
   if (record.scope === 'guest_create') {
-    const permittedCanvases = Array.isArray(record.permittedCanvases) ? record.permittedCanvases : [];
-    const issuer = record.issuer || '';
-
-    let permittedProjects = '*';
-    if (typeof record.permittedProjectsJson === 'string') {
-      try {
-        permittedProjects = JSON.parse(record.permittedProjectsJson);
-      } catch (e) {
-        permittedProjects = [];
-      }
-    }
-
-    const sessionJwt = await generateSessionJwt({
-      iss: 'jiratack',
-      sub: issuer,
-      aud: record.installationId,
-      scope: 'guest_create',
-      issuer,
-      permittedCanvases,
-      permittedProjects,
-      isAdmin: false,
-      iat,
-      exp,
-    });
-
-    const config = await getInstallationConfig();
-    const displayName = await getDisplayName(issuer);
-    return commonResponse(config, {
-      sessionJwt,
-      expiresAt: exp * 1000,
-      canvasId: null,
-      canvasName: null,
-      scope: 'guest_create',
-      issuer,
-      permittedCanvases,
-      permittedProjects,
-      isAdmin: false,
-      displayName,
-    });
+    return errorResult('TOKEN_INVALID', 'This invite must be used from its installer link.');
   }
 
   let permittedProjects;
