@@ -13,7 +13,7 @@ import { METADATA_PROPERTY_KEY, metadataFromIssue } from '../../lib/metadata.js'
 import { SDK_VERSION } from '../../lib/version.js';
 
 const CANVAS_TOKEN_TTL_SECONDS = 2592000;
-const GUEST_TOKEN_TTL_DAYS = 365;
+const GUEST_TOKEN_TTL_HOURS = 72;
 const SESSION_TTL_SECONDS = 8 * 60 * 60;
 
 function resolveInstallationId(context) {
@@ -207,7 +207,7 @@ export async function generateGuestToken(context, payload) {
   const installationId = resolveInstallationId(context);
   const token = crypto.randomBytes(32).toString('hex');
   const issuedAt = Date.now();
-  const expiresAt = issuedAt + GUEST_TOKEN_TTL_DAYS * 24 * 60 * 60 * 1000;
+  const expiresAt = issuedAt + GUEST_TOKEN_TTL_HOURS * 60 * 60 * 1000;
 
   const record = {
     scope: 'guest_create',
@@ -219,10 +219,13 @@ export async function generateGuestToken(context, payload) {
     issuedAt,
     expiresAt,
     revoked: false,
+    // New invites are 72h (D26); grandfathered records lack the flag and keep
+    // their original expiry, so the installer never shows a misleading reason.
+    mintedAfterCutover: true,
   };
 
   try {
-    await kvsSet(`canvasTokens:${token}`, record, { ttl: { value: GUEST_TOKEN_TTL_DAYS, unit: 'DAYS' } });
+    await kvsSet(`canvasTokens:${token}`, record, { ttl: { value: GUEST_TOKEN_TTL_HOURS, unit: 'HOURS' } });
   } catch (e) {
     return errorResult('INTERNAL', `Failed to persist guest token: ${e && e.message ? e.message : e}`);
   }

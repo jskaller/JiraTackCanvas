@@ -91,7 +91,7 @@ Removed with custom fields. No resolver, no field registry, no screen manipulati
 
 - Generation: `crypto.randomBytes(32).toString('hex')` → 64-char hex.
 
-- Storage: KVS `canvasTokens:<token>`, written with `{ ttl: { value: 30, unit: 'DAYS' } }` for canvas tokens and `{ ttl: { value: 365, unit: 'DAYS' } }` for guest tokens.
+- Storage: KVS `canvasTokens:<token>`, written with `{ ttl: { value: 30, unit: 'DAYS' } }` for canvas tokens and `{ ttl: { value: 72, unit: 'HOURS' } }` for new guest invites. Grandfathered invites keep their original expiry.
 
 - **Canvas record:**
 
@@ -210,10 +210,12 @@ Success:  { sessionJwt, expiresAt, canvasId, canvasName, scope, permittedProject
 Guest:    … + { issuer, permittedCanvases }
 ```
 
-`payload.canvasToken` may be a canvas token, a guest invite token, a pairing credential, or a personal token (`payload.userToken` and `payload.token` are also accepted). Lookup order: `userTokens:<raw>`, then `credentialTokens:<sha256(raw)>`, then `canvasTokens:<raw>`.
+`payload.canvasToken` carries one of: a personal token, a guest invite (bare, legacy), a composite guest token (`inviteToken.installId`), or a canvas token. Lookup order: `userTokens:<raw>`, then the invite branch (parse composite → invite lookup → pairing), then `canvasTokens:<raw>`.
 
-- **Pairing credential** → resolves to its invite (`parentToken`). The invite is authoritative: revoked, expired or missing parent ⇒ `TOKEN_INVALID`/`TOKEN_EXPIRED`. The session carries `scope: "guest_create"`, the parent's `permittedCanvases`/`permittedProjects`, plus `credentialId` and, once bound, `bindingId`.
-- Credential raw values are never stored; only their SHA-256. Pairing is capped at 5 per invite (`A-20`); exceeding it returns `PAIRING_LIMIT`.
+- **Composite token** — `inviteToken.installId`, where installId is 32 lowercase hex. Empty installId emits the bare invite (no trailing dot). A composite with a malformed suffix falls through to the canvas-token branch. No SDK change: the field name and shape are unchanged.
+- **Pairing** — resolved or created per `(inviteToken, installId)` with a CAS insert; capped at 10 per invite, counted from `pairingIndex:<inviteTokenRef>:*` (includes revoked rows). Exceeding it returns `PAIRING_LIMIT`.
+- The session JWT carries `pairingId` and loses `credentialId`/`bindingId`; `bindingId` is per ticket, derived at creation.
+- A guest invite presented as a plain canvas token in the non-invite branch is refused: invites must pair.
 
 - Personal token → `scope: "create" | "view"`, `canvasId: null`, `canvasName: null`.
 - Guest token → `scope: "guest_create"`, `isAdmin: false`, plus `issuer` and `permittedCanvases`.
@@ -579,9 +581,9 @@ Payload: { permittedCanvases: string[] }   // 1–50 distinct entries, each 1–
 
 - Requires a **seat** (`hasAccess !== false`), not site-admin rights → else `LICENSE_INACTIVE`.
 - `permittedProjects` is frozen at issuance via `computePermittedProjects(mode, null)`.
-- Record per §2.1 with 365-day TTL and `isAdmin: false`.
+- Record per §2.1 with a 72-hour TTL, `mintedAfterCutover: true`, and `isAdmin: false`.
 - `installerUrl` = install web trigger with `?token=<guestToken>`; `null` if URL resolution fails.
-- **Accepted trade-off (D19):** the guest session inherits the **issuer's** browse access for the selected canvases. Seat gating, canvas scoping, and the 365-day expiry are the compensating controls.
+- **Accepted trade-off (D19):** the guest session inherits the **issuer's** browse access for the selected canvases. Seat gating, canvas scoping, and the 72-hour expiry are the compensating controls.
 
 ### 4.6 `recoverPinsFromDescriptions` — retired (D18)
 

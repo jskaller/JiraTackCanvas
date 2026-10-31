@@ -39,7 +39,7 @@ JiraTack is a single-part product: an Atlassian Forge app, Marketplace listed, i
   | --- | --- | --- | --- |
   | Canvas bookmarklet | `generateCanvasToken` | One canvas | 30 days |
   | Personal bookmarklet | `generateUserToken` | The issuing user, launcher picks a canvas | 90 days |
-  | Guest link | `generateGuestToken` | A set of canvases, delegated by the issuer | 365 days |
+  | Guest link | `generateGuestToken` | A set of canvases, delegated by the issuer | 72 hours (new); grandfathered 365 d |
 
 **What it explicitly is not:**
 
@@ -201,7 +201,7 @@ There is no backfill and no description marker. Tickets without `com.jiratack.me
 | --- | --- | --- | --- | --- |
 | Canvas token | 30 days | `create`, `view` | Embedded in the bookmarklet URL | `generateCanvasToken` |
 | Personal token | 90 days | `create`, `view` | Embedded in the bookmarklet URL | `generateUserToken` |
-| Guest token | 365 days | `guest_create` | Embedded in the installer URL | `generateGuestToken` |
+| Guest token | 72 hours (new invites; grandfathered 365 d) | `guest_create` | Embedded in the installer URL | `generateGuestToken` |
 | Session JWT | 8 hours | Inherited | `sessionStorage` | `exchangeToken` web trigger |
 
 ### 5.2 Issuance rules
@@ -232,7 +232,7 @@ There is no backfill and no description marker. Tickets without `com.jiratack.me
 
 2. `permittedCanvases` must be 1–50 distinct names of 1–255 characters.
 
-3. Record is `scope: 'guest_create'`, `issuer`, `isAdmin: false`, `permittedCanvases`, `permittedProjectsJson`, 365-day TTL.
+3. Record is `scope: 'guest_create'`, `issuer`, `isAdmin: false`, `permittedCanvases`, `permittedProjectsJson`, `mintedAfterCutover: true`, 72-hour TTL.
 
 4. Returns `{ token, installerUrl, scope, permittedCanvases, permittedProjects, expiresAt }`. `installerUrl` is the install web trigger with `?token=…`.
 
@@ -750,7 +750,7 @@ Per-operation, server-side. Hiding a control is never the control (D19, D21).
 
 **Accepted trade-offs and gaps:**
 
-- Guest links carry the **issuer's** browse access for the selected canvases. A seat holder can hand an external reviewer visibility into projects that holder can see. Mitigated by canvas scoping and a 365-day expiry; recorded in D19 rather than left implicit.
+- Guest links carry the **issuer's** browse access for the selected canvases. A seat holder can hand an external reviewer visibility into projects that holder can see. Mitigated by canvas scoping and a short invite expiry (72 h for new invites, D26); recorded in D19 rather than left implicit.
 
 - Revocation is eventual: a deleted token blocks new exchanges, but a live JWT remains valid up to 8 hours.
 

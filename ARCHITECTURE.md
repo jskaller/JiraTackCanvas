@@ -81,7 +81,7 @@ All three run the same SDK; only the embedded token and `canvasId` differ.
 | --- | --- | --- | --- | --- |
 | Canvas bookmarklet | `generateCanvasToken` | 30 d | canvas name | Bound to one canvas |
 | Personal bookmarklet | `generateUserToken` | 90 d | `universal` | Launcher: pick a canvas, optionally create one |
-| Guest link | `generateGuestToken` | 365 d | first permitted canvas | Dropdown limited to `permittedCanvases` |
+| Guest link | `generateGuestToken` | 72 h (new); grandfathered 365 d | first permitted canvas | Dropdown limited to `permittedCanvases` |
 
 The personal channel is not a scope. It mints `create` or `view` — whichever the user's seat allows — and the SDK branches on `canvasId === 'universal'`. The guest channel is a scope (`guest_create`) *and* a claim set (`issuer`, `permittedCanvases`, `isAdmin: false`).
 
@@ -161,7 +161,7 @@ Guest creates a ticket
   → server does NOT set reporter (there is no reporter identity)
 ```
 
-**The delegation is real and recorded.** A guest link carries the issuer's browse access for the chosen canvases. A seat holder can expose projects they can see to someone with no Jira account. Canvas scoping plus a 365-day expiry bound it; D19 records the trade-off rather than leaving it implicit.
+**The delegation is real and recorded.** A guest link carries the issuer's browse access for the chosen canvases. A seat holder can expose projects they can see to someone with no Jira account. Canvas scoping plus a short invite expiry bound it; D19 records the trade-off rather than leaving it implicit, and D26 sets 72 h for new invites.
 
 ---
 
@@ -220,7 +220,7 @@ Admin status is resolved at issuance and frozen in the token. A demotion takes e
 | Key | Contents | TTL |
 | --- | --- | --- |
 | `installationConfig` | `viewPermissionMode`, `projects`, `archivedCanvases`, `deletedCanvases`, `configVersion`, `updatedAt`, `schemaVersion` | none |
-| `canvasTokens:<token>` | Canvas records (`canvasName`, `userId`, `scope`, `isAdmin`, `permittedProjectsJson`, `expiresAt`) and guest records (`issuer`, `permittedCanvases`, `scope: guest_create`) | 30 d / 365 d |
+| `canvasTokens:<token>` | Canvas records (`canvasName`, `userId`, `scope`, `isAdmin`, `permittedProjectsJson`, `expiresAt`) and guest invite records (`issuer`, `permittedCanvases`, `mintedAfterCutover`) | 30 d / 72 h (365 d grandfathered) |
 | `userTokens:<token>` | `userId`, `scope`, `isAdmin`, `permittedProjectsJson`, `expiresAt` | 90 d |
 | `jiratack_licensed_users:<accountId>` | `true` — written whenever a seat holder uses a resolver | none |
 | `sessionSigningSecret` | 32-byte hex, HS256 key | none |
@@ -282,7 +282,7 @@ Any change to the delivery mechanism must preserve the property that the SDK tal
 
 7. **Revocation and admin status are eventual.** Both are bounded by the 8-hour session lifetime (D11, D21).
 
-8. **Guest links delegate the issuer's access.** Bounded by canvas scope and 365-day expiry; recorded in D19.
+8. **Guest links delegate the issuer's access.** Bounded by canvas scope and a short invite expiry (72 h for new invites, D26); recorded in D19.
 
 9. **Strict-CSP sites cannot run the bookmarklet at all.** §11. The bootstrap now states why instead of failing silently; running there requires the extension channel (D22).
 

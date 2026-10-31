@@ -18,7 +18,7 @@ The on-page client is a `javascript:` bookmarklet, generated inside Jira and dra
 | --- | --- | --- | --- |
 | Canvas bookmarklet | `generateCanvasToken` | 30 days | One named canvas |
 | Personal bookmarklet | `generateUserToken` | 90 days | Launcher: choose a canvas, optionally create one |
-| Guest link | `generateGuestToken` | 365 days | Selected canvases, public installer page |
+| Guest link | `generateGuestToken` | 72 hours (new); grandfathered invites keep 365 d | Selected canvases, public installer page |
 
 All three run the same SDK. Guest tokens carry `scope: "guest_create"`, `permittedCanvases`, and `isAdmin: false`.
 
