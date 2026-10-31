@@ -133,7 +133,7 @@ Guest records have no `canvasName` and no `userId`. `listCanvasTokens` returns t
 
 - Algorithm: **HS256**, `jsonwebtoken`.
 
-- Secret: 256-bit hex under KVS key `sessionSigningSecret`, created on first use with `{ version: { type: 'must_be_missing' } }` so concurrent cold starts cannot orphan each other's tokens. Stored as a plain value, not `kvs.setSecret`; migration is tracked in the security review. Never rotated in v1.
+- Secret: 256-bit hex under KVS key `sessionSigningSecret`, created on first use with `keyPolicy: 'FAIL_IF_EXISTS'` so concurrent cold starts cannot orphan each other's tokens. (The older `must_be_missing` option is unsupported and was silently ignored.) Stored as a plain value, not `kvs.setSecret`; migration is tracked in the security review. Never rotated in v1.
 
 - Claims:
 

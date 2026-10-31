@@ -292,7 +292,7 @@ jiratack_licensed_users:<accountId> → true
 sessionSigningSecret → string
 ```
 
-The signing secret is created with a `must_be_missing` compare-and-set so concurrent cold starts cannot orphan each other's JWTs. It is currently stored as a plain KVS value, not with `kvs.setSecret`; migration is tracked in the security review.
+The signing secret is created with `keyPolicy: 'FAIL_IF_EXISTS'` (the KVS API's actual compare-and-set; the older `must_be_missing` option is not supported and silently degraded to an overwrite until 2026-10-31). It is currently stored as a plain KVS value, not with `kvs.setSecret`; migration is tracked in the security review.
 
 ---
 
@@ -647,7 +647,7 @@ Jira 400/422 is mapped to `VALIDATION_ERROR` with Jira's `errorMessages` and `er
 
 - A KVS read error **throws**; it does not return defaults. Returning defaults once let a transient failure be persisted back over real configuration.
 
-- Writes go through `mutateInstallationConfig`, which reads and writes in one narrow window with up to 3 attempts. This shrinks the read-modify-write race; true compare-and-set is follow-up work.
+- Writes go through `mutateInstallationConfig`, which reads and writes in one narrow window with up to 3 attempts. `kvs.transact()` exists and would give true compare-and-set; that remains follow-up work rather than a missing capability.
 
 - `setInstallationConfig` merges `payload.projects` rather than replacing the map.
 

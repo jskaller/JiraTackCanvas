@@ -20,7 +20,7 @@
 | 1 | `get/setInstallationConfig`, `get/setProjectConfig`, `listCanvasTokens`, `revokeCanvasToken`, `generateGuestToken` had **no authorisation check** | **Critical** | `src/resolvers/index.js:69-128`, `resolvers/actions/config.js`, `resolvers/actions/admin.js` |
 | 2 | `listCanvasTokens` returned **raw bearer token strings** → any user on the dashboard could enumerate and use/revoke every canvas & guest credential | **Critical** | `resolvers/actions/admin.js:272-280` |
 | 3 | Revoked/deleted tokens cannot invalidate a live session JWT (up to 8 h) | High (was accepted as D11) | `webtrigger/actions/exchangeToken.js:116-125` |
-| 4 | Signing secret: get-then-set with no compare-and-set → cold-start race can orphan already-issued JWTs | High | `lib/tokens.js:10-26` |
+| 4 | Signing secret: get-then-set with no compare-and-set → cold-start race can orphan already-issued JWTs | High — **reopened 2026-10-31**, see §8 correction | `lib/tokens.js:10-26` |
 | 5 | `installationConfig` read-modify-write with no concurrency control → lost updates on simultaneous admin edits | High | `lib/config.js:17-45` |
 | 6 | KVS **read failure** was indistinguishable from "no config yet": default config returned, then persisted by a later write → potential config wipe | High | `lib/config.js:17-26` |
 | 7 | Screenshot bytes transit the web trigger as base64 in the request body, with no size ceiling | Medium | `bookmarklet/screenshot.js`, `webtrigger/actions/createIssue.js` |
@@ -176,8 +176,9 @@ Execution order agreed with the app owner: P0 authorisation → P1 integrity/rev
 
 **Findings 4, 5, 6, 12 — closed or materially reduced.**
 - `getInstallationConfig` now distinguishes *absent* (defaults) from *unreadable* (throws), so a KVS blip can no longer be persisted back over a real config.
-- `mutateInstallationConfig` narrows read-modify-write to a single in-invocation window with retries; used by `setProjectConfig`, archive/delete and `setInstallationConfig`. **Honest caveat:** this *reduces* the lost-update window, it does not eliminate it — true CAS via KVS record versions is still open (finding 5 downgraded, not closed).
-- Signing secret created with a `must_be_missing` compare-and-set (finding 4 closed).
+- `mutateInstallationConfig` narrows read-modify-write to a single in-invocation window with retries; used by `setProjectConfig`, archive/delete and `setInstallationConfig`. **Correction (2026-10-31):** `kvs.transact()` *does* exist in the installed KVS version, so true compare-and-set for config is now closable rather than blocked on "record versions". Not scoped in this pass; tracked with the S2 work that validates transactions.
+- Finding 4 correction: see the CAS note below.
+- **Correction (2026-10-31):** the signing secret was *not* protected by a compare-and-set. The `{ version: { type: 'must_be_missing' } }` option documented in an older KVS guide is not accepted by the current API (`@forge/kvs` exposes only `keyPolicy: 'FAIL_IF_EXISTS'`), so the call degraded to a plain overwrite and the cold-start race was live until this fix. Finding 4 was **falsely reported closed** and is now actually closed with `keyPolicy`.
 - `readMetadataBySearch` now returns `{ metadata, lookupFailed }`, so a Jira lookup failure no longer masquerades as `INSUFFICIENT_SCOPE: "This issue is not managed by JiraTack"`.
 - Orphan prevention: `createIssue` returns `warning: "metadata-not-stored"` when the property write fails, and the SDK shows a distinct message rather than silently producing an invisible ticket.
 
@@ -190,7 +191,7 @@ Execution order agreed with the app owner: P0 authorisation → P1 integrity/rev
 | Finding | Status | Why deferred |
 |---|---|---|
 | 3 — 8 h revocation lag | **Mitigated** | SDK self-heals on expiry, but a JWT is still valid until `exp`. Instant revocation needs a per-request KVS session read; it is a deliberate cost/latency decision, recorded in D19 |
-| 5 — true CAS | Reduced | Needs KVS record-version writes; the narrowed window is the interim |
+| 5 — true CAS | **Closable** | `kvs.transact()` exists and is used by S2; config CAS is follow-up, not blocked |
 | 7 — screenshots through the trigger body | **Closed (§9.2)** | Chunked upload + `screenshotUploadId`; see D20 |
 | 9 — 2000-issue scans | **Open** | The fix is canvas-scoped queries via the new `jiratackCanvas` alias plus caching; needs care because entity-property indexing lags and legacy tickets were never indexed |
 | 12 — SDK/controller split | **Partially closed (§9.3)** | API + auth are now DOM-free and injectable (`createApiClient`, `createSessionManager`). The `index.js` orchestrator/DOM host extraction remains the pre-extension milestone |

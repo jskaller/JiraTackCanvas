@@ -91,7 +91,7 @@ Honest caveat: the token is already 256-bit random, so forgery is not the threat
 `@forge/kvs` exposes `getSecret`/`setSecret` (node_modules/@forge/kvs/out/kvs.d.ts:20-24).
 
 - Add `kvsGetSecret`/`kvsSetSecret` wrappers in `src/lib/kvs.js`.
-- `loadOrCreateSecret` (tokens.js:10-22): try `getSecret('sessionSigningSecret')`; if absent, read the plain key; if a plain value exists, copy it via `setSecret` with the same value and continue; if neither exists, generate and `setSecret` with `must_be_missing`.
+- `loadOrCreateSecret` (tokens.js:10-22): try `getSecret('sessionSigningSecret')`; if absent, read the plain key; if a plain value exists, copy it via `setSecret` with the same value and continue; if neither exists, generate and `setSecret` with `keyPolicy: 'FAIL_IF_EXISTS'`. *(Corrected 2026-10-31: this document originally said `must_be_missing`; the installed KVS API does not accept that option and silently degrades to an overwrite.)*
 - No rotation needed at migration. The value is unchanged, so every live JWT still verifies. The module-scope `secretPromise` cache (tokens.js:8) stays valid.
 - After ≥ 8 h (max session TTL), delete the plain key — and only once dual-read is removed in a later deploy.
 - Rotation can follow: add `kid` to the JWT header, keep the previous secret for verification for ≥ 8 h, then retire it; clear `secretPromise` (or rely on cold start). Do not rotate during the migration deploy.

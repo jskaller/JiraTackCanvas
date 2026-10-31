@@ -45,6 +45,7 @@ Single decision log for JiraTack. Every open and resolved decision appears exact
 **Resolution:** Accept 8-hour lag. `createIssue` and other write actions validate the JWT scope and signature but do not re-check the canvas-token record. Revocation is effective within one JWT lifetime (≤8h). "Regenerate bookmarklet" revokes the old token for new exchanges but does not invalidate live JWTs.
 **Mitigation:** Admin UI documents the lag. v1.1 can add per-call KVS check on write actions if customer demand requires.
 **Rejected alternative:** Per-call KVS read. Requires KVS schema change to expose token ID in JWT, adds cost and latency.
+**Correction (2026-10-31):** the `must_be_missing` compare-and-set named above was **not** in force. The current `@forge/kvs` API exposes `keyPolicy: 'FAIL_IF_EXISTS'`, not the older `{ version: { type: 'must_be_missing' } }` shape, so the call silently degraded to a plain overwrite. The signing secret now uses `keyPolicy` (`src/lib/kvs.js`), and the audit found no other call site relying on the wrong option.
 **Applies to:** SPEC §5.5, §18, CONTRACTS §3.3.
 
 ### D15 — Inline editing scope and guest edit rights
@@ -157,6 +158,8 @@ Record: `bindingId` (the HMAC hex), `email` (plaintext, for the admin slot scree
 
 **Conflict resolved:** the build prompt proposed deriving `pairingCount` from non-revoked children, decrementing on revocation. `AD A-20` is authoritative and says the cap resets only on regeneration, so pairing count is a **stored, monotonic counter per invite token**. This is recorded here rather than silently implemented either way.
 
+**Rejected alternative (this pass):** a derived count — `count(non-revoked credentialsByParent)` — with revocation freeing a pairing slot. Rejected because it contradicts `A-20` and the "consumed stays consumed" spirit of `PR-11`. It is cheap to adopt later: S2 builds the reverse index anyway, so the derived count is one read away if usability feedback asks for it, and only the read path would change.
+
 **Rejected alternatives:** magic-link or OTP verification before first pin (breaks `A-05` and the `A-13` one-sentence test); admin-promoted bindings (same break, plus manual load); per-canvas binding records (a reviewer across three canvases would fragment into three identities and three slots).
 
 **Applies to:** S1, S2, S5, A (binding record), admin slot screen; `AD P-03`, `PR-03`, `PR-09`, `PR-11`, `PR-12`, `A-05`, `A-08`, `A-13`, `A-20`, `A-21`, `A-23`.
@@ -192,7 +195,9 @@ Slot semantics: consumed at first pin (`PR-09`); stays consumed for the month ev
 
 **Cost:** a returning reviewer needs a re-issued link after 72 hours. The self-healing path is delegator regeneration (`A-17`); the installer must say so instead of producing a dead bookmarklet.
 
-**Rejected alternatives:** rewriting existing TTLs to `min(remaining, 72h)` (silently kills links already in circulation mid-review); preserving 365 days (defeats the control); shortening the session JWT instead (already 8 h; does not bound forwarding).
+**Signing the bootstrap token: considered and rejected for the bookmarklet era.** `TD §5` is right that the token is already 256-bit random, so signing buys hygiene rather than security: malformed-token rejection is replaced by rate limiting (`A-18`), tamper detection is already provided by the KVS lookup, and the versioning benefit can be introduced when the credential format changes anyway. Against that it would add ~80 characters to a 3,500-character bookmarklet, an indefinite dual-read, and a third secret to manage. The end state is unchanged: the extension era introduces a signed, versioned credential format from the start, where no dual-read is needed.
+
+**Rejected alternatives:** rewriting existing TTLs to `min(remaining, 72h)` (silently kills links already in circulation mid-review); preserving 365 days (defeats the control); shortening the session JWT instead (already 8 h; does not bound forwarding); signing the bootstrap now (see above).
 
 **Applies to:** D19 (amended), `CONTRACTS.md`, installer copy, `TEST_PLAN`; `AD A-03`, `A-17`; `TD §4`, `§8(a)`.
 

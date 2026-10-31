@@ -232,7 +232,7 @@ Notes:
 
 - `sessionSigningSecret` is stored as a plain value, not with `kvs.setSecret`. Migration is tracked in the security review.
 
-- `installationConfig` reads throw on failure rather than returning defaults; writes go through `mutateInstallationConfig` (read and write in one window, 3 attempts). True compare-and-set is outstanding.
+- `installationConfig` reads throw on failure rather than returning defaults; writes go through `mutateInstallationConfig` (read and write in one window, 3 attempts). `kvs.transact()` is available for true compare-and-set; adopting it is follow-up work.
 
 - There is no pin storage, no URL index, and no per-canvas table. Everything derives from Jira search.
 
