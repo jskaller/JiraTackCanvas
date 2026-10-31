@@ -102,9 +102,9 @@
 | A-17 | **Delegator-side one-click regeneration** via in-app notification. notify → regenerate → redeem loop is the primary self-healing path. | H |
 | A-18 | **Token resolution rate-limited** (enumeration + notify-spam protection). Submitted tokens never echoed back or in diagnostics. | H |
 | A-19 | **Every dead end emits a reason code.** "Dead ends converting to redemption within 24h" is a tracked product metric. | H |
-| A-20 | **Invite token is multi-use within expiry, capped at 5 pairings per token.** Each pairing mints an independent credential token. Cap resets only on delegator regeneration. | H |
-| A-21 | **Pairing count, not device identity.** UI says "devices"; implementation counts pairings. Pairing rows carry browser + OS as the distinguishing label. | H |
-| A-22 | **Pairing rows individually revocable** in the admin/delegator view (device label, browser, first-seen, pin count, revoke). | H |
+| A-20 | **Invite token is multi-use within expiry, capped at 10 pairings per token.** Pairing = (inviteToken, installId). The cap is a blast-radius control, not enforcement: installId is client-chosen, so anyone holding the link can pair up to 10 times by clearing storage. Bounded, auditable, revocable via invite regeneration. Cap resets only on delegator regeneration. | H |
+| A-21 | **Pairing count, not device identity.** UI says "devices"; implementation counts pairings. *Footnote 2026-10-31: a pairing is keyed by a browser-profile-scoped installId (32 lowercase hex), not a hardware device. Two browser profiles are two installIds; clearing storage produces a new one.* | H |
+| A-22 | **Pairing rows carry:** installId, userAgent (captured server-side at first exchange — audit label only, spoofable, not a fingerprint), firstSeenAt, lastSeenAt. pinCount is **computed on demand** by joining tickets whose metadata `pairingId` matches the row; it is not stored (the join scan is capped at 2,000 tickets because `pairingId` is not an indexed entity property). Individual pairing revocation is deferred; `state: "revoked"` exists on the schema but this slice has no setter. | H |
 | A-23 | **Guest email is a bound record**, not per-ticket free text. Prerequisite for PR-03. | H |
 | A-24 | Per-pairing credential tokens referencing the binding. | H |
 
@@ -127,7 +127,7 @@
 | O-13 | Which 5–10 design partners. | Open — recommendation: agencies with design-review workflows, plus 2–3 mid-market Jira Software installations |
 | O-14 | Self-diagnostic tooling scope. | † resolved SU-02 specifics |
 | O-15 | Pairing success rate threshold for promoting tabs listener to default. | Open |
-| O-16 | Invite token single-use vs. multi-use. | † resolved A-20 (multi-use, capped at 5) |
+| O-16 | Invite token single-use vs. multi-use. | † resolved A-20 (multi-use, capped at 10) |
 | O-17 | Does delegator see pairing rows, admin, or both? | Open — recommendation: both, delegator sees own |
 | O-18 | JSM Phase 2 buyer. | † resolved M-13 |
 | O-19 | JSM Phase 2 portal integration surface. | Open |
