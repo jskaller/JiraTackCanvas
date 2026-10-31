@@ -8,30 +8,33 @@
 
 ## 1. Versions
 
+**Updated after the baseline deploy on 2026-10-31.** The tag still points at the pre-deploy commit; this section tracks current reality.
+
 | | Value | Source |
 | --- | --- | --- |
-| Tagged commit | see `git rev-parse baseline/pre-pivot-2026-10-30` | git |
-| Tree state | clean at capture | `git status` |
-| App version (last deployed) | 4 major, reported as 4.92.0 | `forge environments list`, session record |
-| Development last deployed | 2026-10-29T17:30:31Z | `forge environments list --json` |
-| SDK hash (deployed) | `731d221968a1` | `src/lib/version.js` at deploy time |
+| Tagged commit (pre-deploy snapshot) | `git rev-parse baseline/pre-pivot-2026-10-30` | git |
+| App version (deployed) | **5.0.0** (major 5) | `forge install list`, `forge version details` |
+| Development last deployed | 2026-10-31 (major-version upgrade) | `forge deploy` output |
+| Installation | upgraded to major 5 | `forge install --upgrade` |
+| SDK hash (deployed) | `d5d8edafeda5` | `src/lib/version.js` |
 | SDK hash (tree) | `d5d8edafeda5` | `src/lib/version.js` |
 | Bookmarklet bundle (tree) | 288,235 bytes (`dist/bookmarklet/jiratack.js`) | `npm run build` (byte-identical across rebuilds; `SDK_VERSION` is its SHA-256 prefix) |
 | Bookmarklet URL length | ~3,500 chars with a 64-char token | `buildBookmarklet()` |
 | Runtime | `nodejs24.x`, JavaScript only | `manifest.yml` |
+| Scopes (deployed) | `storage:app`, `read:jira-work`, `write:jira-work`, `read:jira-user` | `forge version details` |
 
 **Staging and production environments** also exist and were last deployed on 2026-10-24T15:07Z — older than development and not part of the active loop. Decide whether they are kept, refreshed, or removed; they are not a valid demo target today.
 
 ## 2. Deployed vs tree
 
-The tree is ahead of deployment. Everything below is committed but **not** live in development.
+**Resolved 2026-10-31.** Development now runs the tree as of commit `a7e207d`: app 5.0.0, SDK `d5d8edafeda5`, four scopes. The table below is retained as the record of what the deploy contained.
 
-| Change | Commits | Effect when deployed |
+| Change | Commits | Status |
 | --- | --- | --- |
-| Dropped `manage:jira-project` + `manage:jira-configuration` | `cf685a7` | Requires `forge install --upgrade -e development`; `forge lint` reports `MAJOR_VERSION_RULE`, so the app moves to major version 5 |
-| CSP failure card in the bootstrap | `027d590` | Blocked-SDK loads now explain themselves |
-| Epic panel canvas-wide totals | `2c960de` | `totalTicketCount` stops mirroring `epicTicketCount` |
-| Page identity (D23): normaliser, canonical storage, match modes | `6b50692`, `4733b9f`, `76d3d90` | Stored URLs keep their query; sidebar gains Smart / Exact / Whole page |
+| Dropped `manage:jira-project` + `manage:jira-configuration` | `cf685a7` | **Deployed** — scopes confirmed as four |
+| CSP failure card in the bootstrap | `027d590` | **Deployed** |
+| Epic panel canvas-wide totals | `2c960de` | **Deployed** |
+| Page identity (D23): normaliser, canonical storage, match modes | `6b50692`, `4733b9f`, `76d3d90` | **Deployed** |
 | Docs rewrite | `2c06aa9` … `201bc2f` | No runtime effect |
 
 **Deployed scopes are still the old six.** Confirmed with `forge version details -e development --non-interactive --json`: `manage:jira-configuration` and `manage:jira-project` are present in the live app, absent from `manifest.yml`.
@@ -105,8 +108,9 @@ git status --porcelain                  # expect empty
 npm run build                           # expect SDK_VERSION d5d8edafeda5
 node --test src/shared/*.test.js        # expect 4 suites pass
 forge lint                              # expect 0 errors
-forge environments list --json          # expect development lastDeployedAt 2026-10-29T17:30:31Z
-forge version details -e development --non-interactive --json   # expect major 4 and the two manage: scopes
+forge environments list --json          # expect development deployed on 2026-10-31
+forge install list -s jiratack.atlassian.net -p Jira -e development --json   # expect majorVersion 5
+forge version details -e development --non-interactive --json   # expect appVersion 5 and exactly four scopes
 ```
 
 If any of those disagree, this document is stale and should be updated rather than trusted.
