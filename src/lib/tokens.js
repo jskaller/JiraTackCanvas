@@ -1,6 +1,6 @@
 import crypto from 'crypto';
 import jwt from 'jsonwebtoken';
-import { kvsGet, kvsSet } from './kvs.js';
+import { kvsGet, kvsSetIfAbsent } from './kvs.js';
 
 const SECRET_KEY = 'sessionSigningSecret';
 const ALGORITHM = 'HS256';
@@ -13,9 +13,10 @@ async function loadOrCreateSecret() {
 
   const secret = crypto.randomBytes(32).toString('hex');
   try {
-    // Compare-and-set: only create when absent, so two cold-starting
-    // instances cannot each mint a secret and orphan each other's JWTs.
-    await kvsSet(SECRET_KEY, secret, { version: { type: 'must_be_missing' } });
+    // Conditional create: two cold-starting instances cannot each mint a secret
+    // and orphan each other's JWTs. Uses keyPolicy, which is the API's real CAS;
+    // the previous `{ version: { type: 'must_be_missing' } }` option was ignored.
+    await kvsSetIfAbsent(SECRET_KEY, secret);
     return secret;
   } catch (e) {
     const winner = await kvsGet(SECRET_KEY);
