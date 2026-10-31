@@ -19,6 +19,8 @@ Development environment, app version **4.92.0** (SDK `d5d8edafeda5`). `package.j
 | [docs/BASELINE.md](./docs/BASELINE.md) | Deployed vs tree state, versions, verification status, open items. | **Snapshot** at `baseline/pre-pivot-2026-10-30` |
 | [docs/SECURITY-REVIEW.md](./docs/SECURITY-REVIEW.md) | Security findings, measurements and remediation ledger. | **Current** record of review |
 | [docs/AI-CONTEXT.md](./docs/AI-CONTEXT.md) | Dense brief for another AI context or a new engineer. | **Current** summary |
+| [docs/ALIGNMENT-DECISIONS.md](./docs/ALIGNMENT-DECISIONS.md) | Business decision list (P/M/B/PR/SU/A/O). Locked values, superseded entries marked. | **Draft** — verify before treating as authoritative |
+| [docs/TOKEN-DISCOVERY.md](./docs/TOKEN-DISCOVERY.md) | Token lifecycle, leakage inventory, signing options, secret migration. | **Current** analysis |
 | [BUILD_PLAN.md](./BUILD_PLAN.md) | The original seven-sprint build plan. | **Historical** — describes the pre-guest, pre-D18 build. Do not cite as current. |
 | [PRIOR_BUILD_TRIAGE.md](./PRIOR_BUILD_TRIAGE.md) | What was reviewed from JiraTack2/3 and ported. | **Historical** reference only |
 | [CHANGELOG.md](./CHANGELOG.md) | Release notes. | Historical, append per release |
