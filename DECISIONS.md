@@ -72,6 +72,7 @@ Single decision log for JiraTack. Every open and resolved decision appears exact
 ### D18 — Issue-property metadata, ADF descriptions, additive labels
 
 **Status:** Resolved (2026-10-28)
+**Amended by D27:** the property gained an optional `bindingId` field linking a guest ticket to its reviewer binding. D27 also authorises a one-off deterministic backfill, which is narrower than this decision's "no backfill" rule.
 **Resolution:** Machine-readable pin data lives in the Jira issue property `com.jiratack.metadata` (`{ guest?, pin: { canvas, url, position, selector }, version: 1 }`). Descriptions are human-readable ADF only: a bold `[JiraTack Guest: Name]`/`[JiraTack]` header, the user body, an optional console-output code block, and a footer link to the page. Every ticket gets the `jiratack` label; guest tickets also get `jiratack-guest`, so all existing `labels = "jiratack"` queries keep working. Reads use the enhanced search `properties` request parameter and filter canvas/url in memory. Custom-field provisioning, the description marker, recovery, and all migration/regex logic are removed (dev-only; no backfill, so pre-existing dev tickets without the property no longer appear). The issue panel reads the property and renders guest identity, pin data, and the screenshot (resolver returns a base64 data URL).
 **Rejected alternatives:** Keeping the marker as a recovery backup (unnecessary once the property is authoritative); custom fields for JQL (dropped in favour of in-memory filtering); lazy regex migration (removed per the dev-only decision); exclusive `jiratack-guest` label (would break every read query).
 **Applies to:** SPEC §4, ARCHITECTURE §2, CONTRACTS §3.2, §3.3, §3.5, §4.6, §7.6, §8.4; AGENTS.md; TEST_PLAN §7.19. Canvas-exact JQL (dashboard "Review All Tickets") is enabled by a `jira:entityProperty` module indexing `com.jiratack.metadata.pin.canvas` as the `jiratackCanvas` search alias.
@@ -80,6 +81,7 @@ Single decision log for JiraTack. Every open and resolved decision appears exact
 
 **Status:** Resolved (2026-10-28)
 **Amended by D21:** `createCanvas` is **admin-only**, not seat-licensed. D21 closed the gap where it appeared in the seat-licensed list below; the resolver uses `requireAdmin` and the web trigger uses `requireAdminClaims`.
+**Amended by D26:** newly minted guest tokens now live 72 hours, not 365 days. Existing records keep their original expiry; see D26 for the grandfathering rule.
 **Resolution:** Because `jira:globalPage` and the project-settings page are open to every logged-in site user, hiding a control is not authorisation — every privileged resolver now enforces `requireAdmin(context)` server-side (`src/lib/access.js`, which prefers `context.userAccess.isAdmin` and falls back to an `ADMINISTER` permission lookup). Admin-only: `get/setInstallationConfig`, `get/setProjectConfig`, `list/revokeCanvasToken`, `delete/archiveCanvas`, `createCanvas`. **Seat-licensed** (any user holding a JiraTack seat): `generateCanvasToken`, `generateUserToken`, `generateGuestToken`, `dashboardAggregate`, panel reads. Guest-link minting is deliberately seat-gated, not admin-gated: it is the product's core sharing flow, and the seat is the authorisation boundary. Accepted trade-off: a guest link carries the **issuer's** browse access for the selected canvases, so a seat holder can hand an external reviewer visibility into projects that holder can see — mitigated by canvas scoping and a 365-day expiry, and recorded here rather than left implicit. Token listings return a non-reversible `tokenRef` (SHA-256 prefix) instead of the raw token. `installationConfig` reads now distinguish "not provisioned yet" (defaults) from "unreadable" (throws), so a KVS blip can no longer be persisted back as a default config; writes go through `mutateInstallationConfig` (read and write in one narrow window, with retries) rather than a client round-trip. The signing secret is created with a `must_be_missing` compare-and-set so concurrent cold starts cannot orphan each other's JWTs.
 **Rejected alternatives:** Page-level Forge `access` scopes as the only control (the dashboard is legitimately a licensed-user surface, not an admin surface — scopes alone would break it); keeping canvas creation admin-only (it is additive and Jira already enforces project create permission); making guest-link minting admin-only (rejected by the app owner — it would block the everyday stakeholder-sharing flow); per-project admin checks for project settings (deferred: project settings stay site-admin-gated for now).
 **Known limitation:** revocation is still eventual — a deleted token record blocks new exchanges but a live session JWT remains valid until `exp` (8 h). Mitigated by the SDK auto re-exchanging on `TOKEN_EXPIRED`/`TOKEN_INVALID`; true instant revocation needs a per-request session allowlist (KVS read per call), deferred with D11.
@@ -132,6 +134,104 @@ A content-script browser extension is adopted as the CSP-resilient channel. Cont
 **Known limitations:** The heuristic can still merge an unnamed parameter with a short meaningful value, and can still split on a random-looking value under a keep-listed name. `Exact` cannot recover a query that was never stored (pre-D23 pins). Counts are computed from the fetched pin set, so a canvas past the 2,000-ticket scan cap may report low counts along with `truncated`.
 
 **Applies to:** SPEC.md §12.1, §10.2, §19; CONTRACTS.md §1.1, §3.2, §6; TEST_PLAN §2.1, §3.13.
+
+### D24 — External reviewer binding model
+
+**Status:** Proposed (2026-10-31) — awaiting owner sign-off.
+**Resolution:** An external reviewer is identified by email, claimed at the first pin and accepted **unverified** (`AD A-05`, `PR-03`). A binding is one record per unique reviewer per installation, keyed **globally**:
+
+```text
+bindings:<HMAC-SHA256(bindingSecret, normalise(email))>
+```
+
+`bindingSecret` is a dedicated, **non-rotating** secret (see D28/S9) — not `sessionSigningSecret`. KVS is already per-installation, so `installationId` is deliberately absent from the key. `normalise(email)` = trim + lowercase; `+tags` are **not** stripped, because two addresses that differ are two reviewers under `PR-03`.
+
+Record: `bindingId` (the HMAC hex), `email` (plaintext, for the admin slot screen per `A-14`), `state` (`issued` | `active` | `revoked`, per `A-08`), `issuedBy` (delegator accountId), `canvasAccess[]`, `firstPinAt`, `lastPinAt`, `pinCount`, `monthKey`, `monthPinCount`, `createdAt`, `revokedAt`, `revokedBy`.
+
+**Identity timing.** A binding is created **lazily at the first pin**, not at link open, because email does not exist before then (`PR-09`). The record is written as `issued` and flips to `active` when the ticket creation succeeds; a failed write leaves it `issued` for reconciliation. Capacity is enforced at first pin.
+
+**Two independent meters, stated once so they cannot be conflated:**
+
+1. **Reviewer slot** — a distinct binding that submitted ≥1 pin in the current billing month (`PR-03`). Governs how many external reviewers an installation may onboard. Consumed at first pin, stays consumed for the month even if the credential is revoked (`PR-11`); inactive bindings drop off at the month boundary (`PR-12`).
+2. **Pairing** — a credential minted from an invite token (S2). Capped at **5 per invite token** (`A-20`), reset only when the delegator regenerates the link. Not the same counter as reviewer slots, and revoking a pairing does **not** restore pairing capacity.
+
+**Conflict resolved:** the build prompt proposed deriving `pairingCount` from non-revoked children, decrementing on revocation. `AD A-20` is authoritative and says the cap resets only on regeneration, so pairing count is a **stored, monotonic counter per invite token**. This is recorded here rather than silently implemented either way.
+
+**Rejected alternatives:** magic-link or OTP verification before first pin (breaks `A-05` and the `A-13` one-sentence test); admin-promoted bindings (same break, plus manual load); per-canvas binding records (a reviewer across three canvases would fragment into three identities and three slots).
+
+**Applies to:** S1, S2, S5, A (binding record), admin slot screen; `AD P-03`, `PR-03`, `PR-09`, `PR-11`, `PR-12`, `A-05`, `A-08`, `A-13`, `A-20`, `A-21`, `A-23`.
+
+### D25 — Capacity and metering model
+
+**Status:** Proposed (2026-10-31) — awaiting owner sign-off.
+**Resolution:** Two meters, only one of which is new.
+
+- **Forge seat** (existing, D19): gates who may mint a token. Unchanged.
+- **Reviewer slot** (new, app-level): gates how many external reviewers an installation may onboard. Tier limits are locked (`AD PR-05`): Starter 5 reviewers / 50 pins per month; Team 25 / 500; Business 100 / 2,000.
+
+**Metering scope is guest activity only.** Licensed users already consume a Forge seat and delegators are unlimited on all tiers (`PR-06`); counting their pins again would bill the same person twice. `pinCount` on a binding therefore counts that reviewer's tickets, and the tier's pin budget sums bindings, not all tickets.
+
+**Billing month** is the UTC calendar month. `AD` does not define the boundary; this is an implementation choice, recorded so it is not rediscovered later.
+
+Slot semantics: consumed at first pin (`PR-09`); stays consumed for the month even if revoked (`PR-11`); inactive reviewers drop off at the next boundary (`PR-12`); no hard wall — upgrade or top-up (`PR-08`); an active credential is never blocked mid-month (`PR-10`).
+
+**This pass registers but does not enforce capacity.** `CAPACITY_EXCEEDED` (409) is added to the error registry and the binding carries `monthKey`/`monthPinCount`; the enforcement check itself lands with the capacity sprint. `PAIRING_LIMIT` (409) **is** enforced now.
+
+**Rejected alternatives:** enforcing at invite redemption (`PR-09` corrects this — email does not exist yet); counting all pins rather than guest pins (double-billing); deriving slots from live credentials (would allow revoke-and-recycle, which `PR-11` exists to prevent).
+
+**Applies to:** S1, S2, S5; admin slot screen; `CONTRACTS.md` §2; `AD PR-01`–`PR-12`.
+
+### D26 — Guest invite TTL: 365 days → 72 hours
+
+**Status:** Proposed (2026-10-31) — awaiting owner sign-off.
+**Resolution:** Newly minted guest tokens live **72 hours** (`AD A-03` "24–72h"; `TD §8(a)`). This amends D19's recorded compensating control, which named "canvas scoping and a 365-day expiry".
+
+**Existing tokens are not rewritten.** The old guest namespace is frozen read-only (S3): records already issued keep their original `expiresAt` and expire on their original schedule; nothing is silently shortened mid-review, and no new 365-day token is minted after cutover. The policy boundary is therefore visible: tokens minted before the cutover keep their TTL, tokens minted after get 72 h.
+
+**Justification:** the token appears in the installer URL (browser history, platform access logs, link-preview fetchers) and in the bookmarklet; both are forwardable. 72 hours bounds the forwarding window without breaking the demo or a single review session.
+
+**Cost:** a returning reviewer needs a re-issued link after 72 hours. The self-healing path is delegator regeneration (`A-17`); the installer must say so instead of producing a dead bookmarklet.
+
+**Rejected alternatives:** rewriting existing TTLs to `min(remaining, 72h)` (silently kills links already in circulation mid-review); preserving 365 days (defeats the control); shortening the session JWT instead (already 8 h; does not bound forwarding).
+
+**Applies to:** D19 (amended), `CONTRACTS.md`, installer copy, `TEST_PLAN`; `AD A-03`, `A-17`; `TD §4`, `§8(a)`.
+
+### D27 — `bindingId` in `com.jiratack.metadata`
+
+**Status:** Proposed (2026-10-31) — awaiting owner sign-off.
+**Resolution:** Extend D18's property with one **additive, optional** string field:
+
+```json
+{ "bindingId": "<hex>", "guest": { "name": "...", "email": "..." }, "pin": { … }, "version": 1 }
+```
+
+`bindingId = HMAC-SHA256(bindingSecret, normalise(email))` hex — the same value used as the binding key (D24), so it is deterministic and backfill is exact rather than a fuzzy match on free text. `version` stays `1`: readers must treat `bindingId` as optional, and absence means "legacy ticket, pre-binding".
+
+**`normalizeMetadata` applies on read and write.** `src/lib/metadata.js` reconstructs the object from known keys; an unknown key is dropped on write *and* invisible on read. `bindingId` must be added to that reconstruction, with an acceptance test that writes it and reads it back through `metadataFromIssue` — inspecting only the write payload would miss the read-side drop.
+
+**Backfill is permitted and exact:** map every ticket with `guest.email` to its `bindingId`. This amends D18's "no backfill" — that decision concerned a removed feature with no source data; this is an added field with a deterministic derivation. Backfill runs with a dry-run mode and is idempotent.
+
+**Rejected alternatives:** a Jira custom field (forbidden by D18); storing the email hash only in the binding and joining at read time (depends on a live binding, breaks for revoked/tombstoned reviewers and for the "pins this month" screen); deriving from `sessionSigningSecret` (that secret is rotatable — rotation would orphan every binding and every backfilled ticket).
+
+**Applies to:** S5, A; `src/lib/metadata.js`, `src/webtrigger/actions/createIssue.js`; `AD A-23`, `PR-03`.
+
+### D28 — `window.__jiratackInit` contract
+
+**Status:** Proposed (2026-10-31) — awaiting owner sign-off.
+**Resolution:** **Accepted risk, documented, with the extension as the target date.** `window.__jiratackInit` stays as the SDK entry point. The exposure is recorded in `TD §2 #3` and in the security review's finding list.
+
+**Why not the alternatives now:**
+
+- **Closure-scoped init** would require the SDK to delegate *all* HTTP through the bootstrap's closure — the host would own session exchange and request attachment, inverting `auth.js`/`api.js`. That is the S7 transport extraction plus an auth rewrite, and cannot land in a seam pass without displacing the blockers.
+- **One-time init token** narrows the capture window rather than closing it: the page can still intercept the hook, and the bootstrap needs a pre-SDK exchange subject to the page's `connect-src`. It is the fallback if C2 slips past the current quarter, not the default.
+
+The real boundary is the extension: a content script holds the credential outside the page's world, which is the same argument as D22. Accepted risk is therefore time-bounded to the extension, not indefinite.
+
+**Attack, stated precisely:** the vector is `Object.defineProperty(window, '__jiratackInit', { writable: false, value: fn })`, not a plain pre-assignment — the SDK assigning over a writable property replaces any page hook. This distinction matters because it rules out "detect a pre-existing function" as a mitigation.
+
+**Residual risk:** a hostile page on which a reviewer clicks the bookmarklet can read the long-lived token and outlive the 8-hour session. This is why `A-15`/`SU-02` push diagnostics and trust messaging, and why the extension is the fix rather than a nicer bookmarklet.
+
+**Applies to:** S6, S7; `shared/bookmarklet.js`; `TD §2 #3`, `§6(b)`.
 
 ### D13 — SDK version source
 
