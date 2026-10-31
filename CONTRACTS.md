@@ -210,7 +210,10 @@ Success:  { sessionJwt, expiresAt, canvasId, canvasName, scope, permittedProject
 Guest:    … + { issuer, permittedCanvases }
 ```
 
-`payload.canvasToken` may be a canvas token, a guest token, or a personal token (`payload.userToken` and `payload.token` are also accepted). Lookup order: `userTokens:<token>`, then `canvasTokens:<token>`.
+`payload.canvasToken` may be a canvas token, a guest invite token, a pairing credential, or a personal token (`payload.userToken` and `payload.token` are also accepted). Lookup order: `userTokens:<raw>`, then `credentialTokens:<sha256(raw)>`, then `canvasTokens:<raw>`.
+
+- **Pairing credential** → resolves to its invite (`parentToken`). The invite is authoritative: revoked, expired or missing parent ⇒ `TOKEN_INVALID`/`TOKEN_EXPIRED`. The session carries `scope: "guest_create"`, the parent's `permittedCanvases`/`permittedProjects`, plus `credentialId` and, once bound, `bindingId`.
+- Credential raw values are never stored; only their SHA-256. Pairing is capped at 5 per invite (`A-20`); exceeding it returns `PAIRING_LIMIT`.
 
 - Personal token → `scope: "create" | "view"`, `canvasId: null`, `canvasName: null`.
 - Guest token → `scope: "guest_create"`, `isAdmin: false`, plus `issuer` and `permittedCanvases`.
@@ -903,6 +906,8 @@ Rules:
 | `LICENSE_INACTIVE` | 403 | Installation or seat not licensed | Persistent red banner in the sidebar |
 | `NO_CANVAS_ACCESS` | 403 | No browse access to any project in the canvas | Shown when minting a token or guest link |
 | `CANVAS_NOT_EMPTY` | 409 | Delete refused; open tickets remain | Inline admin error with the open count |
+| `PAIRING_LIMIT` | 409 | Invite link has reached 5 pairings; delegator must regenerate | Installer page asks for a new link |
+| `CAPACITY_EXCEEDED` | 409 | Reviewer-slot cap reached. Registered this pass, not yet enforced | Reserved for the capacity sprint |
 | `NOT_FOUND` | 404 | Ticket, project, canvas, or upload not found | Toast "Not found." |
 | `PROJECT_DISABLED` | 422 | JiraTack disabled for the target project | Inline error on the project selector |
 | `VALIDATION_ERROR` | 422 | Invalid input, expired upload, or Jira rejected the payload | Inline field errors plus Jira's messages |

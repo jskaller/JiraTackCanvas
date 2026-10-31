@@ -2,7 +2,7 @@ import crypto from 'crypto';
 import api, { route, getAppContext } from '@forge/api';
 import { WhereConditions } from '@forge/kvs';
 import { getInstallationConfig, mutateInstallationConfig } from '../../lib/config.js';
-import { kvsSet } from '../../lib/kvs.js';
+import { kvs, kvsGet, kvsSet } from '../../lib/kvs.js';
 import { trackLicensedUser } from '../../lib/license.js';
 import { generateSessionJwt } from '../../lib/tokens.js';
 import { errorResponse, errorResult } from '../../lib/errors.js';
@@ -315,7 +315,19 @@ export async function revokeCanvasToken(context, payload) {
       return errorResult('NOT_FOUND', 'Canvas token not found.');
     }
 
-    await kvs.delete(key);
+    const existing = await kvsGet(key);
+    if (!existing) {
+      return errorResult('NOT_FOUND', 'Canvas token not found.');
+    }
+
+    // Tombstone, never delete (D24/S2): credentials derived from this invite
+    // must remain resolvable to a revoked parent, and the admin list needs the
+    // audit trail. 90 days covers the invitation review window.
+    await kvsSet(
+      key,
+      { ...existing, revoked: true, revokedAt: Date.now() },
+      { ttl: { value: 90, unit: 'DAYS' } },
+    );
     return { ok: true, data: { revoked: true } };
   } catch (e) {
     return errorResult('INTERNAL', e && e.message ? e.message : String(e));

@@ -2,6 +2,7 @@ import api, { route } from '@forge/api';
 import { kvsGet } from '../../lib/kvs.js';
 import { getInstallationConfig } from '../../lib/config.js';
 import { generateSessionJwt } from '../../lib/tokens.js';
+import { authenticateCredential } from '../../lib/credentials.js';
 import { errorResult } from '../../lib/errors.js';
 import { resolveWebtriggerUrls } from '../../lib/webtriggerUrls.js';
 
@@ -112,6 +113,55 @@ export async function exchangeToken(payload) {
       permittedProjects,
       isAdmin: userRecord.isAdmin === true,
       displayName,
+    });
+  }
+
+  const credentialResult = await authenticateCredential(token, now);
+  if (credentialResult && credentialResult.ok === false) {
+    return errorResult(credentialResult.code, credentialResult.message);
+  }
+  if (credentialResult && credentialResult.ok) {
+    const { credential, parent } = credentialResult;
+
+    let permittedProjects = '*';
+    if (typeof parent.permittedProjectsJson === 'string') {
+      try {
+        permittedProjects = JSON.parse(parent.permittedProjectsJson);
+      } catch (e) {
+        permittedProjects = [];
+      }
+    }
+    const permittedCanvases = Array.isArray(parent.permittedCanvases) ? parent.permittedCanvases : [];
+
+    const sessionJwt = await generateSessionJwt({
+      iss: 'jiratack',
+      sub: parent.issuer,
+      aud: parent.installationId,
+      scope: 'guest_create',
+      issuer: parent.issuer,
+      permittedCanvases,
+      permittedProjects,
+      credentialId: credential.credentialId,
+      bindingId: credential.bindingId || undefined,
+      isAdmin: false,
+      iat,
+      exp,
+    });
+
+    const config = await getInstallationConfig();
+    const displayName = await getDisplayName(parent.issuer);
+    return commonResponse(config, {
+      sessionJwt,
+      expiresAt: exp * 1000,
+      canvasId: null,
+      canvasName: null,
+      scope: 'guest_create',
+      issuer: parent.issuer,
+      permittedCanvases,
+      permittedProjects,
+      isAdmin: false,
+      displayName,
+      credentialId: credential.credentialId,
     });
   }
 

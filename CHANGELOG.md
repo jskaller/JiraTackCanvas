@@ -45,6 +45,20 @@ All notable changes to JiraTack.
 - Bootstrap reports SDK load failures in-page (CSP, Trusted Types, failed
   init, timeout) instead of removing the spinner silently (D22).
 
+### Credentials (S2)
+
+- Invite tokens can be paired up to 5 times; each pairing mints an independent
+  credential token, stored only as its SHA-256 under `credentialTokens:`, with a
+  `credentialsByParent:` reverse-index row written in the same `kvs.transact()`.
+- `exchangeToken` resolves a credential through its parent invite, so revoking
+  the invite invalidates every derived pairing without a fan-out write.
+- Revocation now tombstones the record (revoked flag + 90-day TTL) instead of
+  deleting it, so derived credentials and the admin list keep an audit trail.
+- Fixed: `admin.js` used `kvs.query`/`kvs.delete` without importing `kvs`, so
+  token listing and revocation threw at runtime.
+- Added `PAIRING_LIMIT` (409, enforced) and `CAPACITY_EXCEEDED` (409,
+  registered only).
+
 ### Bindings and identity (D24–D27)
 
 - Guest pins now create or update a reviewer binding keyed by `HMAC(bindingSecret,
