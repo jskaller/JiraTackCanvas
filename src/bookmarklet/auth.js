@@ -1,4 +1,7 @@
 const SESSION_KEY_PREFIX = 'jiratack_jwt_';
+// Bump whenever the session shape changes. Cached sessions from an older shape
+// are re-exchanged instead of being reused with missing fields.
+const SESSION_SCHEMA = 3;
 
 /**
  * Sync storage adapter used by the bookmarklet. A Chrome extension can pass
@@ -93,6 +96,7 @@ export function createSessionManager(storage) {
       if (
         cached
         && cached.expiresAt > Date.now()
+        && cached.schema === SESSION_SCHEMA
         && Object.prototype.hasOwnProperty.call(cached, 'displayName')
         && Object.prototype.hasOwnProperty.call(cached, 'isAdmin')
       ) {
@@ -124,6 +128,7 @@ export function createSessionManager(storage) {
 
     const data = body.data;
     const session = {
+      schema: SESSION_SCHEMA,
       jwt: data.sessionJwt,
       expiresAt: data.expiresAt,
       scope: data.scope,

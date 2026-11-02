@@ -157,6 +157,14 @@ export function renderTicketForm(container, options) {
   form.appendChild(topBar);
 
   if (isGuest) {
+    const missingIdentity = !(session && session.guestName && session.guestEmail);
+    if (missingIdentity) {
+      form.appendChild(el(
+        'div',
+        'jiratack-form-warning',
+        'This invitation is missing the reviewer identity. Ask the person who sent it for a new link.',
+      ));
+    }
     form.appendChild(field('Your Name', guestNameInput));
     form.appendChild(field('Your Email', guestEmailInput));
   }
