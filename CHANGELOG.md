@@ -49,6 +49,9 @@ All notable changes to JiraTack.
 
 - Guest form shows the invited name/email read-only; guest tickets default the
   assignee to the sponsor; the installer names the sponsor and their email.
+- Cached guest sessions now carry a schema version, so a stale session can no
+  longer hide the guest identity; invitations that predate named issuance show a
+  warning instead of empty fields.
 - Fixed the admin invitations list failing with "Provided request body is invalid"
   (Forge's bridge needs a payload object).
 - Installer and guest sidebar show the address the invitation is bound to.

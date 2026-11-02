@@ -4,7 +4,7 @@ A Forge app for dropping visual pins on web pages and turning them into Jira tic
 
 ## Status
 
-Development environment, app version **4.92.0** (SDK `44da8c1fbfc0`). `package.json` version is `0.1.0`. Not yet submitted to the Marketplace.
+Development environment, app version **4.92.0** (SDK `1c14ac110cbd`). `package.json` version is `0.1.0`. Not yet submitted to the Marketplace.
 
 ## Documentation — read in this order
 
