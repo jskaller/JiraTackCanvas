@@ -164,7 +164,12 @@ function validPage(token, installId, remaining, urls, invite) {
   const sponsor = invite && (invite.issuedByName || invite.issuer);
   const sponsorContact = invite && invite.issuerEmail ? ` (${escapeHtml(invite.issuerEmail)})` : '';
   const invitedParts = [];
-  if (guestName) invitedParts.push(`You are invited as <strong>${escapeHtml(guestName)}</strong>.`);
+  if (guestName) {
+    const address = invite && invite.guestEmail ? ` (${escapeHtml(invite.guestEmail)})` : '';
+    invitedParts.push(`You are invited as <strong>${escapeHtml(guestName)}</strong>${address}.`);
+  } else if (invite && invite.guestEmail) {
+    invitedParts.push(`You are invited as <strong>${escapeHtml(invite.guestEmail)}</strong>.`);
+  }
   if (sponsor) invitedParts.push(`Invited by ${escapeHtml(sponsor)}${sponsorContact}.`);
   const invited = invitedParts.length > 0 ? `<p class="muted">${invitedParts.join(' ')}</p>` : '';
   const body = `<h1>Get JiraTack</h1>${invited}

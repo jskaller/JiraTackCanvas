@@ -23,7 +23,7 @@ const AdminApp = () => {
 
   const loadInvites = async () => {
     try {
-      const res = await invoke('listGuestInvites');
+      const res = await invoke('listGuestInvites', {});
       if (res && res.ok && res.data) {
         setInvites(res.data.invites || []);
         setInvitesError(null);
@@ -39,7 +39,7 @@ const AdminApp = () => {
     let mounted = true;
     (async () => {
       try {
-        const res = await invoke('getInstallationConfig');
+        const res = await invoke('getInstallationConfig', {});
         if (mounted && res && res.ok && res.data) {
           setConfig({ ...DEFAULT_CONFIG, ...res.data });
         }

@@ -1,5 +1,5 @@
 import api, { route } from '@forge/api';
-import { kvsGet } from '../../lib/kvs.js';
+import { kvsGet, kvsSet } from '../../lib/kvs.js';
 import { getInstallationConfig } from '../../lib/config.js';
 import { generateSessionJwt } from '../../lib/tokens.js';
 import { pairingService } from '../../lib/credentials.js';
@@ -28,6 +28,21 @@ async function getDisplayName(accountId) {
     return null;
   }
   return null;
+}
+
+async function getUserProfile(accountId) {
+  if (!accountId) return { displayName: null, emailAddress: null };
+  try {
+    const res = await api.asApp().requestJira(route`/rest/api/3/user?accountId=${accountId}`);
+    if (!res.ok) return { displayName: null, emailAddress: null };
+    const data = await res.json();
+    return {
+      displayName: (data && data.displayName) || null,
+      emailAddress: (data && data.emailAddress) || null,
+    };
+  } catch (e) {
+    return { displayName: null, emailAddress: null };
+  }
 }
 
 async function getJiraBaseUrl() {
@@ -138,13 +153,30 @@ export async function exchangeToken(payload, request) {
   // cannot mask a valid canvas token.
   const parsed = parseCompositeToken(token);
   if (!parsed.malformedComposite && parsed.inviteToken) {
-    const invite = await kvsGet(`canvasTokens:${parsed.inviteToken}`);
+    let invite = await kvsGet(`canvasTokens:${parsed.inviteToken}`);
     if (invite && invite.scope === 'guest_create') {
       if (invite.revoked) {
         return errorResult('TOKEN_INVALID', 'This invitation has been revoked.');
       }
       if (invitationState(invite) === 'inactive') {
         return errorResult('TOKEN_INVALID', 'This invitation is paused. Ask the person who sent it to reactivate it.');
+      }
+
+      // Jira privacy often hides emailAddress at issuance. Retry once when the
+      // guest opens the link, and persist it so the installer/list can show it.
+      if (invite.issuer && (!invite.issuerEmail || !invite.issuedByName)) {
+        const profile = await getUserProfile(invite.issuer);
+        const patch = {};
+        if (!invite.issuerEmail && profile.emailAddress) patch.issuerEmail = profile.emailAddress;
+        if (!invite.issuedByName && profile.displayName) patch.issuedByName = profile.displayName;
+        if (Object.keys(patch).length > 0) {
+          invite = { ...invite, ...patch };
+          try {
+            await kvsSet(`canvasTokens:${parsed.inviteToken}`, invite);
+          } catch (e) {
+            // Advisory; never block the exchange.
+          }
+        }
       }
 
       const pairingId = pairingIdFor(parsed.inviteToken, parsed.installId);

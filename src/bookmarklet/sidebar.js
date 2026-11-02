@@ -176,6 +176,9 @@ export function renderSidebar(container, options) {
 
     const badges = make('div', 'jiratack-badges');
     badges.appendChild(make('span', 'jiratack-badge', 'Guest'));
+    if (session && session.guestEmail) {
+      badges.appendChild(make('span', 'jiratack-badge', session.guestEmail));
+    }
     header.appendChild(badges);
     header.appendChild(makeCloseButton());
 
