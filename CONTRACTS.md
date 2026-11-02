@@ -2,7 +2,7 @@
 
 **Audience:** OpenCode. Every function signature, request/response shape, JQL template, error code, URL normalisation rule, and ADF node shape.
 **Precedence:** Where this document disagrees with SPEC.md or ARCHITECTURE.md on wire-level details, this document wins. Where it disagrees with DECISIONS.md, DECISIONS.md wins.
-**Verified against:** tag `baseline/pre-pivot-2026-10-30` (2026-10-30), app 5.0.0, SDK `e4159e02f7db`.
+**Verified against:** tag `baseline/pre-pivot-2026-10-30` (2026-10-30), app 5.0.0, SDK `c8a16fffacf6`.
 
 ---
 
@@ -206,7 +206,8 @@ Status codes: see Part 9.
 Request:  { action: "exchangeToken", payload: { canvasToken: string } }
 Auth:     none
 Success:  { sessionJwt, expiresAt, canvasId, canvasName, scope, permittedProjects,
-            isAdmin, displayName, apiUrl, sdkUrl, jiraBaseUrl, configVersion }
+            isAdmin, displayName, apiUrl, sdkUrl, installUrl, currentSdkVersion,
+            jiraBaseUrl, configVersion }
 Guest:    … + { issuer, permittedCanvases, pairingId,
                 guestName, guestEmail, issuerName, issuerEmail }
 ```

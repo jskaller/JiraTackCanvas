@@ -1,7 +1,7 @@
 # SPEC.md — v3.1
 
 **Status:** Current. Behaviour of shipped code only.
-**Verified against:** tag `baseline/pre-pivot-2026-10-30` (2026-10-30), app 5.0.0, SDK `e4159e02f7db`.
+**Verified against:** tag `baseline/pre-pivot-2026-10-30` (2026-10-30), app 5.0.0, SDK `c8a16fffacf6`.
 **Supersedes:** SPEC.md v2.3 in full; v3.1 adds D23 (page identity and match modes).
 
 **Precedence.** `CONTRACTS.md` wins on wire-level details (shapes, signatures, error codes, manifest, `package.json`). `DECISIONS.md` wins on any question, open or closed. This document wins on product behaviour.
@@ -323,6 +323,8 @@ The `javascript:` bookmarklet body is roughly 3,500 characters (3,495 measured w
 5. On `load`, verifies `window.__jiratackInit` is a function, clears the bootstrap, and calls it.
 
 6. On failure — `onerror`, a synchronous throw on `s.src` (Trusted Types), a missing `__jiratackInit`, or a 15-second timeout — replaces the spinner with an in-page card: "JiraTack could not start on this page", a reason, and a Dismiss button. The reason distinguishes a CSP block from a Trusted Types block, a script that loaded but did not initialise, and a timeout. Every failure is also logged as `[JiraTack] …` for diagnosis.
+
+The exchange response carries the live `currentSdkVersion` and the installer `installUrl`. When the bookmark's baked-in `sdkVersion` differs, the sidebar shows "This bookmarklet is out of date" plus a refresh link that rebuilds the installer URL from the composite token, preserving the invitation and pairing.
 
 Host-page CSP can block the external script entirely — measured on github.com, developer.mozilla.org, en.wikipedia.org, and accounts.google.com — and the user now sees an explanation instead of a disappearing spinner. Running the client on those sites still requires the extension channel (D22); the message is honesty, not a fix.
 
