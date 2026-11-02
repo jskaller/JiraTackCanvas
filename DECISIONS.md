@@ -278,6 +278,8 @@ Deactivation is enforced in `createIssue`/`updateIssue` (a state read per guest 
 
 **Listing.** `listGuestInvites` returns invitations for admins (all) and seat-holding sponsors (their own), with guest, email, sponsor, canvases, status, pairings, pin count, and link expiry. The same union backs the admin page and (later) the delegator view.
 
+**Sponsor contact and identity in the UI.** The invitation stores `issuerEmail` (resolved once at issuance; null when Jira privacy hides it). The installer shows "Invited by <name> (<email>)"; the guest form shows the invited name and email read-only, prefilled from the session; and guest tickets default the assignee to the sponsor. The success screen offers **Email link**, which opens the sponsor's mail client via `mailto:` — Forge has no outbound email surface, so server-side delivery would require an external email service (egress plus a dependency), which is not decided.
+
 **Rejected alternatives:** guest-entered identity in the sidebar (client-supplied identity, spoofable, and it duplicated the sponsor's knowledge); revoke-only with no pause (loses history and re-issues links for temporary situations); pairing expiry tied to the link (makes `A-13`'s "install once" false after 72h); regenerating with a new binding (would double-charge a reviewer slot for the same person).
 
 **Known limitations:** sponsor loss of Jira access does not yet invalidate their invitations (`A-12`, unimplemented); the delegator-facing list is admin-only in this slice; pairing revocation per device is still deferred; and capacity enforcement remains registered-not-enforced until D30.

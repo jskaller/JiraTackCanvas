@@ -2,7 +2,7 @@
 
 **Audience:** OpenCode. Every function signature, request/response shape, JQL template, error code, URL normalisation rule, and ADF node shape.
 **Precedence:** Where this document disagrees with SPEC.md or ARCHITECTURE.md on wire-level details, this document wins. Where it disagrees with DECISIONS.md, DECISIONS.md wins.
-**Verified against:** tag `baseline/pre-pivot-2026-10-30` (2026-10-30), app 5.0.0, SDK `9974a83d7b78`.
+**Verified against:** tag `baseline/pre-pivot-2026-10-30` (2026-10-30), app 5.0.0, SDK `d186726351ad`.
 
 ---
 
@@ -207,7 +207,8 @@ Request:  { action: "exchangeToken", payload: { canvasToken: string } }
 Auth:     none
 Success:  { sessionJwt, expiresAt, canvasId, canvasName, scope, permittedProjects,
             isAdmin, displayName, apiUrl, sdkUrl, jiraBaseUrl, configVersion }
-Guest:    … + { issuer, permittedCanvases }
+Guest:    … + { issuer, permittedCanvases, pairingId,
+                guestName, guestEmail, issuerName, issuerEmail }
 ```
 
 `payload.canvasToken` carries one of: a personal token, a guest invite (bare, legacy), a composite guest token (`inviteToken.installId`), or a canvas token. Lookup order: `userTokens:<raw>`, then the invite branch (parse composite → invite lookup → pairing), then `canvasTokens:<raw>`.

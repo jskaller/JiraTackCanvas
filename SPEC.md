@@ -1,7 +1,7 @@
 # SPEC.md — v3.1
 
 **Status:** Current. Behaviour of shipped code only.
-**Verified against:** tag `baseline/pre-pivot-2026-10-30` (2026-10-30), app 5.0.0, SDK `9974a83d7b78`.
+**Verified against:** tag `baseline/pre-pivot-2026-10-30` (2026-10-30), app 5.0.0, SDK `d186726351ad`.
 **Supersedes:** SPEC.md v2.3 in full; v3.1 adds D23 (page identity and match modes).
 
 **Precedence.** `CONTRACTS.md` wins on wire-level details (shapes, signatures, error codes, manifest, `package.json`). `DECISIONS.md` wins on any question, open or closed. This document wins on product behaviour.
@@ -668,7 +668,7 @@ click bookmarklet
 
 - Header: canvas name (or "JiraTack Launcher"), ticket count, scope badge (`View only`), pin-mode toggle for write scopes, layout switch, close.
 
-- Guest sessions show a canvas dropdown instead of the title.
+- Guest sessions show a canvas dropdown instead of the title; the form shows the invited name and email read-only, and defaults the assignee to the sponsor.
 
 - Filter toggle: All / This page.
 
@@ -717,6 +717,7 @@ Compact vertical layout with a sticky top bar carrying "New ticket" and **Cancel
 | Description | Plain textarea, converted to ADF — not a rich-text editor |
 | Additional fields | Collapsible: priority, optional parent key (`MM-123`) |
 | Console output | Checkbox, only when entries were captured |
+| Your Name, Your Email | Guest sessions only; **read-only**, prefilled from the invitation |
 | Screenshot | Preview with remove; a capture failure shows a warning above the form |
 
 - `Esc` cancels from anywhere in the form; Cancel and Create sit at the bottom, with Cancel also in the sticky header.

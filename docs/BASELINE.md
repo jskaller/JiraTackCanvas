@@ -13,11 +13,11 @@
 | | Value | Source |
 | --- | --- | --- |
 | Tagged commit (pre-deploy snapshot) | `git rev-parse baseline/pre-pivot-2026-10-30` | git |
-| App version (deployed) | **5.5.0** (major 5) | `forge install list`, `forge version details` |
-| Development last deployed | 2026-11-02 (5.5.0, no upgrade required) | `forge deploy` output |
+| App version (deployed) | **5.6.0** (major 5) | `forge install list`, `forge version details` |
+| Development last deployed | 2026-11-02 (5.6.0, no upgrade required) | `forge deploy` output |
 | Installation | upgraded to major 5 | `forge install --upgrade` |
-| SDK hash (deployed) | `9974a83d7b78` | `src/lib/version.js` |
-| SDK hash (tree) | `9974a83d7b78` | `src/lib/version.js` |
+| SDK hash (deployed) | `d186726351ad` | `src/lib/version.js` |
+| SDK hash (tree) | `d186726351ad` | `src/lib/version.js` |
 | Bookmarklet bundle (tree) | 288,235 bytes (`dist/bookmarklet/jiratack.js`) | `npm run build` (byte-identical across rebuilds; `SDK_VERSION` is its SHA-256 prefix) |
 | Bookmarklet URL length | ~3,500 chars with a 64-char token | `buildBookmarklet()` |
 | Runtime | `nodejs24.x`, JavaScript only | `manifest.yml` |
@@ -27,7 +27,7 @@
 
 ## 2. Deployed vs tree
 
-**Deployed 2026-11-02.** Development runs `ebdc717` as app **5.1.0**, SDK `9974a83d7b78`, four scopes. No `forge install --upgrade` was needed: scopes were unchanged since 5.0.0.
+**Deployed 2026-11-02.** Development runs `f4fd5e3` as app **5.6.0**, SDK `d186726351ad`, four scopes. No `forge install --upgrade` was needed: scopes were unchanged since 5.0.0.
 
 | Change | Commits | Status |
 | --- | --- | --- |
@@ -39,7 +39,8 @@
 | Pairings (S2 refactor) and the two-phase installer with 72h invites (S4/B1) | `82c18e8`, `792f0db`, `62966f6` | **Deployed** 2026-11-02 — server-side harness checks pass; manual cases in `docs/TEST-SCRIPT-S2-S4.md` still pending |
 | Admin token inventory + revoke; malformed-token hardening | `5fbad06` | **Deployed** 2026-11-02 — unblocks TEST_PLAN Case 6 |
 | KVS query pagination (token list + pairing index) | `376935b` | **Deployed** 2026-11-02 — the token list previously failed at 1,000 rows |
-| Guest invitations: named reviewers, sponsor, deactivate/regenerate/revoke, pairings until revoked | `993f478` | **Deployed** 2026-11-02 — SDK changed to `9974a83d7b78`; guest bookmarks must be re-dragged |
+| Guest invitations: named reviewers, sponsor, deactivate/regenerate/revoke, pairings until revoked | `993f478` | **Deployed** 2026-11-02 — SDK changed to `d186726351ad`; guest bookmarks must be re-dragged |
+| Guest identity prefill, sponsor default/contact, mailto link | `f4fd5e3` | **Deployed** 2026-11-02 — SDK `d186726351ad`; re-drag guest bookmarks |
 
 **Deployed scopes are still the old six.** Confirmed with `forge version details -e development --non-interactive --json`: `manage:jira-configuration` and `manage:jira-project` are present in the live app, absent from `manifest.yml`.
 
@@ -109,7 +110,7 @@ Ordered by what would embarrass a demo or a review, not by effort.
 ```bash
 git rev-parse baseline/pre-pivot-2026-10-30
 git status --porcelain                  # expect empty
-npm run build                           # expect SDK_VERSION 9974a83d7b78
+npm run build                           # expect SDK_VERSION d186726351ad
 node --test src/shared/*.test.js        # expect 4 suites pass
 forge lint                              # expect 0 errors
 forge environments list --json          # expect development deployed on 2026-10-31

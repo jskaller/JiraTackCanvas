@@ -47,6 +47,12 @@ All notable changes to JiraTack.
 
 ### Guest invitations (D29, 2026-11-02)
 
+- Guest form shows the invited name/email read-only; guest tickets default the
+  assignee to the sponsor; the installer names the sponsor and their email.
+- Dashboard success screen adds **Email link** (a `mailto:` with the guest
+  address and installer URL). Forge has no outbound email, so this opens the
+  sponsor's mail client rather than sending server-side.
+
 - Guest links are now **named invitations**: the sponsor supplies the reviewer's
   name and email; the binding is created at issuance and the guest no longer
   enters identity in the sidebar.
