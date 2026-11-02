@@ -1,4 +1,4 @@
-import { kvs } from '@forge/kvs';
+import { kvs, WhereConditions } from '@forge/kvs';
 
 export { kvs };
 
@@ -32,7 +32,7 @@ export async function kvsQueryAll(prefix, { pageSize = 50, max = 1000 } = {}) {
   const entries = [];
   let cursor = null;
   do {
-    let query = kvs.query().where('key', { beginsWith: prefix }).limit(pageSize);
+    let query = kvs.query().where('key', WhereConditions.beginsWith(prefix)).limit(pageSize);
     if (cursor) query = query.cursor(cursor);
     const page = await query.getMany();
     const results = (page && page.results) || [];
