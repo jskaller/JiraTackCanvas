@@ -49,6 +49,8 @@ All notable changes to JiraTack.
 
 - Guest form shows the invited name/email read-only; guest tickets default the
   assignee to the sponsor; the installer names the sponsor and their email.
+- Admin invitations resolve sponsor names for legacy rows, separate
+  pre-identity links behind a warning, and the guest modal gains "All canvases".
 - SDK responses revalidate with an ETag instead of `immutable`, so an existing
   bookmark picks up SDK fixes without a re-drag.
 - Guest session cache also requires issuer/identity; otherwise it re-exchanges.
