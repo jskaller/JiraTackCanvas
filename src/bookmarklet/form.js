@@ -361,7 +361,7 @@ export function renderTicketForm(container, options) {
     }
   })();
 
-  const initialAssignee = isGuest ? null : defaultAssignee;
+  const initialAssignee = defaultAssignee;
   let assigneeAccountId = initialAssignee && initialAssignee.accountId
     ? String(initialAssignee.accountId)
     : null;
@@ -529,6 +529,13 @@ export function renderTicketForm(container, options) {
           projectKey,
           issueTypeId,
           priorityId: prioritySelect.value || null,
+          assignee: assigneeAccountId
+            ? {
+              accountId: assigneeAccountId,
+              displayName: assigneeInput.value.trim() || null,
+              avatarUrl: null,
+            }
+            : null,
         });
       }
     } catch (err) {

@@ -853,8 +853,9 @@ async function handleCapture(capture) {
   const sponsorAssignee = session && session.scope === 'guest_create' && session.issuer
     ? { accountId: session.issuer, displayName: session.issuerName || session.displayName || session.issuer }
     : undefined;
-  const defaultAssignee = sponsorAssignee
-    || (newestPin && newestPin.assignee ? { ...newestPin.assignee } : undefined);
+  // "Last entered" first, sponsor as the initial fallback for guests.
+  const defaultAssignee = (newestPin && newestPin.assignee ? { ...newestPin.assignee } : undefined)
+    || sponsorAssignee;
   const defaultIssueTypeId = newestPin && newestPin.issueTypeId ? newestPin.issueTypeId : undefined;
   const defaultPriorityId = newestPin && newestPin.priorityId ? newestPin.priorityId : undefined;
 
@@ -872,7 +873,7 @@ async function handleCapture(capture) {
     onCancel: () => {
       dismissTicketForm();
     },
-    onCreated: ({ result, capture: createdCapture, summary, projectKey, issueTypeId, priorityId }) => {
+    onCreated: ({ result, capture: createdCapture, summary, projectKey, issueTypeId, priorityId, assignee }) => {
       if (!current) return;
       dismissTicketForm();
       const displaySummary = summary && summary.startsWith('[JiraTack]')
@@ -887,7 +888,7 @@ async function handleCapture(capture) {
           priorityId: priorityId || null,
           status: { name: '', category: '', colorName: '' },
           priority: null,
-          assignee: null,
+          assignee: assignee || null,
           reporter: null,
           pinPosition: createdCapture.pinPosition,
           selector: createdCapture.selector || null,
