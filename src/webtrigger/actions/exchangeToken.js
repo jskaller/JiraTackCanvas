@@ -75,6 +75,12 @@ export async function exchangeToken(payload, request) {
   if (typeof token !== 'string' || token.length === 0) {
     return errorResult('BAD_REQUEST', 'canvasToken is required.');
   }
+  // Guard the KVS boundary: tokens are lowercase hex, optionally with a single
+  // dot for a composite. Anything else would reach KVS as an invalid key and
+  // throw, which surfaced as INTERNAL 500 for a merely malformed token.
+  if (token.length > 128 || !/^[a-f0-9.]+$/.test(token)) {
+    return errorResult('TOKEN_INVALID', 'Token is not valid.');
+  }
 
   const now = Date.now();
   const iat = Math.floor(now / 1000);
