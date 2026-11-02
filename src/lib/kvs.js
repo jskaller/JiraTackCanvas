@@ -24,6 +24,25 @@ export async function kvsDelete(key) {
   return kvs.delete(key);
 }
 
+/**
+ * KVS rejects list queries at or above 100 rows, so every prefix scan pages
+ * with the cursor. `max` keeps the caller's overall ceiling.
+ */
+export async function kvsQueryAll(prefix, { pageSize = 50, max = 1000 } = {}) {
+  const entries = [];
+  let cursor = null;
+  do {
+    let query = kvs.query().where('key', { beginsWith: prefix }).limit(pageSize);
+    if (cursor) query = query.cursor(cursor);
+    const page = await query.getMany();
+    const results = (page && page.results) || [];
+    entries.push(...results);
+    cursor = page && page.nextCursor ? page.nextCursor : null;
+    if (entries.length >= max) break;
+  } while (cursor);
+  return entries.slice(0, max);
+}
+
 export async function kvsGetSecret(key) {
   return kvs.getSecret(key);
 }

@@ -40,16 +40,19 @@ export function remainingPairings(countFromIndex) {
   return Math.max(0, MAX_PAIRINGS - used);
 }
 
-export function buildPairingRecord({ inviteToken, installId, userAgent, now, expiresAt }) {
+export function buildPairingRecord({ inviteToken, installId, userAgent, now }) {
   return {
     pairingId: pairingIdFor(inviteToken, installId),
     inviteTokenRef: parentRefOf(inviteToken),
+    // The raw invite is kept so a guest ticket can resolve its identity and
+    // invitation state at write time. KVS-internal, same trust boundary as the
+    // invite key itself.
+    inviteToken,
     installId: installId || '',
     userAgent: userAgent || null,
     state: 'active',
     firstSeenAt: now,
     lastSeenAt: now,
-    expiresAt: expiresAt || null,
   };
 }
 

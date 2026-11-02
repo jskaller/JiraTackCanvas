@@ -4,6 +4,8 @@ import { getInstallationConfig } from '../../lib/config.js';
 import { generateSessionJwt } from '../../lib/tokens.js';
 import { pairingService } from '../../lib/credentials.js';
 import { parseCompositeToken } from '../../lib/tokenParser.js';
+import { invitationState, canPairNewDevice } from '../../lib/inviteModel.js';
+import { pairingIdFor } from '../../lib/credentialsModel.js';
 import { errorResult } from '../../lib/errors.js';
 import { resolveWebtriggerUrls } from '../../lib/webtriggerUrls.js';
 
@@ -139,20 +141,40 @@ export async function exchangeToken(payload, request) {
     const invite = await kvsGet(`canvasTokens:${parsed.inviteToken}`);
     if (invite && invite.scope === 'guest_create') {
       if (invite.revoked) {
-        return errorResult('TOKEN_INVALID', 'Invite token has been revoked.');
+        return errorResult('TOKEN_INVALID', 'This invitation has been revoked.');
       }
-      if (invite.expiresAt && invite.expiresAt < now) {
-        return errorResult('TOKEN_EXPIRED', 'Invite token has expired.');
+      if (invitationState(invite) === 'inactive') {
+        return errorResult('TOKEN_INVALID', 'This invitation is paused. Ask the person who sent it to reactivate it.');
       }
 
-      const pairing = await pairingService.recordPairing({
-        inviteToken: parsed.inviteToken,
-        installId: parsed.installId,
-        inviteRecord: invite,
-        userAgent: headerValue(request, 'user-agent'),
-        now,
-      });
-      if (!pairing.ok) return errorResult(pairing.code, pairing.message);
+      const pairingId = pairingIdFor(parsed.inviteToken, parsed.installId);
+      const existing = await pairingService.getPairing(pairingId);
+
+      if (existing) {
+        if (existing.state !== 'active') {
+          return errorResult('TOKEN_INVALID', 'This pairing has been revoked.');
+        }
+        // Existing pairings keep working after the 72h link expires (D29).
+        await pairingService.recordPairing({
+          inviteToken: parsed.inviteToken,
+          installId: parsed.installId,
+          inviteRecord: invite,
+          userAgent: headerValue(request, 'user-agent'),
+          now,
+        });
+      } else {
+        if (!canPairNewDevice(invite, now)) {
+          return errorResult('TOKEN_EXPIRED', 'This link has expired. Ask the person who sent it for a new one.');
+        }
+        const created = await pairingService.recordPairing({
+          inviteToken: parsed.inviteToken,
+          installId: parsed.installId,
+          inviteRecord: invite,
+          userAgent: headerValue(request, 'user-agent'),
+          now,
+        });
+        if (!created.ok) return errorResult(created.code, created.message);
+      }
 
       let permittedProjects = '*';
       if (typeof invite.permittedProjectsJson === 'string') {
@@ -172,7 +194,7 @@ export async function exchangeToken(payload, request) {
         issuer: invite.issuer,
         permittedCanvases,
         permittedProjects,
-        pairingId: pairing.pairingId,
+        pairingId,
         isAdmin: false,
         iat,
         exp,
@@ -191,7 +213,7 @@ export async function exchangeToken(payload, request) {
         permittedProjects,
         isAdmin: false,
         displayName,
-        pairingId: pairing.pairingId,
+        pairingId,
       });
     }
   }

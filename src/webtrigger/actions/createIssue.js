@@ -6,7 +6,9 @@ import { canAccessCanvas, canAccessProject } from '../middleware/scope.js';
 import { isLicensedUser } from '../../lib/license.js';
 import { buildIssueDescription } from '../../lib/issueDescription.js';
 import { writeMetadata } from '../../lib/metadata.js';
-import { recordGuestPin } from '../../lib/bindings.js';
+import { recordPinForBinding } from '../../lib/bindings.js';
+import { pairingService } from '../../lib/credentials.js';
+import { kvsGet } from '../../lib/kvs.js';
 import { readScreenshotUpload, deleteScreenshotUpload } from './screenshotUpload.js';
 
 function buildMultipartBody(fileBuffer, filename, mimeType) {
@@ -128,6 +130,8 @@ export async function createIssue(payload, claims) {
 
   const isGuest = Boolean(claims && claims.scope === 'guest_create');
   let guest = null;
+  let invite = null;
+  let bindingId = null;
   const assigneeAccountId = (payload && payload.assigneeAccountId) || null;
 
   if (isGuest) {
@@ -135,18 +139,25 @@ export async function createIssue(payload, claims) {
       return errorResult('INSUFFICIENT_SCOPE', 'This canvas is not available to you.');
     }
 
-    const guestName = payload && payload.guestName;
-    const guestEmail = payload && payload.guestEmail;
-    if (typeof guestName !== 'string' || guestName.trim().length === 0) {
-      return errorResult('VALIDATION_ERROR', 'guestName is required.');
+    // Identity is fixed at issuance (D30), and the invitation state is checked
+    // on every write so deactivation takes effect immediately rather than at
+    // the next session renewal.
+    const pairingId = claims && claims.pairingId;
+    const pairing = pairingId ? await pairingService.getPairing(pairingId) : null;
+    if (!pairing || pairing.state !== 'active') {
+      return errorResult('INSUFFICIENT_SCOPE', 'This invitation is no longer active.');
     }
-    if (typeof guestEmail !== 'string' || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(guestEmail.trim())) {
-      return errorResult('VALIDATION_ERROR', 'A valid guestEmail is required.');
+
+    invite = await kvsGet(`canvasTokens:${pairing.inviteToken}`);
+    if (!invite || invite.scope !== 'guest_create' || invite.revoked || invite.state === 'inactive') {
+      return errorResult('INSUFFICIENT_SCOPE', 'This invitation is paused or revoked.');
     }
-    guest = {
-      name: guestName.trim().slice(0, 200),
-      email: guestEmail.trim().slice(0, 320),
-    };
+    if (!invite.guestName || !invite.guestEmail) {
+      return errorResult('VALIDATION_ERROR', 'This link predates named invitations. Ask for a new one.');
+    }
+
+    guest = { name: invite.guestName, email: invite.guestEmail };
+    bindingId = invite.bindingId || null;
 
     if (typeof assigneeAccountId !== 'string' || assigneeAccountId.length === 0) {
       return errorResult('VALIDATION_ERROR', 'assigneeAccountId is required when creating guest tickets.');
@@ -239,17 +250,11 @@ export async function createIssue(payload, claims) {
   // Record the reviewer binding only after Jira has accepted the ticket, so a
   // rejected create never consumes a slot or a pin count (D24). A binding
   // failure must not fail the ticket.
-  let bindingId = null;
-  if (isGuest && guest) {
+  if (isGuest && bindingId) {
     try {
-      const binding = await recordGuestPin({
-        email: guest.email,
-        issuedBy: claims.sub,
-        canvasName,
-      });
-      bindingId = binding ? binding.bindingId : null;
+      await recordPinForBinding(bindingId, { canvasName });
     } catch (e) {
-      console.error('[JiraTack] Binding write failed:', e && e.message ? e.message : e);
+      console.error('[JiraTack] Binding pin write failed:', e && e.message ? e.message : e);
     }
   }
 

@@ -285,8 +285,7 @@ Request: {
   payload: {
     canvasId, url, pinPosition, selector, summary, descriptionAdf,
     screenshotUploadId, consoleLog, issueTypeId, projectKey,
-    priorityId, assigneeAccountId, parentKey,
-    guestName?, guestEmail?
+    priorityId, assigneeAccountId, parentKey
   }
 }
 Auth:     Bearer, scope create | guest_create
@@ -298,8 +297,9 @@ Server behaviour:
 1. Require non-empty `canvasId`, `url`, `pinPosition`, `summary`, `issueTypeId`, `projectKey` → else `BAD_REQUEST`.
 
 2. **Guest branch** (`scope === "guest_create"`):
+   - Resolve identity from the signed `pairingId` claim → pairing → invitation. A missing/revoked pairing, or an invitation that is `inactive`/`revoked`, → `INSUFFICIENT_SCOPE`. Identity is never read from the payload (D29).
+   - Invitations minted before named issuance (no `guestName`/`guestEmail`) → `VALIDATION_ERROR` ("ask for a new link").
    - `canAccessCanvas(claims, canvasId)` → else `INSUFFICIENT_SCOPE`.
-   - `guestName` non-empty and `guestEmail` a valid address → else `VALIDATION_ERROR`.
    - `assigneeAccountId` required, and must be a licensed JiraTack user (`jiratack_licensed_users:<accountId>`) → else `VALIDATION_ERROR`.
 
 3. `canAccessProject(claims.permittedProjects, projectKey)` → else `INSUFFICIENT_SCOPE`.
@@ -574,14 +574,15 @@ Payload: { tokenRef?: string, token?: string }
 
 ```text
 generateGuestToken(context, payload)
-  → { ok, data: { token, installerUrl, scope: "guest_create",
-                  permittedCanvases, permittedProjects, expiresAt } }
-Payload: { permittedCanvases: string[] }   // 1–50 distinct entries, each 1–255 chars
+  → { ok, data: { token, installerUrl, scope: "guest_create", permittedCanvases,
+                  permittedProjects, expiresAt, guestName, guestEmail } }
+Payload: { permittedCanvases: string[], guestName: string, guestEmail: string }
+         // 1–50 canvases (1–255 chars each); guestName 1–200; guestEmail valid
 ```
 
 - Requires a **seat** (`hasAccess !== false`), not site-admin rights → else `LICENSE_INACTIVE`.
 - `permittedProjects` is frozen at issuance via `computePermittedProjects(mode, null)`.
-- Record per §2.1 with a 72-hour TTL, `mintedAfterCutover: true`, and `isAdmin: false`.
+- Record has **no KVS TTL**: it carries `guestName`, `guestEmail`, `bindingId`, `issuer`, `issuedByName`, `state` (`active`|`inactive`), `issuedAt`, `linkExpiresAt` (72 h) and `revoked`. The link expiry gates new devices only (D29).
 - `installerUrl` = install web trigger with `?token=<guestToken>`; `null` if URL resolution fails.
 - **Accepted trade-off (D19):** the guest session inherits the **issuer's** browse access for the selected canvases. Seat gating, canvas scoping, and the 72-hour expiry are the compensating controls.
 

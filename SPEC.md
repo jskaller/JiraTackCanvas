@@ -39,7 +39,7 @@ JiraTack is a single-part product: an Atlassian Forge app, Marketplace listed, i
   | --- | --- | --- | --- |
   | Canvas bookmarklet | `generateCanvasToken` | One canvas | 30 days |
   | Personal bookmarklet | `generateUserToken` | The issuing user, launcher picks a canvas | 90 days |
-  | Guest link | `generateGuestToken` | A set of canvases, delegated by the issuer | 72 hours (new); grandfathered 365 d |
+  | Guest link | `generateGuestToken` | One named reviewer, delegated by the issuer | link 72 h; access until revoked |
 
 **What it explicitly is not:**
 
@@ -201,7 +201,7 @@ There is no backfill and no description marker. Tickets without `com.jiratack.me
 | --- | --- | --- | --- | --- |
 | Canvas token | 30 days | `create`, `view` | Embedded in the bookmarklet URL | `generateCanvasToken` |
 | Personal token | 90 days | `create`, `view` | Embedded in the bookmarklet URL | `generateUserToken` |
-| Guest token | 72 hours (new invites; grandfathered 365 d) | `guest_create` | Embedded in the installer URL | `generateGuestToken` |
+| Guest token | Link 72 h; pairings until revoked | `guest_create` | Embedded in the installer URL | `generateGuestToken` |
 | Session JWT | 8 hours | Inherited | `sessionStorage` | `exchangeToken` web trigger |
 
 ### 5.2 Issuance rules
@@ -226,9 +226,11 @@ There is no backfill and no description marker. Tickets without `com.jiratack.me
 
 3. 90-day TTL. Returns `{ token, apiUrl, sdkUrl, sdkVersion }` with no canvas binding; the bookmarklet opens the launcher.
 
-**`generateGuestToken(permittedCanvases)`**
+**`generateGuestToken(permittedCanvases, guestName, guestEmail)`**
 
 1. Requires a seat (`hasAccess !== false`) → else `LICENSE_INACTIVE`. Guest links are seat-gated, **not** admin-gated (D19).
+
+   `guestName` and `guestEmail` are required: the sponsor names the reviewer at issuance, and the binding is created then in state `issued` (D29). The guest never enters identity in the sidebar.
 
 2. `permittedCanvases` must be 1–50 distinct names of 1–255 characters.
 
@@ -494,15 +496,14 @@ Client payload:
 
 ```text
 { canvasId, url, pinPosition, selector, summary, descriptionAdf, screenshotUploadId,
-  consoleLog, issueTypeId, projectKey, priorityId, assigneeAccountId, parentKey,
-  guestName?, guestEmail? }
+  consoleLog, issueTypeId, projectKey, priorityId, assigneeAccountId, parentKey }
 ```
 
 Server:
 
 1. Validates required fields (`canvasId`, `url`, `pinPosition`, `summary`, `issueTypeId`, `projectKey`).
 
-2. Guest branch: `guestName` required, `guestEmail` must be a valid address, `assigneeAccountId` required and must belong to a licensed JiraTack user (`jiratack_licensed_users:*`).
+2. Guest branch: identity is resolved from the `pairingId` claim → invitation, never from the payload. The pairing and invitation must both be active. `assigneeAccountId` is required and must belong to a licensed JiraTack user (`jiratack_licensed_users:*`).
 
 3. `canAccessProject(claims.permittedProjects, projectKey)` → `INSUFFICIENT_SCOPE`.
 
@@ -593,7 +594,7 @@ Jira 400/422 is mapped to `VALIDATION_ERROR` with Jira's `errorMessages` and `er
 
 ### 8.4 Admin page (`jira:adminPage`)
 
-- License status, `viewPermissionMode` (`per_user_projects` | `open`), token inventory with `tokenRef`, revoke, archived/deleted canvas lists.
+- License status, `viewPermissionMode` (`per_user_projects` | `open`), **guest invitations** (reviewer, email, sponsor, status, pairings, pin count, link expiry, with Deactivate/Activate, New link, Revoke), archived/deleted canvas lists.
 
 - Admin-only via `requireAdmin`.
 
@@ -708,7 +709,6 @@ Compact vertical layout with a sticky top bar carrying "New ticket" and **Cancel
 
 | Field | Notes |
 | --- | --- |
-| Your name, Your email | Guest sessions only; both required |
 | Project | Select from `permittedProjects`, or free text when the list is `"*"` |
 | Issue type | Loaded per project; default = last-used → `Task` → first non-Epic type |
 | Assignee | Typeahead; guest tickets must target a licensed user |

@@ -3,6 +3,7 @@ import { getInstallationConfig, mutateInstallationConfig } from '../lib/config.j
 import { requireAdmin } from '../lib/access.js';
 import { generateCanvasToken, generateGuestToken, generateUserToken, listCanvasTokens, revokeCanvasToken, createCanvas, deleteCanvas, archiveCanvas } from './actions/admin.js';
 import { getProjectConfig, setProjectConfig } from './actions/config.js';
+import { listGuestInvites, setGuestInviteActive, revokeGuestInvite, regenerateGuestInvite } from './actions/invites.js';
 import { dashboardAggregate } from './actions/dashboard.js';
 import { epicPanelData } from './actions/epic.js';
 import { issuePanelData } from './actions/issue.js';
@@ -137,6 +138,39 @@ resolver.define('epicPanelData', async (req) => {
 resolver.define('issuePanelData', async (req) => {
   try {
     return await issuePanelData(req.context, req.payload);
+  } catch (e) {
+    return { ok: false, error: { code: 'INTERNAL', message: e && e.message ? e.message : String(e) } };
+  }
+});
+
+
+resolver.define('listGuestInvites', async (req) => {
+  try {
+    return await listGuestInvites(req.context);
+  } catch (e) {
+    return { ok: false, error: { code: 'INTERNAL', message: e && e.message ? e.message : String(e) } };
+  }
+});
+
+resolver.define('setGuestInviteActive', async (req) => {
+  try {
+    return await setGuestInviteActive(req.context, req.payload);
+  } catch (e) {
+    return { ok: false, error: { code: 'INTERNAL', message: e && e.message ? e.message : String(e) } };
+  }
+});
+
+resolver.define('revokeGuestInvite', async (req) => {
+  try {
+    return await revokeGuestInvite(req.context, req.payload);
+  } catch (e) {
+    return { ok: false, error: { code: 'INTERNAL', message: e && e.message ? e.message : String(e) } };
+  }
+});
+
+resolver.define('regenerateGuestInvite', async (req) => {
+  try {
+    return await regenerateGuestInvite(req.context, req.payload);
   } catch (e) {
     return { ok: false, error: { code: 'INTERNAL', message: e && e.message ? e.message : String(e) } };
   }

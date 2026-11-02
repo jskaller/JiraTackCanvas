@@ -55,7 +55,6 @@ const record = buildPairingRecord({
   installId,
   userAgent: 'Mozilla/5.0',
   now,
-  expiresAt: now + 3600_000,
 });
 check('record id', record.pairingId, pairingIdFor(invite, installId));
 check('record ref', record.inviteTokenRef, parentRefOf(invite));
@@ -63,7 +62,9 @@ check('record install', record.installId, installId);
 check('record state', record.state, 'active');
 check('record firstSeen', record.firstSeenAt, now);
 check('record ua', record.userAgent, 'Mozilla/5.0');
-check('no secret on record', 'token' in record || 'raw' in record || 'credentialId' in record, false);
+check('record keeps invite for identity lookup', record.inviteToken, invite);
+check('no pairing expiry', 'expiresAt' in record, false);
+check('no raw credential on record', 'raw' in record || 'credentialId' in record, false);
 check('no binding on record', 'bindingId' in record, false);
 
 const legacy = buildPairingRecord({ inviteToken: invite, installId: '', now });

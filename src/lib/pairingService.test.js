@@ -112,14 +112,15 @@ const run = async () => {
     check('legacy recorded', (await svc.countPairingsForInvite(ref)), 1);
   }
 
-  // TTL derived from the invite, never shorter
+  // Pairings do not expire: lifetime ends on deactivation/revocation
   {
     const store = createStore();
     const svc = createPairingService(store);
-    await svc.recordPairing({ inviteToken: invite, installId: 'e'.repeat(32), inviteRecord, now });
-    const first = store.writes.find((w) => w.key.startsWith('pairings:'));
-    check('ttl unit', first.options.ttl.unit, 'SECONDS');
-    check('ttl remaining', first.options.ttl.value, 6 * 60 * 60);
+    await svc.recordPairing({ inviteToken: invite, installId: 'f'.repeat(32), inviteRecord, now });
+    const write = store.writes.find((w) => w.key.startsWith('pairings:'));
+    check('no ttl on pairing writes', write.options && write.options.ttl, undefined);
+    const row = store.map.get(write.key);
+    check('no expiry on the record', JSON.parse(row).expiresAt, undefined);
   }
 
   console.log(`\n${passed}/${passed + failed} passed, ${failed} failed`);

@@ -2,18 +2,19 @@ import crypto from 'crypto';
 import api, { route, getAppContext } from '@forge/api';
 import { WhereConditions } from '@forge/kvs';
 import { getInstallationConfig, mutateInstallationConfig } from '../../lib/config.js';
-import { kvs, kvsGet, kvsSet } from '../../lib/kvs.js';
+import { kvs, kvsGet, kvsSet, kvsQueryAll } from '../../lib/kvs.js';
 import { trackLicensedUser } from '../../lib/license.js';
 import { generateSessionJwt } from '../../lib/tokens.js';
 import { errorResponse, errorResult } from '../../lib/errors.js';
 import { resolveWebtriggerUrls } from '../../lib/webtriggerUrls.js';
 import { createSeedTicket } from '../../lib/canvas.js';
+import { createInvite } from '../../lib/invites.js';
+import { tokenReference } from '../../lib/tokenRef.js';
 import { isJiraAdmin, requireAdmin } from '../../lib/access.js';
 import { METADATA_PROPERTY_KEY, metadataFromIssue } from '../../lib/metadata.js';
 import { SDK_VERSION } from '../../lib/version.js';
 
 const CANVAS_TOKEN_TTL_SECONDS = 2592000;
-const GUEST_TOKEN_TTL_HOURS = 72;
 const SESSION_TTL_SECONDS = 8 * 60 * 60;
 
 function resolveInstallationId(context) {
@@ -24,6 +25,18 @@ function resolveInstallationId(context) {
     // fall through
   }
   return (context && context.installationId) || (context && context.extension && context.extension.installation && context.extension.installation.id) || '';
+}
+
+async function lookupDisplayName(accountId) {
+  if (!accountId) return null;
+  try {
+    const res = await api.asApp().requestJira(route`/rest/api/3/user?accountId=${accountId}`);
+    if (!res.ok) return null;
+    const data = await res.json();
+    return (data && data.displayName) || null;
+  } catch (e) {
+    return null;
+  }
 }
 
 async function computePermittedProjects(mode, canvasName) {
@@ -203,32 +216,34 @@ export async function generateGuestToken(context, payload) {
   }
   if (!permitted.ok) return permitted;
 
+  const guestName = typeof (payload && payload.guestName) === 'string' ? payload.guestName.trim() : '';
+  const guestEmail = typeof (payload && payload.guestEmail) === 'string' ? payload.guestEmail.trim() : '';
+  if (guestName.length === 0 || guestName.length > 200) {
+    return errorResult('VALIDATION_ERROR', 'guestName is required (1-200 characters).');
+  }
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(guestEmail) || guestEmail.length > 320) {
+    return errorResult('VALIDATION_ERROR', 'A valid guestEmail is required.');
+  }
+
   const issuer = (context && (context.accountId || context.userId)) || '';
   const installationId = resolveInstallationId(context);
-  const token = crypto.randomBytes(32).toString('hex');
-  const issuedAt = Date.now();
-  const expiresAt = issuedAt + GUEST_TOKEN_TTL_HOURS * 60 * 60 * 1000;
+  const issuedByName = await lookupDisplayName(issuer);
 
-  const record = {
-    scope: 'guest_create',
-    issuer: String(issuer),
-    isAdmin: false,
-    permittedCanvases,
-    permittedProjectsJson: JSON.stringify(permitted.permittedProjects),
-    installationId: String(installationId),
-    issuedAt,
-    expiresAt,
-    revoked: false,
-    // New invites are 72h (D26); grandfathered records lack the flag and keep
-    // their original expiry, so the installer never shows a misleading reason.
-    mintedAfterCutover: true,
-  };
-
+  let created;
   try {
-    await kvsSet(`canvasTokens:${token}`, record, { ttl: { value: GUEST_TOKEN_TTL_HOURS, unit: 'HOURS' } });
+    created = await createInvite({
+      issuer,
+      issuedByName,
+      guestName,
+      guestEmail,
+      permittedCanvases,
+      permittedProjects: permitted.permittedProjects,
+      installationId,
+    });
   } catch (e) {
-    return errorResult('INTERNAL', `Failed to persist guest token: ${e && e.message ? e.message : e}`);
+    return errorResult('INTERNAL', `Failed to create the guest invitation: ${e && e.message ? e.message : e}`);
   }
+  const token = created.token;
 
   let installUrl = null;
   try {
@@ -248,7 +263,9 @@ export async function generateGuestToken(context, payload) {
       scope: 'guest_create',
       permittedCanvases,
       permittedProjects: permitted.permittedProjects,
-      expiresAt,
+      expiresAt: created.record.linkExpiresAt,
+      guestName: created.record.guestName,
+      guestEmail: created.record.guestEmail,
     },
   };
 }
@@ -257,38 +274,8 @@ export async function generateGuestToken(context, payload) {
  * Tokens are credentials. The admin surface never needs the raw value, so
  * records are identified by a short non-reversible reference instead.
  */
-function tokenReference(token) {
-  return crypto.createHash('sha256').update(String(token)).digest('hex').slice(0, 12);
-}
-
-const TOKEN_QUERY_PAGE = 50;
-const TOKEN_QUERY_MAX = 1000;
-
-/**
- * KVS rejects list queries at or above 100 rows ("Limit for list query should
- * be below 100"), so page with the cursor and stop at the same overall cap the
- * old single-shot query assumed.
- */
 async function queryCanvasTokenEntries() {
-  const entries = [];
-  let cursor = null;
-
-  do {
-    let query = kvs
-      .query()
-      .where('key', WhereConditions.beginsWith('canvasTokens:'))
-      .limit(TOKEN_QUERY_PAGE);
-    if (cursor) query = query.cursor(cursor);
-
-    const page = await query.getMany();
-    const results = (page && page.results) || [];
-    entries.push(...results);
-    cursor = page && page.nextCursor ? page.nextCursor : null;
-
-    if (entries.length >= TOKEN_QUERY_MAX) break;
-  } while (cursor);
-
-  return entries.slice(0, TOKEN_QUERY_MAX);
+  return kvsQueryAll('canvasTokens:');
 }
 
 export async function listCanvasTokens(context) {

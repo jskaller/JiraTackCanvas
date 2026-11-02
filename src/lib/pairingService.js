@@ -33,11 +33,7 @@ export function createPairingService(store) {
 
   async function touch(record, now) {
     try {
-      await store.set(
-        pairingKey(record.pairingId),
-        { ...record, lastSeenAt: now },
-        { ttl: { value: remainingTtlSeconds(record.expiresAt, now), unit: 'SECONDS' } },
-      );
+      await store.set(pairingKey(record.pairingId), { ...record, lastSeenAt: now });
     } catch (e) {
       // lastSeenAt is advisory; never block a session on it.
     }
@@ -81,15 +77,10 @@ export function createPairingService(store) {
       installId,
       userAgent,
       now,
-      expiresAt: inviteRecord && inviteRecord.expiresAt,
     });
-    const ttl = {
-      value: remainingTtlSeconds(inviteRecord && inviteRecord.expiresAt, now),
-      unit: 'SECONDS',
-    };
 
     try {
-      await store.set(pairingKey(pairingId), record, { keyPolicy: 'FAIL_IF_EXISTS', ttl });
+      await store.set(pairingKey(pairingId), record, { keyPolicy: 'FAIL_IF_EXISTS' });
     } catch (e) {
       // Lost the race for the same (invite, installId): not an error.
       const winner = await getPairing(pairingId);
@@ -103,7 +94,6 @@ export function createPairingService(store) {
     await store.set(
       pairingIndexKey(ref, pairingId),
       { pairingId, installId: installId || '', firstSeenAt: now },
-      { ttl },
     );
 
     return { ok: true, pairingId, isNew: true };

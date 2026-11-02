@@ -6,6 +6,7 @@ import { buildBookmarklet } from '../shared/bookmarklet.js';
 import { buildCompositeToken } from '../lib/tokenParser.js';
 import { pairingService } from '../lib/credentials.js';
 import { parentRefOf, pairingIdFor, MAX_PAIRINGS, remainingPairings, INSTALL_ID_RE } from '../lib/credentialsModel.js';
+import { linkExpiresAt, invitationState } from '../lib/inviteModel.js';
 
 /**
  * Guest installer.
@@ -156,10 +157,11 @@ function phaseOne(token, urls) {
   return { statusCode: 200, headers: HTML_HEADERS, body: page('Get JiraTack', body) };
 }
 
-function validPage(token, installId, remaining, urls) {
+function validPage(token, installId, remaining, urls, guestName) {
   const href = bookmarkletFor(buildCompositeToken(token, installId), urls);
 
-  const body = `<h1>Get JiraTack</h1>
+  const invited = guestName ? `<p class="muted">You are invited as <strong>${escapeHtml(guestName)}</strong>.</p>` : '';
+  const body = `<h1>Get JiraTack</h1>${invited}
 <div class="card disabled">
   <h2>🔌 Install the extension <span class="muted">(recommended)</span></h2>
   <p>Works on Chrome and Edge today; other browsers to follow.</p>
@@ -219,7 +221,20 @@ export const handler = async (req) => {
   }
 
   const now = Date.now();
-  if (invite.expiresAt && invite.expiresAt < now) {
+  if (invitationState(invite) === 'inactive') {
+    return {
+      statusCode: 200,
+      headers: HTML_HEADERS,
+      body: statePage(
+        'Invite paused',
+        'This invitation is paused',
+        'Ask the person who sent you this link to reactivate it.',
+      ),
+    };
+  }
+
+  const expiry = linkExpiresAt(invite);
+  if (expiry && expiry < now) {
     const window = invite.mintedAfterCutover ? ' after 72 hours' : '';
     return {
       statusCode: 200,
@@ -248,5 +263,5 @@ export const handler = async (req) => {
     };
   }
 
-  return validPage(token, installId, remainingPairings(used), urls);
+  return validPage(token, installId, remainingPairings(used), urls, invite.guestName);
 };

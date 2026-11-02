@@ -47,8 +47,6 @@ export function renderTicketForm(container, options) {
     return input;
   }
 
-  const guestNameInput = isGuest ? textInput('Your name', '') : null;
-  const guestEmailInput = isGuest ? textInput('you@example.com', '') : null;
 
   const permitted = Array.isArray(session.permittedProjects) ? session.permittedProjects : [];
   const openMode = session.permittedProjects === '*';
@@ -148,10 +146,6 @@ export function renderTicketForm(container, options) {
   topBar.appendChild(topCancelButton);
   form.appendChild(topBar);
 
-  if (isGuest) {
-    form.appendChild(field('Your Name', guestNameInput));
-    form.appendChild(field('Your Email', guestEmailInput));
-  }
   form.appendChild(field('Project', projectSelect || projectInput));
   form.appendChild(field('Issue type', issueTypeSelect));
   form.appendChild(assigneeWrap);
@@ -462,21 +456,9 @@ export function renderTicketForm(container, options) {
       return;
     }
 
-    const guestName = isGuest ? guestNameInput.value.trim() : null;
-    const guestEmail = isGuest ? guestEmailInput.value.trim() : null;
-    if (isGuest) {
-      if (guestName.length === 0) {
-        showError('Your name is required.');
-        return;
-      }
-      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(guestEmail)) {
-        showError('A valid email is required.');
-        return;
-      }
-      if (!assigneeAccountId) {
-        showError('Select a licensed user to assign this ticket to.');
-        return;
-      }
+    if (isGuest && !assigneeAccountId) {
+      showError('Select a licensed user to assign this ticket to.');
+      return;
     }
 
     const consoleLog = consoleCheckbox && consoleCheckbox.checked
@@ -514,8 +496,6 @@ export function renderTicketForm(container, options) {
         priorityId: prioritySelect.value || null,
         assigneeAccountId: assigneeAccountId || null,
         parentKey: parentKey || null,
-        guestName,
-        guestEmail,
       });
 
       destroy();

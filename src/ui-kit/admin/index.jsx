@@ -13,33 +13,25 @@ function formatWhen(value) {
   return date.toLocaleString();
 }
 
-function describeToken(token) {
-  const parts = [token.tokenRef];
-  parts.push(token.canvasName ? token.canvasName : 'guest link');
-  if (token.scope) parts.push(token.scope);
-  if (token.revoked) parts.push('revoked');
-  parts.push(`expires ${formatWhen(token.expiresAt)}`);
-  return parts.join(' · ');
-}
-
 const AdminApp = () => {
   const [config, setConfig] = useState(DEFAULT_CONFIG);
   const [error, setError] = useState(null);
-  const [tokens, setTokens] = useState([]);
-  const [tokensError, setTokensError] = useState(null);
+  const [invites, setInvites] = useState([]);
+  const [invitesError, setInvitesError] = useState(null);
   const [busyRef, setBusyRef] = useState(null);
+  const [confirmRef, setConfirmRef] = useState(null);
 
-  const loadTokens = async () => {
+  const loadInvites = async () => {
     try {
-      const res = await invoke('listCanvasTokens');
+      const res = await invoke('listGuestInvites');
       if (res && res.ok && res.data) {
-        setTokens(res.data.tokens || []);
-        setTokensError(null);
+        setInvites(res.data.invites || []);
+        setInvitesError(null);
       } else {
-        setTokensError((res && res.error && res.error.message) || 'Could not load tokens.');
+        setInvitesError((res && res.error && res.error.message) || 'Could not load invitations.');
       }
     } catch (e) {
-      setTokensError(e && e.message ? e.message : 'Could not load tokens.');
+      setInvitesError(e && e.message ? e.message : 'Could not load invitations.');
     }
   };
 
@@ -54,7 +46,7 @@ const AdminApp = () => {
       } catch (e) {
         if (mounted) setError(e && e.message ? e.message : 'Unknown error');
       }
-      if (mounted) await loadTokens();
+      if (mounted) await loadInvites();
     })();
     return () => { mounted = false; };
   }, []);
@@ -71,19 +63,20 @@ const AdminApp = () => {
     }
   };
 
-  const revoke = async (tokenRef) => {
-    setBusyRef(tokenRef);
-    setTokensError(null);
+  const act = async (ref, action, payload) => {
+    setBusyRef(ref);
+    setInvitesError(null);
     try {
-      const res = await invoke('revokeCanvasToken', { tokenRef });
+      const res = await invoke(action, { tokenRef: ref, ...(payload || {}) });
       if (!res || !res.ok) {
-        throw new Error((res && res.error && res.error.message) || 'Revoke failed.');
+        throw new Error((res && res.error && res.error.message) || 'Action failed.');
       }
-      await loadTokens();
+      await loadInvites();
     } catch (err) {
-      setTokensError(err && err.message ? err.message : 'Revoke failed.');
+      setInvitesError(err && err.message ? err.message : 'Action failed.');
     } finally {
       setBusyRef(null);
+      setConfirmRef(null);
     }
   };
 
@@ -103,24 +96,51 @@ const AdminApp = () => {
       <Button appearance={mode === 'per_user_projects' ? 'primary' : 'default'} onClick={() => setMode('per_user_projects')}>Per-user projects</Button>
       <Button appearance={mode === 'open' ? 'primary' : 'default'} onClick={() => setMode('open')}>Open</Button>
 
-      <Text>Canvas and guest tokens</Text>
-      <Text>Revoking blocks new exchanges immediately. Sessions already open stay valid for up to 8 hours.</Text>
-      {tokensError && (
-        <SectionMessage appearance="error" title="Token list">
-          <Text>{tokensError}</Text>
+      <Text>Guest invitations</Text>
+      <Text>Each invitation names one reviewer. Deactivate pauses access; Revoke is permanent.</Text>
+      {invitesError && (
+        <SectionMessage appearance="error" title="Invitations">
+          <Text>{invitesError}</Text>
         </SectionMessage>
       )}
-      {tokens.length === 0 && !tokensError && <Text>No tokens issued.</Text>}
-      {tokens.map((token) => (
-        <Stack key={token.tokenRef} space="space.050">
-          <Text>{describeToken(token)}</Text>
-          <Button
-            appearance="subtle"
-            isDisabled={Boolean(token.revoked) || busyRef === token.tokenRef}
-            onClick={() => revoke(token.tokenRef)}
-          >
-            {token.revoked ? 'Revoked' : busyRef === token.tokenRef ? 'Revoking…' : 'Revoke'}
-          </Button>
+      {invites.length === 0 && !invitesError && <Text>No guest invitations issued.</Text>}
+      {invites.map((invite) => (
+        <Stack key={invite.tokenRef} space="space.050">
+          <Text>
+            {invite.guestName || '(unnamed)'} · {invite.guestEmail || 'no email'} · sponsor {invite.issuedByName || invite.issuedBy || 'unknown'}
+          </Text>
+          <Text>
+            {invite.status} · link expires {formatWhen(invite.linkExpiresAt)} · {invite.pairings} of {invite.pairingsLimit} pairings · {invite.pinCount} pins
+          </Text>
+          <Text>
+            {(invite.canvases || []).join(', ')}
+          </Text>
+          <Stack space="space.050">
+            {invite.status === 'active' && (
+              <Button appearance="subtle" isDisabled={busyRef === invite.tokenRef} onClick={() => act(invite.tokenRef, 'setGuestInviteActive', { active: false })}>Deactivate</Button>
+            )}
+            {invite.status === 'inactive' && (
+              <Button appearance="subtle" isDisabled={busyRef === invite.tokenRef} onClick={() => act(invite.tokenRef, 'setGuestInviteActive', { active: true })}>Activate</Button>
+            )}
+            {invite.status !== 'revoked' && (
+              <Button appearance="subtle" isDisabled={busyRef === invite.tokenRef} onClick={() => act(invite.tokenRef, 'regenerateGuestInvite')}>New link</Button>
+            )}
+            {invite.status !== 'revoked' && (
+              <Button
+                appearance="subtle"
+                isDisabled={busyRef === invite.tokenRef}
+                onClick={() => {
+                  if (confirmRef === invite.tokenRef) {
+                    act(invite.tokenRef, 'revokeGuestInvite');
+                  } else {
+                    setConfirmRef(invite.tokenRef);
+                  }
+                }}
+              >
+                {confirmRef === invite.tokenRef ? 'Confirm revoke' : 'Revoke'}
+              </Button>
+            )}
+          </Stack>
         </Stack>
       ))}
     </Stack>

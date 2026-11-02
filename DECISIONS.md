@@ -252,6 +252,43 @@ The real boundary is the extension: a content script holds the credential outsid
 
 **Applies to:** S6, S7; `shared/bookmarklet.js`; `TD §2 #3`, `§6(b)`.
 
+### D29 — Guest invitation lifecycle: named reviewers, sponsorship, reversible controls
+
+**Status:** Resolved (2026-11-02).
+**Resolution:** A guest invitation is a **named reviewer**, created by a licensed sponsor, not an anonymous bearer that collects identity later.
+
+**Identity at issuance.** `guestName` and `guestEmail` are required when the sponsor issues the link. The binding (`bindings:<HMAC(email)>`) is created then, in state `issued`; the first successful pin flips it to `active` (the billable event). `createIssue` no longer accepts identity from the client — it resolves it from the signed `pairingId` claim → pairing → invitation, so a guest cannot file under another address.
+
+**Sponsorship.** The invitation records `issuer` (accountId) and `issuedByName` (resolved once at issuance, so lists do not need N user lookups). Guest tickets keep `reporter = issuer` (`P-03`), so sponsor and reviewer are both visible: sponsor on the ticket's reporter, reviewer in the metadata and description header.
+
+**Lifetime.** A pairing lives **until revoked** (`A-20` amended). The 72h `linkExpiresAt` gates only **new devices**; an existing pairing exchanges regardless of link expiry. So the invitation record and its pairings carry **no KVS TTL** — the old TTL deleted the parent at 72h and would have killed every pairing even if policy allowed them to live.
+
+**Four controls, deliberately distinct:**
+
+| Control | Effect | Reversible |
+| --- | --- | --- |
+| Deactivate | Blocks new exchanges **and guest writes** immediately; pairings and history kept | Yes |
+| Activate | Restores both | — |
+| New link (regenerate) | Same reviewer/binding, fresh 72h link, pairing cap reset; old invitation tombstoned | — |
+| Revoke | Terminal; all pairings invalid; record kept as tombstone | No |
+
+Deactivation is enforced in `createIssue`/`updateIssue` (a state read per guest write), not only at exchange — otherwise a paused reviewer could keep filing for up to the 8h session lifetime.
+
+**Capacity unchanged by these controls.** A deactivated reviewer does not free a slot mid-month (`PR-11`); the list therefore reports `active` (current access) and `consumed` (billable this month) separately. Capacity enforcement itself remains the next decision (see D30 note below).
+
+**Listing.** `listGuestInvites` returns invitations for admins (all) and seat-holding sponsors (their own), with guest, email, sponsor, canvases, status, pairings, pin count, and link expiry. The same union backs the admin page and (later) the delegator view.
+
+**Rejected alternatives:** guest-entered identity in the sidebar (client-supplied identity, spoofable, and it duplicated the sponsor's knowledge); revoke-only with no pause (loses history and re-issues links for temporary situations); pairing expiry tied to the link (makes `A-13`'s "install once" false after 72h); regenerating with a new binding (would double-charge a reviewer slot for the same person).
+
+**Known limitations:** sponsor loss of Jira access does not yet invalidate their invitations (`A-12`, unimplemented); the delegator-facing list is admin-only in this slice; pairing revocation per device is still deferred; and capacity enforcement remains registered-not-enforced until D30.
+
+**Applies to:** `src/lib/invites.js`, `inviteModel.js`, `bindings.js`, `credentialModel.js`/`pairingService.js`, `exchangeToken`, `createIssue`, installer, admin UI; `AD A-03`, `A-17`, `A-20`, `A-22`, `A-23`, `P-03`, `PR-09`, `PR-11`.
+
+### D30 — Capacity enforcement (open)
+
+**Status:** Open — the next decision, not implemented.
+**Question:** where tier limits come from (app-level entitlement per `AD B-04`, not the Forge license payload), what counts (`active` vs `consumed` bindings), where it is enforced (pre-create in `createIssue`), and what happens at cap (`PR-08`: no hard wall). `CAPACITY_EXCEEDED` is registered in the error registry and nothing throws it.
+
 ### D13 — SDK version source
 
 **Status:** Resolved (2026-10-23)
