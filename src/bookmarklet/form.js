@@ -572,6 +572,14 @@ export function renderTicketForm(container, options) {
     if (submitting) return;
     clearError();
 
+    // A text-edit ticket is meaningful with only the change filled in, so derive
+    // the summary *before* validation instead of after it.
+    const editOriginal = textEditOriginal.value.trim();
+    const editReplacement = textEditReplacement.value.trim();
+    if (!summaryInput.value.trim() && editOriginal && editReplacement) {
+      summaryInput.value = `Text edit: ${editOriginal.slice(0, 60)}`;
+    }
+
     const summary = summaryInput.value.trim();
     const projectKey = getProjectKey();
     const issueTypeId = issueTypeSelect.value.trim();
@@ -608,14 +616,9 @@ export function renderTicketForm(container, options) {
     submitButton.textContent = 'Creating…';
 
     try {
-      const originalText = textEditOriginal.value.trim();
-      const replacementText = textEditReplacement.value.trim();
       let descriptionText = descriptionInput.value;
-      if (originalText && replacementText) {
-        descriptionText = `Text change\nOriginal: ${originalText}\nSuggested: ${replacementText}\n\n${descriptionText}`;
-        if (!summaryInput.value.trim()) {
-          summaryInput.value = `Text edit: ${originalText.slice(0, 60)}`;
-        }
+      if (editOriginal && editReplacement) {
+        descriptionText = `Text change\nOriginal: ${editOriginal}\nSuggested: ${editReplacement}\n\n${descriptionText}`;
       }
       const descriptionAdf = descriptionToAdf(descriptionText);
 
