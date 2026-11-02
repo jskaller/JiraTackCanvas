@@ -21,6 +21,7 @@ function withConfig(cb) {
 function isActive(tabId, cb) {
   chrome.scripting.executeScript({
     target: { tabId: tabId },
+    world: 'MAIN',
     func: function () { return window.__jiratackActiveCanvas || null; },
   }, function (results) {
     if (chrome.runtime.lastError) { cb(null, chrome.runtime.lastError.message); return; }
@@ -31,6 +32,7 @@ function isActive(tabId, cb) {
 function closeOverlay(tabId) {
   chrome.scripting.executeScript({
     target: { tabId: tabId },
+    world: 'MAIN',
     func: function () {
       if (typeof window.__jiratackClose === 'function') window.__jiratackClose();
     },
@@ -42,11 +44,13 @@ function closeOverlay(tabId) {
 function startOverlay(tabId, config) {
   chrome.scripting.executeScript({
     target: { tabId: tabId },
+    world: 'MAIN',
     files: ['sdk.js'],
   }, function () {
     if (chrome.runtime.lastError) return;
     chrome.scripting.executeScript({
       target: { tabId: tabId },
+      world: 'MAIN',
       func: function (cfg) {
         if (typeof window.__jiratackInit !== 'function') return { ok: false, reason: 'sdk-missing' };
         if (window.__jiratackActiveCanvas) { window.__jiratackClose(); return { ok: true, closed: true }; }

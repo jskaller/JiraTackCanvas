@@ -15,9 +15,11 @@ URL before any JiraTack code exists. That is not a JiraTack limitation:
 - Firefox Bugzilla 866522 — open since 2013.
 - WebKit enforces the same inline check.
 
-A content script runs in an **isolated world**, which the page's CSP does not
-govern. It shares the DOM, so the overlay, pins, screenshots and the ticket form
-all behave exactly as in the bookmarklet.
+Injected code runs in the **page's world** — the same sandbox the bookmarklet
+uses. The page's CSP does not govern programmatic extension injection, so the
+channel works where a bookmarklet cannot, while `consoleProxy`, the published
+globals and the layout debug hook behave identically. An isolated world was
+rejected: it is tidier, but it silently breaks console capture.
 
 ## What works where
 
@@ -90,8 +92,9 @@ If the extension is not configured, the icon opens the options page instead.
 | `scripting` | Injects the SDK into the tab you clicked. |
 | `activeTab` | Grants access to that tab only, on your click. No `<all_urls>`. |
 
-The SDK is injected **on demand**, not declared as a content script: the bundle
-is ~290 KB and every open tab would pay for it while idle.
+The SDK is injected **on demand**, into the page's world, not declared as a
+content script: the bundle is ~290 KB and every open tab would pay for it while
+idle.
 
 ## Verified
 

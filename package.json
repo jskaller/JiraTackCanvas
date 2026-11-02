@@ -9,7 +9,8 @@
     "deploy": "forge deploy -e development",
     "tunnel": "forge tunnel",
     "build:extension": "node scripts/build-extension.js",
-    "icons": "node scripts/make-icons.js"
+    "icons": "node scripts/make-icons.js",
+    "test:extension": "node scripts/extension-harness/run.mjs"
   },
   "dependencies": {
     "@forge/api": "^4",
