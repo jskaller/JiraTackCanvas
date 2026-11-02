@@ -143,6 +143,22 @@ If step 1 fails, the TTL is being enforced at the wrong layer (per-action rather
 
 ---
 
+## Results (dev, 2026-11-02, app 5.3.0)
+
+| Case | Result | Evidence |
+| --- | --- | --- |
+| 1 — install, two sites | **PASS** | one pairing, both pins created |
+| 3 — second profile | **PASS** | new installId, second pairing |
+| 4 — two emails, one bookmark | **PASS** | distinct `bindingId` per ticket, identical `pairingId`, one pairing |
+| 5 — cap and bypass | **PASS** | 10 pairings created, 11th `PAIRING_LIMIT`; already-paired id renders the valid page at 0 remaining; re-exchange is idempotent |
+| 6 — revocation cascade | **PASS** | re-exchange `TOKEN_INVALID`; pre-revoke JWT still returns pins (exp +459 min); installer shows "no longer active" |
+| 7 — invite expiry vs live session | **BLOCKED ON DECISION** | A (pairing lifetime independent) or B (72h hard wall) |
+
+Bugs found by running the cases, both fixed and deployed:
+
+- malformed `canvasToken` returned `INTERNAL` 500 instead of `TOKEN_INVALID` (commit `5fbad06`);
+- the token list asked KVS for 1,000 rows and failed on load (commit `376935b`).
+
 ## Rollback notes
 
 - Revert both commits; invites minted after cutover keep their 72 h TTL but remain readable by the old code path (bare token), because the composite is only produced by the installer.
