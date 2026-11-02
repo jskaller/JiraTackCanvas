@@ -1,6 +1,6 @@
 # Test script — S2 refactor + S4 + B1
 
-**Status:** written before execution, for review. Do not run until the slice is deployed (deploy is held).
+**Status:** written before execution, for review. S2 refactor (`82c18e8`) and S4/B1 (`792f0db`) are committed; nothing since the baseline deploy is live. Do not run until the slice is deployed — deploy remains held.
 **Environment:** development (`jiratack.atlassian.net`), app 5.x, SDK `d5d8edafeda5`.
 **Prerequisites:** a guest-capable canvas; the dev site open in two browser profiles; DevTools available; `forge tunnel` or a deployed build.
 

@@ -1061,6 +1061,90 @@ No Tiptap dependency: the form uses a textarea and `serializeToAdf`. `npm run bu
 
 ## Part 11 — Decisions
 
-All decisions live in `DECISIONS.md`, which is authoritative. There are no open decisions at contract level: D10 (web trigger URL discovery) and D13–D17 are resolved, and D18–D22 cover storage, authorisation, uploads, the admin claim, and the delivery channel.
+All decisions live in `DECISIONS.md`, which is authoritative. There are no open decisions at contract level: D10 (web trigger URL discovery) and D13–D17 are resolved; D18–D23 cover storage, authorisation, uploads, the admin claim, delivery and page identity; D24–D28 cover the binding, capacity, invite TTL, ticket linkage and init contract.
 
 If a contract here contradicts a decision, the decision wins — and this file is the thing to fix.
+
+---
+
+## Part 12 — Pairing and installer contracts
+
+Reference contracts for the pairing model (D24) and the guest installer (S4). Written against the code as built; the code is the implementation, this is the quotable shape.
+
+### 12.1 Composite token wire format
+
+```text
+canvasToken := inviteToken                       // legacy; installId absent
+             | inviteToken "." installId         // composite
+
+installId   := /^[a-f0-9]{32}$/                  // 32 lowercase hex
+inviteToken := opaque, existing 64-hex format
+```
+
+- Empty installId emits a **bare** invite token, never `inviteToken.`.
+- A trailing dot, a UUID-shaped suffix, or any non-matching suffix is a **malformed composite**.
+- No second installId format is accepted anywhere: generation, parsing, installer validation and tests all use the one regex in `src/lib/credentialsModel.js` (`INSTALL_ID_RE`). The installer's inline client script mirrors the pattern from that constant.
+
+### 12.2 Parser and builder
+
+`src/lib/tokenParser.js`, pure (no Forge imports):
+
+```js
+parseCompositeToken(raw) →
+  | { inviteToken: raw,    installId: '',       composite: false }              // no dot
+  | { inviteToken: prefix, installId: suffix,   composite: true }               // dot + INSTALL_ID_RE
+  | { inviteToken: raw,    installId: '',       composite: false,
+      malformedComposite: true }                                                // dot + bad suffix
+
+buildCompositeToken(inviteToken, installId) → installId ? `${inviteToken}.${installId}` : inviteToken
+```
+
+**Fall-through rule.** `exchangeToken` treats `malformedComposite: true` as "not a composite" and falls through to the `canvasTokens:<raw>` lookup. It must not return `TOKEN_INVALID` early — a stray dot must not mask a valid canvas token.
+
+### 12.3 Pairing service
+
+`createPairingService(store)` is in `src/lib/pairingService.js` (pure, injectable). `src/lib/credentials.js` is the production adapter: it supplies the KVS-backed `store` and exports the `pairingService` singleton.
+
+```js
+store := { get(key), set(key, value, options), query(prefix) → values[] }
+
+recordPairing({ inviteToken, installId = '', inviteRecord, userAgent = null, now = Date.now() })
+  | { ok: true,  pairingId, isNew: true }                       // CAS success, cap passed
+  | { ok: true,  pairingId, isNew: false }                      // existing pairing (CAS conflict)
+  | { ok: false, code: 'BAD_REQUEST' | 'PAIRING_LIMIT' | 'INTERNAL', message }
+
+getPairing(pairingId) → record | null
+listPairingsForInvite(inviteTokenRef) → record[]
+countPairingsForInvite(inviteTokenRef) → number    // from the index, includes revoked rows
+```
+
+- **CAS:** `set(pairings:<pairingId>, record, { keyPolicy: 'FAIL_IF_EXISTS', ttl })`. Success is a new pairing; a conflict means the pairing already exists and `lastSeenAt` is touched.
+- **Cap:** read from `pairingIndex:<inviteTokenRef>:*`, never from a stored counter. Revoked rows count (monotonic, D24). The count-then-insert window is accepted; the cap may overrun by concurrent pairings at the boundary.
+- **TTL:** pairing and index rows carry `remaining(invite.expiresAt)` seconds, floor 60.
+- **Record:** `{ pairingId, inviteTokenRef, installId, userAgent, state: 'active', firstSeenAt, lastSeenAt, expiresAt }`. `state: 'revoked'` exists but no setter ships in this slice.
+- `pairingId = SHA-256(inviteToken ‖ installId)`; legacy is `installId: ''`.
+
+### 12.4 Installer phases and states
+
+`src/webtrigger/install.js`. Phase is decided by the **presence** of the `installId` query parameter.
+
+| Phase | Condition | Behaviour |
+| --- | --- | --- |
+| 1 | `installId` absent | Validate `token` first; missing/malformed → not-found (no redirect). Otherwise render a shell with a Loading… line, a `<noscript>` fallback (bare-token bookmarklet + link to `?token=…&installId=`), and an inline script that reads/creates `localStorage['jiratack:installId:<appId>']` and redirects. Guard with a 5-second timestamp so a stripped-param loop falls back to the legacy empty id instead of spinning; any storage/crypto exception does the same. |
+| 2 | `installId` present | Validate the value: `/^[a-f0-9]{32}$/` or empty. **Any other value is treated as empty**, never not-found. |
+
+States: `valid`, `pairing-limit`, `expired`, `revoked`, `not-found`.
+
+- `valid` — invite exists, not expired, not revoked, and (`count < 10` **or** this pairing already exists). Renders the two-option page; the capacity line reads from the index.
+- `pairing-limit` — `count >= 10` and this pairing is absent.
+- `expired` — the "(72h limit)" reason renders only when `mintedAfterCutover === true`.
+- `revoked` — invite tombstoned.
+- `not-found` — **reserved for a bad or missing token**. A bad installId never produces it.
+
+Other rules:
+
+- Bookmarklet href = `buildCompositeToken(inviteToken, installId)`; empty installId ⇒ bare token.
+- **CSP:** the installer must not send a policy that blocks inline script. Phase 1 depends on it. The handler carries a comment saying so; a future CSP change must move the redirect to a served resource.
+- Errors never 500 the page: unknown failures render `not-found` and log.
+
+---

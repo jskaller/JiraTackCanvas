@@ -36,6 +36,7 @@
 | Epic panel canvas-wide totals | `2c960de` | **Deployed** |
 | Page identity (D23): normaliser, canonical storage, match modes | `6b50692`, `4733b9f`, `76d3d90` | **Deployed** |
 | Docs rewrite | `2c06aa9` … `201bc2f` | No runtime effect |
+| Pairings (S2 refactor) and the two-phase installer with 72h invites (S4/B1) | `82c18e8`, `792f0db` | **Committed, not deployed** — pending review of `docs/TEST-SCRIPT-S2-S4.md` |
 
 **Deployed scopes are still the old six.** Confirmed with `forge version details -e development --non-interactive --json`: `manage:jira-configuration` and `manage:jira-project` are present in the live app, absent from `manifest.yml`.
 
