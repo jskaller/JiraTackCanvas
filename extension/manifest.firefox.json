@@ -5,9 +5,21 @@
   "description": "Drop pins on any page and turn them into Jira tickets.",
   "permissions": ["storage", "scripting", "activeTab"],
   "background": { "scripts": ["background.js"] },
-  "action": { "default_title": "JiraTack: pin this page" },
+  "action": {
+    "default_title": "JiraTack: pin this page",
+    "default_icon": {
+      "48": "icons/icon-48.png",
+      "96": "icons/icon-96.png",
+      "128": "icons/icon-128.png"
+    }
+  },
+  "icons": {
+    "48": "icons/icon-48.png",
+    "96": "icons/icon-96.png",
+    "128": "icons/icon-128.png"
+  },
   "options_ui": { "page": "options.html", "open_in_tab": true },
   "browser_specific_settings": {
-    "gecko": { "id": "jiratack@local", "strict_min_version": "115.0" }
+    "gecko": { "id": "jiratack@local", "strict_min_version": "128.0" }
   }
 }

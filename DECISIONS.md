@@ -329,7 +329,7 @@ Deactivation is enforced in `createIssue`/`updateIssue` (a state read per guest 
 
 ### D32 — Browser extension as the coverage channel
 
-**Status:** Resolved (2026-11-02). Chrome verified; Firefox and Safari manifests written, not yet exercised.
+**Status:** Resolved (2026-11-02). Chrome verified end-to-end; Firefox installs cleanly; Safari app builds.
 
 **Decision:** Ship a browser extension that injects the existing SDK into the tab on a toolbar click. One shared codebase, three manifests: Chrome MV3 (`background.service_worker`), Firefox MV3 (`background.scripts`), Safari via `safari-web-extension-converter`. It is not a second product; it is the same `__jiratackInit` config, the same overlay and the same web trigger.
 
@@ -337,11 +337,13 @@ Deactivation is enforced in `createIssue`/`updateIssue` (a state read per guest 
 
 **Injection model.** The SDK is injected on demand (`chrome.scripting.executeScript`) rather than declared as a content script: the bundle is ~290 KB and every open tab would otherwise pay for it while idle. The content script runs in the isolated world, so the page's CSP does not apply. `activeTab` is used rather than `<all_urls>`: access is granted by the click, per tab, so there is no "read all your data" install warning.
 
-**Verification (Chromium 156, 2026-11-02).** Extension loaded from `./extension`, real pages: `instagram.com`, `github.com` and `linkedin.com` — all three refuse the bookmarklet — each injected the SDK (`typeof __jiratackInit === 'function'`) and rendered `#jiratack-overlay`, `#jiratack-sidebar` and the sidebar header in the page DOM. The run granted `<all_urls>` because a headless browser cannot click a toolbar icon to earn `activeTab`; the shipped manifest does not. Ticket creation was not exercised (needs a live token).
+**Verification.** Chrome 156, 2026-11-02. Extension loaded from `./extension`, real pages: `instagram.com`, `github.com` and `linkedin.com` — all three refuse the bookmarklet — each injected the SDK (`typeof __jiratackInit === 'function'`) and rendered `#jiratack-overlay`, `#jiratack-sidebar` and the sidebar header in the page DOM. The run granted `<all_urls>` because a headless browser cannot click a toolbar icon to earn `activeTab`; the shipped manifest does not. Ticket creation was not exercised (needs a live token).
+
+Firefox 159 accepts the package as a temporary add-on (`installTemporaryAddon` over the remote debugging protocol returns `{"addon":{"id":"jiratack@local"}}` and the add-on appears in `listAddons`), which proves the MV3 manifest, the `background.scripts` form and the icon set are valid; the click path is not exercised because the remote protocol cannot click a toolbar icon. Safari: `safari-web-extension-converter` produces the Xcode project without warnings and `xcodebuild -scheme "JiraTack (macOS)" CODE_SIGNING_ALLOWED=NO` reports `BUILD SUCCEEDED`; enabling it in Safari still requires a local Xcode run. Edge needs no separate build: it loads the Chrome package unchanged.
 
 **Rejected alternatives:** a declared content script on `<all_urls>` (290 KB parsed in every tab, and a broad install warning); the companion-window/popup design (no screenshots, second window, popup blockers); inlining the bundle in the bookmark URL (the URL is refused on exactly the sites it would help, Firefox caps bookmark URLs near 64 KB); userscript managers (third-party dependency, `GM_xmlhttpRequest` replaces `fetch`, unacceptable for enterprise).
 
-**Known limitations:** the extension still needs the canvas token, pasted from the bookmarklet link; tokens are stored in extension storage, protected by the browser profile, not by an OS keychain. Enterprise extension allowlists can block installation. MV3 forbids remotely hosted code, so SDK updates ship with the package — for a side-loaded build that means re-copying the folder, unlike the bookmarklet's ETag revalidation. Safari requires `xcodebuild -runFirstLaunch` and an Xcode run to install; store distribution needs an Apple developer account.
+**Known limitations:** Firefox and Safari are install-verified, not click-verified. The extension still needs the canvas token, pasted from the bookmarklet link; tokens are stored in extension storage, protected by the browser profile, not by an OS keychain. Enterprise extension allowlists can block installation. MV3 forbids remotely hosted code, so SDK updates ship with the package — for a side-loaded build that means re-copying the folder, unlike the bookmarklet's ETag revalidation. Safari requires `xcodebuild -runFirstLaunch` and an Xcode run to install; store distribution needs an Apple developer account.
 
 **Applies to:** `docs/EXTENSION.md`, `extension/`, `scripts/build-extension.js`, `src/shared/extensionConfig.js`; CONTRACTS §5.1 (config shape reused); D22.
 

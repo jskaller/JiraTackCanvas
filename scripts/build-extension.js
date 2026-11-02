@@ -18,6 +18,7 @@ const shared = ['background.js', 'options.html', 'options.js', 'extensionConfig.
 const targets = [
   { dir: 'extension', manifest: 'manifest.chrome.json' },
   { dir: 'dist/extension-firefox', manifest: 'manifest.firefox.json' },
+  { dir: 'dist/extension-safari', manifest: 'manifest.safari.json' },
 ];
 
 // config parser lives with the shared modules so it can be unit tested
@@ -54,6 +55,16 @@ for (const target of targets) {
       ? 'src/shared/extensionConfig.js'
       : path.join('extension', file);
     copy(from, path.join(target.dir, file));
+  }
+
+  // icons are shared by every package
+  const iconSource = path.resolve('extension/icons');
+  const iconTarget = path.resolve(target.dir, 'icons');
+  if (path.resolve(target.dir) !== path.resolve('extension')) {
+    fs.mkdirSync(iconTarget, { recursive: true });
+    for (const file of fs.readdirSync(iconSource)) {
+      fs.copyFileSync(path.join(iconSource, file), path.join(iconTarget, file));
+    }
   }
   copy(path.join('extension', target.manifest), path.join(target.dir, 'manifest.json'));
 

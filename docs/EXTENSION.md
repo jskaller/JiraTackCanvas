@@ -33,7 +33,9 @@ for users who cannot install anything.
 
 ```text
 npm run build            # bundles the SDK
-npm run build:extension  # assembles ./extension and ./dist/extension-firefox
+npm run icons            # regenerates extension/icons (only if the art changes)
+npm run build:extension  # assembles ./extension, dist/extension-firefox,
+                         # and dist/extension-safari
 ```
 
 `npm run build:extension` copies the built SDK into the extension, injects the
@@ -43,22 +45,31 @@ package.
 
 ## Install (development)
 
-**Chrome / Edge** — `chrome://extensions` → enable *Developer mode* → *Load
-unpacked* → select `./extension`.
+**Chrome** — `chrome://extensions` → enable *Developer mode* → *Load unpacked* →
+select `./extension`.
+
+**Edge** — identical package, no separate build: `edge://extensions` → enable
+*Developer mode* → *Load unpacked* → select `./extension`.
 
 **Firefox** — `about:debugging#/runtime/this-firefox` → *Load Temporary Add-on*
 → select `dist/extension-firefox/manifest.json`.
 
-**Safari** — requires Xcode once:
+**Safari** — requires Xcode once (`sudo xcodebuild -runFirstLaunch`). Generate
+and build the project:
 
 ```text
-sudo xcodebuild -runFirstLaunch
-xcrun safari-web-extension-converter extension --app-name JiraTack \
-  --bundle-identifier com.jiratack.extension --no-open
+npm run build:extension
+xcrun safari-web-extension-converter dist/extension-safari \
+  --project-location safari --app-name JiraTack \
+  --bundle-identifier com.jiratack.extension --no-open --force
+xcodebuild -project safari/JiraTack/JiraTack.xcodeproj \
+  -scheme "JiraTack (macOS)" -configuration Debug \
+  -destination 'platform=macOS' CODE_SIGNING_ALLOWED=NO build
 ```
 
-Then run the generated project from Xcode, and enable the extension in Safari →
-Settings → Extensions.
+Then open `safari/JiraTack/JiraTack.xcodeproj` in Xcode, Run the macOS scheme,
+sign in to Safari's Develop menu if prompted, and enable JiraTack in Safari →
+Settings → Extensions. `safari/` is a generated directory and is gitignored.
 
 ## Configure
 
@@ -97,7 +108,15 @@ cannot click a toolbar icon to earn `activeTab`; the shipped manifest uses
 `activeTab` only. Injection and DOM rendering were checked; ticket creation was
 not, because it needs a live token.
 
-## Not yet verified
+## Browser status
 
-- **Firefox** — manifest written for MV3 (`background.scripts`), not exercised.
-- **Safari** — conversion blocked here pending `xcodebuild -runFirstLaunch`.
+| Browser | Package | Verified |
+| --- | --- | --- |
+| Chrome 156 | `./extension` | Injected on Instagram, GitHub, LinkedIn; overlay rendered |
+| Edge | `./extension` | Same Chromium package; not separately run |
+| Firefox 159 | `dist/extension-firefox` | Installs as a temporary add-on (`jiratack@local`); click path not exercised |
+| Safari | `dist/extension-safari` → Xcode project | Converter clean, `xcodebuild` reports BUILD SUCCEEDED; enabling needs a local Xcode run |
+
+The remote debugging protocols cannot click a toolbar icon, so Firefox and
+Safari are install/build-verified rather than click-verified. A manual click is
+the last step on both.
