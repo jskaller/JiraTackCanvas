@@ -677,6 +677,10 @@ export function renderTicketForm(container, options) {
         parentKey: parentKey || null,
       });
 
+      if (result && result.warning) {
+        console.warn(`[JiraTack] Ticket ${result.key} created with warning: ${result.warning}`);
+      }
+
       destroy();
       if (onCreated) {
         onCreated({

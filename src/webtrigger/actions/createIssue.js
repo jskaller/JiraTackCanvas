@@ -26,15 +26,17 @@ function buildMultipartBody(fileBuffer, filename, mimeType) {
   };
 }
 
-async function attachScreenshot(issueKey, screenshotDataUrl, filenameOverride) {
-  const match = /^data:(image\/[a-zA-Z0-9.+-]+);base64,(.+)$/.exec(screenshotDataUrl);
+async function attachScreenshot(issueKey, dataUrl, filenameOverride) {
+  // Any file type: screenshots, documents and WebM recordings share this path.
+  // Restricting it to image/* silently dropped every non-image attachment.
+  const match = /^data:([a-z0-9.+-]+\/[a-z0-9.+-]+);base64,(.+)$/i.exec(screenshotDataUrl);
   if (!match) {
-    throw new Error('Unsupported screenshot data URL.');
+    throw new Error('Unsupported attachment data URL.');
   }
 
   const mime = match[1];
   const buffer = Buffer.from(match[2], 'base64');
-  const ext = (mime.split('/')[1] || 'png').split('+')[0];
+  const ext = (mime.split('/')[1] || 'bin').split('+')[0];
   const filename = filenameOverride || `jiratack-${issueKey}.${ext}`;
   const { body, boundary } = buildMultipartBody(buffer, filename, mime);
 
