@@ -113,6 +113,10 @@ export function createSessionManager(storage) {
         && cached.expiresAt > Date.now()
         && cached.schema === SESSION_SCHEMA
         && cached.tokenKey === tokenFingerprint(config.token)
+        // A guest session without identity or sponsor is unusable; re-exchange
+        // rather than rendering empty fields.
+        && (cached.scope !== 'guest_create'
+          || (cached.issuer && cached.guestName && cached.guestEmail))
         && Object.prototype.hasOwnProperty.call(cached, 'displayName')
         && Object.prototype.hasOwnProperty.call(cached, 'isAdmin')
       ) {
