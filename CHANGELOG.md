@@ -49,6 +49,9 @@ All notable changes to JiraTack.
 
 - Guest form shows the invited name/email read-only; guest tickets default the
   assignee to the sponsor; the installer names the sponsor and their email.
+- The out-of-date banner now compares the **running** bundle version against the
+  server (injected at build time), so revalidated bookmarks no longer show a
+  false warning. SDK responses serve `no-cache` with an ETag and answer 304.
 - Admin invitations render as a DynamicTable (aligned columns, one row per
   invitation) instead of stretched inline rows.
 - Admin invitations resolve sponsor names for legacy rows, separate
