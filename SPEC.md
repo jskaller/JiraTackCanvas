@@ -1,7 +1,7 @@
 # SPEC.md — v3.1
 
 **Status:** Current. Behaviour of shipped code only.
-**Verified against:** tag `baseline/pre-pivot-2026-10-30` (2026-10-30), app 5.0.0, SDK `b85ebfaac98f`.
+**Verified against:** tag `baseline/pre-pivot-2026-10-30` (2026-10-30), app 5.0.0, SDK `0d94cf9d5f06`.
 **Supersedes:** SPEC.md v2.3 in full; v3.1 adds D23 (page identity and match modes).
 
 **Precedence.** `CONTRACTS.md` wins on wire-level details (shapes, signatures, error codes, manifest, `package.json`). `DECISIONS.md` wins on any question, open or closed. This document wins on product behaviour.

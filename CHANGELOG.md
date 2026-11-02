@@ -13,6 +13,13 @@ All notable changes to JiraTack.
 
 ### Delivery and platform
 
+- **Extension capture features (D32).** Attachments capped by Jira's own
+  `attachmentLimits`; on-screen text-edit suggestions (selection captured on
+  `selectionchange`, because the pin click collapses it); WebM screen recording
+  (60 s, VP8/Opus) through the attachment pipeline; viewport presets resizing the
+  real window via an isolated-world bridge. Extension only: the bookmarklet has
+  no extension APIs.
+
 - **Browser extension (D32).** One codebase, three manifests. Injects the SDK
   into the tab on a toolbar click, from the isolated world, so the page's CSP
   does not apply. Verified in Chromium 156 on `instagram.com`, `github.com` and

@@ -16,6 +16,7 @@ import {
   uploadAttachment,
   getAttachmentLimits,
 } from './api.js';
+import { getLastSelection } from './selection.js';
 import { serializeToAdf } from '../shared/adfSerializer.js';
 import { normalizeUrl, stripDeepLinkParams } from '../shared/urlNormalize.js';
 import { formatConsoleLog } from './consoleProxy.js';
@@ -253,12 +254,10 @@ export function renderTicketForm(container, options) {
   textEditOriginal.placeholder = 'Original text (select it on the page first)';
   const textEditReplacement = el('textarea', 'jiratack-textarea');
   textEditReplacement.placeholder = 'Suggested replacement';
-  try {
-    const selected = window.getSelection ? String(window.getSelection() || '').trim() : '';
-    if (selected) textEditOriginal.value = selected.slice(0, 2000);
-  } catch (e) {
-    // selection is a convenience, never a requirement
-  }
+  // Read the stored selection, not the live one: the click that placed the pin
+  // already collapsed it.
+  const selected = getLastSelection();
+  if (selected) textEditOriginal.value = selected;
   textEditBox.appendChild(textEditOriginal);
   textEditBox.appendChild(textEditReplacement);
   form.appendChild(textEditBox);

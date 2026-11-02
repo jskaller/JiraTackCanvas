@@ -9,6 +9,7 @@ import { renderTicketForm } from './form.js';
 import { installFixedShift } from './fixedShift.js';
 import { installFitScale } from './fitScale.js';
 import { playDoneAnimation } from './done.js';
+import { installSelectionTracking, clearLastSelection } from './selection.js';
 import { installConsoleProxy, restoreConsoleProxy, clearConsoleBuffer } from './consoleProxy.js';
 import { normalizeUrl, stripDeepLinkParams } from '../shared/urlNormalize.js';
 import { buildRefreshUrl, isSdkOutdated } from '../shared/bookmarklet.js';
@@ -963,6 +964,7 @@ function startPolling() {
 
 function teardown(clearStoredSession) {
   stopPolling();
+  clearLastSelection();
   if (current && current.pinRepositionTimer) {
     window.clearTimeout(current.pinRepositionTimer);
     current.pinRepositionTimer = null;
@@ -1037,6 +1039,9 @@ async function init(config) {
   installConsoleProxy();
   window.__jiratackActiveCanvas = config.canvasId || 'universal';
   injectStyles();
+  installSelectionTracking();
+  // Available in every mode: the launcher link is the one most people copy.
+  renderViewportBar(config);
 
   const deepParams = new URLSearchParams(window.location.search);
   const deepCanvas = deepParams.get('jiratack_canvas');
@@ -1199,7 +1204,6 @@ async function init(config) {
     }
 
     const canvasId = config.canvasId;
-    renderViewportBar(config);
     let data;
     try {
       data = await getPins(config, session, canvasId, getPageUrl(), true);
