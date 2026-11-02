@@ -54,7 +54,60 @@ export function normalizeMetadata(input) {
     metadata.guest = { name: input.guest.name, email: input.guest.email };
   }
 
+  const capture = normaliseCapture(input.capture);
+  if (capture) metadata.capture = capture;
+
   return metadata;
+}
+
+const CAP_HTML = 2000;
+const CAP_STYLES = 1000;
+const CAP_UA = 512;
+const CAP_TAG = 32;
+const CAP_ENV = 64;
+
+function clip(value, max) {
+  return typeof value === 'string' ? value.slice(0, max) : null;
+}
+
+function finite(value, fallback) {
+  const number = Number(value);
+  return Number.isFinite(number) ? number : fallback;
+}
+
+/**
+ * Caps are load-bearing: this object is written to a Jira entity property, and
+ * an unbounded outerHTML would blow the property ceiling and lose the write.
+ */
+export function normaliseCapture(input) {
+  if (!input || typeof input !== 'object') return null;
+  const out = {};
+
+  if (input.element && typeof input.element === 'object') {
+    out.element = {
+      tag: clip(input.element.tag, CAP_TAG),
+      htmlSnippet: clip(input.element.htmlSnippet, CAP_HTML),
+      styles: clip(input.element.styles, CAP_STYLES),
+    };
+  }
+
+  if (input.viewport && typeof input.viewport === 'object') {
+    out.viewport = {
+      width: finite(input.viewport.width, 0),
+      height: finite(input.viewport.height, 0),
+      devicePixelRatio: finite(input.viewport.devicePixelRatio, 1),
+    };
+  }
+
+  if (input.environment && typeof input.environment === 'object') {
+    out.environment = {
+      browser: clip(input.environment.browser, CAP_ENV),
+      os: clip(input.environment.os, CAP_ENV),
+      userAgent: clip(input.environment.userAgent, CAP_UA),
+    };
+  }
+
+  return Object.keys(out).length > 0 ? out : null;
 }
 
 /** Reads metadata from a search/issue payload that already requested the property. */

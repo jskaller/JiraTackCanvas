@@ -268,6 +268,7 @@ export async function createIssue(payload, claims) {
       position: pinPosition,
       selector,
     },
+    capture: payload && payload.captureContext ? payload.captureContext : undefined,
     version: 1,
   });
   if (!metadataResult.ok) {

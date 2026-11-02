@@ -75,7 +75,8 @@ check('has an inline-script fallback', bookmarklet.includes('textContent=source'
 check('fetches the bundle on error', bookmarklet.includes("fetch(url,{cache:'no-store'"), true);
 check('does not use eval', /[^a-zA-Z_.]eval\s*\(/.test(bookmarklet), false);
 check('reports a refused download', bookmarklet.includes('could not be downloaded'), true);
-check('reports blocked inline scripts', bookmarklet.includes('blocks inline scripts'), true);
+check('reports blocked inline scripts', bookmarklet.includes('blocks scripts added by tools'), true);
+check('points at the extension', bookmarklet.includes('browser extension'), true);
 check('treats a loaded-but-unstarted script as failure', bookmarklet.includes('loaded but did not start'), true);
 check('keeps one line', bookmarklet.includes('\n'), false);
 

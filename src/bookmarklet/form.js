@@ -665,6 +665,7 @@ export function renderTicketForm(container, options) {
         url: pageUrl,
         pinPosition: capture.pinPosition,
         selector: capture.selector || null,
+        captureContext: capture.captureContext || null,
         summary,
         descriptionAdf,
         screenshotUploadId,

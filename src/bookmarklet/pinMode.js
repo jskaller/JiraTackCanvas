@@ -1,4 +1,5 @@
 import { getBufferSnapshot } from './consoleProxy.js';
+import { collectCaptureContext } from './captureContext.js';
 
 const OUTLINE_CLASS = 'jiratack-pin-outline';
 
@@ -82,17 +83,18 @@ export function generateSelector(element) {
 
 export function computePinPosition(element, clientX, clientY) {
   const selector = generateSelector(element);
+  const captureContext = collectCaptureContext(element);
 
   if (selector) {
     const rect = element.getBoundingClientRect();
     const relX = rect.width > 0 ? ((clientX - rect.left) / rect.width) * 100 : 50;
     const relY = rect.height > 0 ? ((clientY - rect.top) / rect.height) * 100 : 50;
-    return { selector, pinPosition: `${relX.toFixed(1)},${relY.toFixed(1)}` };
+    return { selector, pinPosition: `${relX.toFixed(1)},${relY.toFixed(1)}`, captureContext };
   }
 
   const absX = Math.round(clientX + window.scrollX);
   const absY = Math.round(clientY + window.scrollY);
-  return { selector: null, pinPosition: `${absX},${absY}` };
+  return { selector: null, pinPosition: `${absX},${absY}`, captureContext };
 }
 
 export function installPinMode(options = {}) {
