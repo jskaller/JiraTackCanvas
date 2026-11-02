@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>JiraTack</title>
+    <style>
+      body {
+        margin: 0;
+        padding: 32px;
+        font: 14px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+        color: #172b4d;
+        background: #fff;
+        max-width: 720px;
+      }
+      h1 { font-size: 20px; margin: 0 0 4px; }
+      p { margin: 0 0 16px; color: #44546f; }
+      label { display: block; font-weight: 600; margin: 20px 0 6px; }
+      textarea {
+        width: 100%;
+        min-height: 120px;
+        padding: 10px;
+        border: 1px solid #dfe1e6;
+        border-radius: 4px;
+        font: 12px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace;
+        resize: vertical;
+        box-sizing: border-box;
+      }
+      .row { display: flex; gap: 8px; margin-top: 12px; }
+      button {
+        padding: 6px 14px;
+        border: 1px solid #dfe1e6;
+        border-radius: 3px;
+        background: #fff;
+        font: inherit;
+        cursor: pointer;
+      }
+      #save { background: #0c66e4; border-color: #0c66e4; color: #fff; font-weight: 600; }
+      #status {
+        margin-top: 16px;
+        padding: 10px 12px;
+        border-radius: 4px;
+        background: #f1f2f4;
+        font-size: 13px;
+        word-break: break-all;
+      }
+      ol { color: #44546f; padding-left: 20px; }
+      code { background: #f1f2f4; padding: 1px 4px; border-radius: 3px; }
+    </style>
+  </head>
+  <body>
+    <h1>JiraTack</h1>
+    <p>Click the toolbar icon on any page to drop pins. No bookmarklet, so it works on sites whose security policy blocks one.</p>
+
+    <label for="input">Bookmarklet link</label>
+    <p>
+      In JiraTack, open a canvas and copy the bookmarklet link you would have dragged to your bookmarks bar.
+      Paste it here once. It carries your token and endpoints; nothing else is needed.
+    </p>
+    <textarea id="input" spellcheck="false" placeholder="javascript:(function(){var c={&quot;token&quot;:&quot;…&quot;,…};if(window.__jiratackActiveCanvas…"></textarea>
+    <div class="row">
+      <button id="save">Save</button>
+      <button id="clear">Clear</button>
+    </div>
+    <p id="status">Not configured.</p>
+
+    <label>What the icon does</label>
+    <ol>
+      <li>Click once: the pin overlay opens on the current page.</li>
+      <li>Click again: it closes.</li>
+      <li>Pins, screenshots and ticket creation behave exactly as in the bookmarklet.</li>
+    </ol>
+    <script type="module" src="options.js"></script>
+  </body>
+</html>

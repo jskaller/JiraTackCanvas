@@ -10,6 +10,12 @@ dist/
 dist-*/
 build/
 
+# Extension build artefacts (assembled by npm run build:extension)
+extension/sdk.js
+extension/manifest.json
+extension/extensionConfig.js
+safari/
+
 # Environment
 .env
 .env.*

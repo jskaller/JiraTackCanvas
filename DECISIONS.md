@@ -120,7 +120,7 @@ The original matrix attributed group 2 to "external SDK blocked" without testing
 
 **Rejected alternatives:** Inlining the whole SDK in the bookmarklet (the bundle is 284 KB, far beyond practical `javascript:` URL length; and an injected inline `<script>` was itself blocked on github.com and developer.mozilla.org, so it would not fix the target sites); an iframe popover served from the web trigger (measured blocked twice — `X-Frame-Options: deny` on the web trigger, and `frame-src` on strict sites); a hybrid of the two (inherits both limitations, adds only sites that allow inline but not external scripts); asking customers to add the web trigger origin to `script-src` (requires per-site admin action, unusable for a demo). Note: the "hybrid" was dismissed on the assumption that it added few sites; measurement shows it covers Wikipedia, Montefiore and the enterprise-CMS class, which is why it is adopted in D31.
 
-**Known limitations:** The extension is not built; this decision records the direction, not shipped code. MV3 forbids remotely hosted code, so the SDK must be bundled into the extension rather than fetched. Enterprise extension allowlists can block installation. Firefox content scripts have different injection semantics. Until the extension ships, strict-CSP sites remain unsupported; the bootstrap explains the failure rather than leaving it silent, but explanation is not coverage.
+**Known limitations:** ~~The extension is not built~~ — superseded 2026-11-02: the extension shell now exists and is verified in Chrome (D32). The direction recorded here was correct; the earlier framing of the bookmarklet as the primary channel was not. MV3 forbids remotely hosted code, so the SDK is bundled into the extension rather than fetched. Enterprise extension allowlists can block installation. Firefox content scripts have different injection semantics. Strict-CSP sites are now covered by the extension (D32); the bookmarklet alone still cannot reach them, and its bootstrap explains the failure rather than leaving it silent.
 
 **Amended 2026-10-31 — both channels persist.** The bookmarklet is not a migration bridge to be retired. Both channels ship and persist: the extension is preferred where it can be installed and covers multi-origin and strict-CSP sites; the bookmarklet is the channel for users who cannot install anything — non-Chromium browsers, IT-locked machines, reluctant users. Neither depends on the other for coverage.
 
@@ -326,6 +326,24 @@ Deactivation is enforced in `createIssue`/`updateIssue` (a state read per guest 
 - Coverage numbers are a sample of 68 public sites, not a guarantee per customer.
 
 **Applies to:** SPEC.md §6.1; CONTRACTS.md §5.1a, §5.1b; ARCHITECTURE.md §11; `src/shared/bookmarklet.js`, `src/webtrigger/sdk.js`.
+
+### D32 — Browser extension as the coverage channel
+
+**Status:** Resolved (2026-11-02). Chrome verified; Firefox and Safari manifests written, not yet exercised.
+
+**Decision:** Ship a browser extension that injects the existing SDK into the tab on a toolbar click. One shared codebase, three manifests: Chrome MV3 (`background.service_worker`), Firefox MV3 (`background.scripts`), Safari via `safari-web-extension-converter`. It is not a second product; it is the same `__jiratackInit` config, the same overlay and the same web trigger.
+
+**Why it is required.** A bookmarklet is inline script. Where `script-src` carries a nonce or hash and no effective `'unsafe-inline'`, the `javascript:` URL is refused before our code exists. Measured live on `github.com` and `developer.mozilla.org`; `instagram.com` sets `script-src … 'nonce-…'` with no `'unsafe-inline'` plus a closed `connect-src`, so it is unreachable by any bookmark, not just ours. Chromium closed *"CSP: Bookmarklets should bypass pages' policies"* as **Won't Fix (Infeasible)** in May 2026; Firefox Bugzilla 866522 has been open since 2013; WebKit applies the same inline check. The requirement "a bookmark that works on every site in Chrome, Firefox and Safari" therefore cannot be met by any bookmarklet implementation, and the extension is the only channel with full coverage.
+
+**Injection model.** The SDK is injected on demand (`chrome.scripting.executeScript`) rather than declared as a content script: the bundle is ~290 KB and every open tab would otherwise pay for it while idle. The content script runs in the isolated world, so the page's CSP does not apply. `activeTab` is used rather than `<all_urls>`: access is granted by the click, per tab, so there is no "read all your data" install warning.
+
+**Verification (Chromium 156, 2026-11-02).** Extension loaded from `./extension`, real pages: `instagram.com`, `github.com` and `linkedin.com` — all three refuse the bookmarklet — each injected the SDK (`typeof __jiratackInit === 'function'`) and rendered `#jiratack-overlay`, `#jiratack-sidebar` and the sidebar header in the page DOM. The run granted `<all_urls>` because a headless browser cannot click a toolbar icon to earn `activeTab`; the shipped manifest does not. Ticket creation was not exercised (needs a live token).
+
+**Rejected alternatives:** a declared content script on `<all_urls>` (290 KB parsed in every tab, and a broad install warning); the companion-window/popup design (no screenshots, second window, popup blockers); inlining the bundle in the bookmark URL (the URL is refused on exactly the sites it would help, Firefox caps bookmark URLs near 64 KB); userscript managers (third-party dependency, `GM_xmlhttpRequest` replaces `fetch`, unacceptable for enterprise).
+
+**Known limitations:** the extension still needs the canvas token, pasted from the bookmarklet link; tokens are stored in extension storage, protected by the browser profile, not by an OS keychain. Enterprise extension allowlists can block installation. MV3 forbids remotely hosted code, so SDK updates ship with the package — for a side-loaded build that means re-copying the folder, unlike the bookmarklet's ETag revalidation. Safari requires `xcodebuild -runFirstLaunch` and an Xcode run to install; store distribution needs an Apple developer account.
+
+**Applies to:** `docs/EXTENSION.md`, `extension/`, `scripts/build-extension.js`, `src/shared/extensionConfig.js`; CONTRACTS §5.1 (config shape reused); D22.
 
 ### D13 — SDK version source
 

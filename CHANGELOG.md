@@ -13,6 +13,12 @@ All notable changes to JiraTack.
 
 ### Delivery and platform
 
+- **Browser extension (D32).** One codebase, three manifests. Injects the SDK
+  into the tab on a toolbar click, from the isolated world, so the page's CSP
+  does not apply. Verified in Chromium 156 on `instagram.com`, `github.com` and
+  `linkedin.com` — all three refuse the bookmarklet — with the overlay and
+  sidebar rendering in the page. `npm run build:extension`; see
+  `docs/EXTENSION.md`.
 - **CSP fallback loader (D22 amendment, D31).** When the host page refuses the
   external SDK script, the bootstrap fetches the bundle and injects it as an
   inline `<script>` — no `eval`, no popup, no iframe, screenshots and the

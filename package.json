@@ -7,7 +7,8 @@
     "build:dashboard": "vite build --config vite.dashboard.config.js",
     "build": "npm run build:bookmarklet && npm run build:dashboard && node scripts/embed-sdk.js",
     "deploy": "forge deploy -e development",
-    "tunnel": "forge tunnel"
+    "tunnel": "forge tunnel",
+    "build:extension": "node scripts/build-extension.js"
   },
   "dependencies": {
     "@forge/api": "^4",

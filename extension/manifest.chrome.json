@@ -1,0 +1,11 @@
+{
+  "manifest_version": 3,
+  "name": "JiraTack",
+  "version": "0.1.0",
+  "description": "Drop pins on any page and turn them into Jira tickets.",
+  "permissions": ["storage", "scripting", "activeTab"],
+  "background": { "service_worker": "background.js" },
+  "action": { "default_title": "JiraTack: pin this page" },
+  "options_ui": { "page": "options.html", "open_in_tab": true },
+  "minimum_chrome_version": "109"
+}
