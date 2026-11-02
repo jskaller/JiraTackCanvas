@@ -49,6 +49,11 @@ All notable changes to JiraTack.
 
 - Guest form shows the invited name/email read-only; guest tickets default the
   assignee to the sponsor; the installer names the sponsor and their email.
+- SDK responses revalidate with an ETag instead of `immutable`, so an existing
+  bookmark picks up SDK fixes without a re-drag.
+- Guest session cache also requires issuer/identity; otherwise it re-exchanges.
+- Admin page rebuilt with a readable layout; legacy pre-identity links labelled
+  and limited to Revoke.
 - Fixed the admin invitations list (and token list) failing with "Provided
   request body is invalid": the paginated KVS helper passed a plain object to
   `where()` instead of `WhereConditions.beginsWith`.
