@@ -631,6 +631,7 @@ export function renderTicketForm(container, options) {
 
       const attachmentIds = [];
       const files = Array.from(attachmentInput.files || []);
+      console.log(`[JiraTack] attachments selected: ${files.length}`);
       for (const file of files) {
         if (attachmentLimit && file.size > attachmentLimit) {
           const mb = Math.round(attachmentLimit / (1024 * 1024));
@@ -642,6 +643,7 @@ export function renderTicketForm(container, options) {
           filename: file.name,
           mimeType: file.type || 'application/octet-stream',
         });
+        console.log(`[JiraTack] attachment upload: ${file.name} ${file.type || '(no type)'} ${file.size}B -> ${uploadId || 'NO ID'}`);
         if (uploadId) attachmentIds.push(uploadId);
       }
 
@@ -659,6 +661,7 @@ export function renderTicketForm(container, options) {
         if (videoUploadId) attachmentIds.push(videoUploadId);
       }
 
+      console.log(`[JiraTack] sending ${attachmentIds.length} attachment id(s)`);
       const result = await createIssue(config, session, {
         canvasId: config.canvasId,
         url: pageUrl,

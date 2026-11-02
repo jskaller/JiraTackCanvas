@@ -29,7 +29,7 @@ function buildMultipartBody(fileBuffer, filename, mimeType) {
 async function attachScreenshot(issueKey, dataUrl, filenameOverride) {
   // Any file type: screenshots, documents and WebM recordings share this path.
   // Restricting it to image/* silently dropped every non-image attachment.
-  const match = /^data:([a-z0-9.+-]+\/[a-z0-9.+-]+);base64,(.+)$/i.exec(screenshotDataUrl);
+  const match = /^data:([a-z0-9.+-]+\/[a-z0-9.+-]+);base64,(.+)$/i.exec(dataUrl);
   if (!match) {
     throw new Error('Unsupported attachment data URL.');
   }
