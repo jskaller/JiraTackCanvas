@@ -3,6 +3,8 @@ import { generateGuestToken } from '../api';
 
 export default function GuestLinkModal({ canvases, defaultCanvas, onClose }) {
   const [selected, setSelected] = useState(() => new Set(defaultCanvas ? [defaultCanvas] : []));
+  const [guestName, setGuestName] = useState('');
+  const [guestEmail, setGuestEmail] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
   const [result, setResult] = useState(null);
@@ -23,15 +25,25 @@ export default function GuestLinkModal({ canvases, defaultCanvas, onClose }) {
   async function handleSubmit(event) {
     event.preventDefault();
     const permittedCanvases = Array.from(selected);
+    const name = guestName.trim();
+    const email = guestEmail.trim();
     if (permittedCanvases.length === 0) {
       setError('Select at least one canvas.');
+      return;
+    }
+    if (name.length === 0) {
+      setError('Enter the guest\u2019s name.');
+      return;
+    }
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      setError('Enter a valid guest email address.');
       return;
     }
 
     setBusy(true);
     setError(null);
     try {
-      const response = await generateGuestToken(permittedCanvases);
+      const response = await generateGuestToken({ permittedCanvases, guestName: name, guestEmail: email });
       if (!response || !response.ok || !response.data) {
         setError((response && response.error && response.error.message) || 'Failed to generate guest link.');
       } else if (!response.data.installerUrl) {
@@ -69,6 +81,9 @@ export default function GuestLinkModal({ canvases, defaultCanvas, onClose }) {
 
         {result ? (
           <>
+            <p className="jt-modal-canvas">
+              Invited: {result.guestName || guestName} &lt;{result.guestEmail || guestEmail}&gt;
+            </p>
             <p className="jt-modal-canvas">Guest canvases: {result.permittedCanvases.join(', ')}</p>
             <p>
               Send this link to your client. They will use it to install the review bookmark.
@@ -91,7 +106,30 @@ export default function GuestLinkModal({ canvases, defaultCanvas, onClose }) {
           </>
         ) : (
           <>
-            <p className="jt-modal-canvas">Choose which canvases this guest can view and add pins to.</p>
+            <p className="jt-modal-canvas">Name the reviewer, then choose which canvases they can view and add pins to.</p>
+
+            <div className="jt-form-row">
+              <span className="jt-form-label">Guest name</span>
+              <input
+                className="jt-input"
+                type="text"
+                value={guestName}
+                maxLength={200}
+                placeholder="Jane Doe"
+                onChange={(event) => setGuestName(event.target.value)}
+              />
+            </div>
+            <div className="jt-form-row">
+              <span className="jt-form-label">Guest email</span>
+              <input
+                className="jt-input"
+                type="email"
+                value={guestEmail}
+                maxLength={320}
+                placeholder="jane@example.com"
+                onChange={(event) => setGuestEmail(event.target.value)}
+              />
+            </div>
 
             <div className="jt-checkbox-list">
               {canvases.length === 0 ? (
