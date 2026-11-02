@@ -49,6 +49,9 @@ All notable changes to JiraTack.
 
 - Guest form shows the invited name/email read-only; guest tickets default the
   assignee to the sponsor; the installer names the sponsor and their email.
+- Fixed the admin invitations list (and token list) failing with "Provided
+  request body is invalid": the paginated KVS helper passed a plain object to
+  `where()` instead of `WhereConditions.beginsWith`.
 - Assign To defaults to the sponsor for a guest's first ticket, then to the last
   assignee used.
 - An out-of-date bookmarklet now says so in the sidebar, with a one-click link to

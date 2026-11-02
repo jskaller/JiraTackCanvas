@@ -13,8 +13,8 @@
 | | Value | Source |
 | --- | --- | --- |
 | Tagged commit (pre-deploy snapshot) | `git rev-parse baseline/pre-pivot-2026-10-30` | git |
-| App version (deployed) | **5.12.0** (major 5) | `forge install list`, `forge version details` |
-| Development last deployed | 2026-11-02 (5.12.0, no upgrade required) | `forge deploy` output |
+| App version (deployed) | **5.13.0** (major 5) | `forge install list`, `forge version details` |
+| Development last deployed | 2026-11-02 (5.13.0, no upgrade required) | `forge deploy` output |
 | Installation | upgraded to major 5 | `forge install --upgrade` |
 | SDK hash (deployed) | `223c52912f96` | `src/lib/version.js` |
 | SDK hash (tree) | `223c52912f96` | `src/lib/version.js` |
@@ -45,6 +45,7 @@
 | Session schema version; pre-identity invitation warning | `3942417` | **Deployed** 2026-11-02 — SDK `223c52912f96` |
 | Session cache keyed by invitation token; auth tests | `401c2b1` | **Deployed** 2026-11-02 — SDK `223c52912f96` |
 | Out-of-date bookmarklet notice with refresh link | `18daf6d` | **Deployed** 2026-11-02 — SDK `223c52912f96`; last manual re-drag |
+| KVS paginated query uses WhereConditions | `a1735bd` | **Deployed** 2026-11-02 — fixes the admin invitations list |
 
 **Deployed scopes are still the old six.** Confirmed with `forge version details -e development --non-interactive --json`: `manage:jira-configuration` and `manage:jira-project` are present in the live app, absent from `manifest.yml`.
 
