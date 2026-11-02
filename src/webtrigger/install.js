@@ -5,7 +5,7 @@ import { SDK_VERSION } from '../lib/version.js';
 import { buildBookmarklet } from '../shared/bookmarklet.js';
 import { buildCompositeToken } from '../lib/tokenParser.js';
 import { pairingService } from '../lib/credentials.js';
-import { parentRefOf, pairingIdFor, MAX_PAIRINGS, remainingPairings } from '../lib/credentialsModel.js';
+import { parentRefOf, pairingIdFor, MAX_PAIRINGS, remainingPairings, INSTALL_ID_RE } from '../lib/credentialsModel.js';
 
 /**
  * Guest installer.
@@ -29,7 +29,6 @@ import { parentRefOf, pairingIdFor, MAX_PAIRINGS, remainingPairings } from '../l
 const APP_ID = '47873476-1bf1-4291-9178-a65ef01abd46';
 const INSTALL_ID_KEY = `jiratack:installId:${APP_ID}`;
 const PHASE_FLAG = 'jiratack:phase1At';
-const INSTALL_ID_RE = /^[a-f0-9]{32}$/;
 
 const HTML_HEADERS = { 'Content-Type': ['text/html; charset=utf-8'], 'Cache-Control': ['no-store'] };
 
@@ -137,7 +136,7 @@ function phaseOne(token, urls) {
     var id = '';
     try {
       id = localStorage['${INSTALL_ID_KEY}'] || '';
-      if (!/^[a-f0-9]{32}$/.test(id)) {
+      if (!/${INSTALL_ID_RE.source}/.test(id)) {
         var bytes = new Uint8Array(16);
         crypto.getRandomValues(bytes);
         id = Array.from(bytes, function (b) { return ('0' + b.toString(16)).slice(-2); }).join('');
