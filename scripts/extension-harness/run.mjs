@@ -35,9 +35,26 @@ function readSdkVersion() {
   return match[1];
 }
 
+function newestMtime(dir) {
+  let newest = 0;
+  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+    const full = path.join(dir, entry.name);
+    const stat = entry.isDirectory() ? newestMtime(full) : fs.statSync(full).mtimeMs;
+    if (stat > newest) newest = stat;
+  }
+  return newest;
+}
+
 function prepareBuild() {
   if (!fs.existsSync('extension/sdk.js')) {
     throw new Error('extension/sdk.js missing — run `npm run build:extension` first');
+  }
+  // A stale bundle makes the harness pass on code nobody changed, or fail on
+  // code nobody wrote. Refuse rather than measure the wrong build.
+  const sourceTime = newestMtime('src/bookmarklet');
+  const bundleTime = fs.statSync('extension/sdk.js').mtimeMs;
+  if (sourceTime > bundleTime) {
+    throw new Error('extension/sdk.js is older than src/bookmarklet — run `npm run build && npm run build:extension`');
   }
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'jiratack-ext-'));
   fs.cpSync('extension', dir, { recursive: true });
@@ -117,6 +134,7 @@ async function main() {
       const pageConfig = { ...config, canvasId: fixture.canvasId };
       const pageTarget = await newTarget(chrome.port, pageUrl);
       const page = await connect(pageTarget.webSocketDebuggerUrl);
+      await page.send('Emulation.setFocusEmulationEnabled', { enabled: true });
 
       await waitFor(async () => (await page.evaluate('document.readyState')) === 'complete');
 
@@ -131,6 +149,16 @@ async function main() {
         page.close();
         continue;
       }
+
+      // one pin that belongs on this page, so rendering and filters have data
+      servers.state.pins = [{
+        key: 'TEST-1',
+        summary: 'Fixture pin',
+        url: pageUrl,
+        selector: '#target',
+        pinPosition: '40.0,50.0',
+        status: { name: 'To Do', category: 'new' },
+      }];
 
       await ext.evaluate(`chrome.scripting.executeScript({
         target: { tabId: ${tabId} },
@@ -171,6 +199,35 @@ async function main() {
       record(`${fixture.path}: overlay rendered`, state.overlay === true, String(state.overlay));
       record(`${fixture.path}: sidebar rendered`, state.sidebar === true, String(state.sidebar));
       record(`${fixture.path}: init ran with canvas`, Boolean(state.canvas), String(state.canvas));
+
+      if (fixture.canvasId !== 'universal') {
+        const pins = await waitFor(async () => {
+          const count = await page.evaluate("document.querySelectorAll('.jiratack-pin').length");
+          return count > 0 ? count : null;
+        });
+        record(`${fixture.path}: pins render from API data`, pins === 1, String(pins));
+      }
+
+      if (fixture.path === '/plain') {
+        // polling: a pin created elsewhere must appear without a reload
+        servers.state.pins = [
+          ...servers.state.pins,
+          {
+            key: 'TEST-2',
+            summary: 'Added while open',
+            url: pageUrl,
+            selector: '#target',
+            pinPosition: '70.0,60.0',
+            status: { name: 'To Do', category: 'new' },
+          },
+        ];
+        const refreshed = await waitFor(async () => {
+          const count = await page.evaluate("document.querySelectorAll('.jiratack-pin').length");
+          return count >= 2 ? count : null;
+        }, { timeout: 25000, interval: 500 });
+        const polls = servers.state.calls.filter((c) => c === 'getPinsForCanvasAndUrl').length;
+        record('polling picks up a new pin within 15s', refreshed === 2 && polls >= 2, `${refreshed} pins, ${polls} pin fetches`);
+      }
 
       page.close();
     }

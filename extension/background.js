@@ -54,7 +54,7 @@ function startOverlay(tabId, config) {
       func: function (cfg) {
         if (typeof window.__jiratackInit !== 'function') return { ok: false, reason: 'sdk-missing' };
         if (window.__jiratackActiveCanvas) { window.__jiratackClose(); return { ok: true, closed: true }; }
-        window.__jiratackInit(cfg);
+        window.__jiratackInit(Object.assign({}, cfg, { channel: 'extension' }));
         return { ok: true };
       },
       args: [config],

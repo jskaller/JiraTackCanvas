@@ -597,6 +597,10 @@ function selectAndScroll(key) {
  * replacement link that preserves the invitation and pairing.
  */
 function warnIfOutdated(config, session) {
+  // In the extension the SDK ships inside the package, so "re-drag the
+  // bookmarklet" is not a remedy — the store update is. Suppress rather than
+  // nag after every server-side release (D32).
+  if (config && config.channel === 'extension') return;
   if (!session || !session.currentSdkVersion) return;
   if (!isSdkOutdated(RUNNING_SDK_VERSION, session.currentSdkVersion)) return;
   const sidebar = document.getElementById('jiratack-sidebar');
@@ -915,7 +919,50 @@ async function handleCapture(capture) {
   });
 }
 
+const POLL_INTERVAL_MS = 15000;
+let pollTimer = null;
+
+function stopPolling() {
+  if (pollTimer) {
+    window.clearInterval(pollTimer);
+    pollTimer = null;
+  }
+}
+
+function pinSignature(pins) {
+  return (pins || [])
+    .map((pin) => `${pin.key}:${pin.summary || ''}:${(pin.status && pin.status.name) || ''}`)
+    .join('|');
+}
+
+/**
+ * Forge has no server push, so liveness is polling: cheap, paused when the tab
+ * is hidden, and silent on failure — a failed poll must never disturb an open
+ * overlay.
+ */
+function startPolling() {
+  stopPolling();
+  pollTimer = window.setInterval(async () => {
+    if (!current || !current.session || !current.canvasName || current.loading || current.polling) return;
+    if (document.hidden) return;
+    current.polling = true;
+    try {
+      const data = await getPins(current.config, current.session, current.canvasName, getPageUrl(), true);
+      if (!current) return;
+      const next = (data && data.pins) || [];
+      if (pinSignature(next) === pinSignature(current.pins)) return;
+      current.pins = next;
+      renderPinsAndSidebar();
+    } catch (e) {
+      // best effort
+    } finally {
+      if (current) current.polling = false;
+    }
+  }, POLL_INTERVAL_MS);
+}
+
 function teardown(clearStoredSession) {
+  stopPolling();
   if (current && current.pinRepositionTimer) {
     window.clearTimeout(current.pinRepositionTimer);
     current.pinRepositionTimer = null;
@@ -1184,6 +1231,10 @@ async function init(config) {
       teardown(false);
     }
   }
+
+  // Arm the timer unconditionally: the tick itself checks that an overlay and a
+  // session exist, so early returns from init cannot leave a stray interval.
+  startPolling();
 }
 
 window.__jiratackInit = init;
