@@ -1,7 +1,7 @@
 const SESSION_KEY_PREFIX = 'jiratack_jwt_';
 // Bump whenever the session shape changes. Cached sessions from an older shape
 // are re-exchanged instead of being reused with missing fields.
-const SESSION_SCHEMA = 3;
+const SESSION_SCHEMA = 4;
 
 /**
  * Sync storage adapter used by the bookmarklet. A Chrome extension can pass
@@ -61,6 +61,21 @@ export function createSessionManager(storage) {
     return `${SESSION_KEY_PREFIX}${canvasId}`;
   }
 
+  /**
+   * The cache is keyed by canvas, but a guest session also depends on the
+   * invitation that minted it. Without this, dragging a bookmarklet from a new
+   * invitation reuses the previous invitation's session — which is how a fresh
+   * link ended up with empty identity fields.
+   */
+  function tokenFingerprint(token) {
+    const text = String(token || '');
+    let hash = 5381;
+    for (let i = 0; i < text.length; i += 1) {
+      hash = ((hash * 33) ^ text.charCodeAt(i)) >>> 0;
+    }
+    return hash.toString(16);
+  }
+
   function read(canvasId) {
     try {
       const raw = store.getItem(sessionKey(canvasId));
@@ -97,6 +112,7 @@ export function createSessionManager(storage) {
         cached
         && cached.expiresAt > Date.now()
         && cached.schema === SESSION_SCHEMA
+        && cached.tokenKey === tokenFingerprint(config.token)
         && Object.prototype.hasOwnProperty.call(cached, 'displayName')
         && Object.prototype.hasOwnProperty.call(cached, 'isAdmin')
       ) {
@@ -129,6 +145,7 @@ export function createSessionManager(storage) {
     const data = body.data;
     const session = {
       schema: SESSION_SCHEMA,
+      tokenKey: tokenFingerprint(config.token),
       jwt: data.sessionJwt,
       expiresAt: data.expiresAt,
       scope: data.scope,
