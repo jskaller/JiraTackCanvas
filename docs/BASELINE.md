@@ -13,8 +13,8 @@
 | | Value | Source |
 | --- | --- | --- |
 | Tagged commit (pre-deploy snapshot) | `git rev-parse baseline/pre-pivot-2026-10-30` | git |
-| App version (deployed) | **5.4.0** (major 5) | `forge install list`, `forge version details` |
-| Development last deployed | 2026-11-02 (5.4.0, no upgrade required) | `forge deploy` output |
+| App version (deployed) | **5.5.0** (major 5) | `forge install list`, `forge version details` |
+| Development last deployed | 2026-11-02 (5.5.0, no upgrade required) | `forge deploy` output |
 | Installation | upgraded to major 5 | `forge install --upgrade` |
 | SDK hash (deployed) | `9974a83d7b78` | `src/lib/version.js` |
 | SDK hash (tree) | `9974a83d7b78` | `src/lib/version.js` |
