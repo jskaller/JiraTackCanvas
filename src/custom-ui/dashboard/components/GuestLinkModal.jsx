@@ -10,6 +10,12 @@ export default function GuestLinkModal({ canvases, defaultCanvas, onClose }) {
   const [result, setResult] = useState(null);
   const [copied, setCopied] = useState(false);
 
+  const allSelected = canvases.length > 0 && selected.size === canvases.length;
+
+  function toggleAll() {
+    setSelected(allSelected ? new Set() : new Set(canvases.map((canvas) => canvas.canvasName)));
+  }
+
   function toggle(canvasName) {
     setSelected((previous) => {
       const next = new Set(previous);
@@ -144,6 +150,15 @@ export default function GuestLinkModal({ canvases, defaultCanvas, onClose }) {
             </div>
 
             <div className="jt-checkbox-list">
+              {canvases.length > 0 && (
+                <label className="jt-checkbox-row">
+                  <input type="checkbox" checked={allSelected} onChange={toggleAll} />
+                  <span className="jt-checkbox-label">All canvases</span>
+                  <span className="jt-muted">
+                    {selected.size} of {canvases.length} selected
+                  </span>
+                </label>
+              )}
               {canvases.length === 0 ? (
                 <div className="jt-muted">No active canvases.</div>
               ) : (

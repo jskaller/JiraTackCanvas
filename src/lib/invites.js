@@ -1,4 +1,5 @@
 import crypto from 'crypto';
+import api, { route } from '@forge/api';
 import { kvsGet, kvsSet, kvsQueryAll } from './kvs.js';
 import { getBindingSecret } from './secrets.js';
 import { bindingIdFor } from './bindingModel.js';
@@ -93,14 +94,55 @@ export function canManageInvite(viewerAccountId, isAdmin, invite) {
   return Boolean(invite && invite.issuer && invite.issuer === viewerAccountId);
 }
 
+async function resolveSponsor(record, cache, token) {
+  if (!record.issuer) return record;
+  if (record.issuedByName && record.issuerEmail) return record;
+  if (cache.has(record.issuer)) {
+    const cached = cache.get(record.issuer);
+    return {
+      ...record,
+      issuedByName: record.issuedByName || cached.displayName,
+      issuerEmail: record.issuerEmail || cached.emailAddress,
+    };
+  }
+  let profile = { displayName: null, emailAddress: null };
+  try {
+    const res = await api.asApp().requestJira(route`/rest/api/3/user?accountId=${record.issuer}`);
+    if (res.ok) {
+      const data = await res.json();
+      profile = {
+        displayName: (data && data.displayName) || null,
+        emailAddress: (data && data.emailAddress) || null,
+      };
+    }
+  } catch (e) {
+    profile = { displayName: null, emailAddress: null };
+  }
+  cache.set(record.issuer, profile);
+  const next = {
+    ...record,
+    issuedByName: record.issuedByName || profile.displayName,
+    issuerEmail: record.issuerEmail || profile.emailAddress,
+  };
+  if (next.issuedByName !== record.issuedByName || next.issuerEmail !== record.issuerEmail) {
+    try {
+      if (token) await kvsSet(inviteKey(token), next);
+    } catch (e) {
+      // advisory backfill only
+    }
+  }
+  return next;
+}
+
 export async function listInvites({ viewerAccountId, isAdmin, now = Date.now() }) {
   const invites = await loadInvites();
   const visible = isAdmin
     ? invites
     : invites.filter((entry) => entry.record.issuer === viewerAccountId);
 
+  const sponsorCache = new Map();
   const rows = await Promise.all(visible.map(async (entry) => {
-    const record = entry.record;
+    const record = await resolveSponsor(entry.record, sponsorCache, entry.token);
     const pairings = await pairingService.countPairingsForInvite(parentRefOf(entry.token));
     const binding = record.bindingId ? await getBinding(record.bindingId) : null;
     return {
