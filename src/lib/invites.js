@@ -29,6 +29,7 @@ export function inviteKey(token) {
 export async function createInvite({
   issuer,
   issuedByName,
+  issuerEmail,
   guestName,
   guestEmail,
   permittedCanvases,
@@ -52,6 +53,7 @@ export async function createInvite({
     scope: 'guest_create',
     issuer: String(issuer),
     issuedByName: issuedByName || null,
+    issuerEmail: issuerEmail || null,
     guestName: String(guestName).trim().slice(0, 200),
     guestEmail: String(guestEmail).trim().toLowerCase().slice(0, 320),
     bindingId,
@@ -107,6 +109,7 @@ export async function listInvites({ viewerAccountId, isAdmin, now = Date.now() }
       guestEmail: record.guestEmail || null,
       issuedBy: record.issuer || null,
       issuedByName: record.issuedByName || null,
+      issuerEmail: record.issuerEmail || null,
       state: invitationState(record),
       status: invitationStatus(record, now),
       linkExpiresAt: linkExpiresAt(record),
@@ -186,6 +189,7 @@ export async function regenerateInvite({ ref, viewerAccountId, isAdmin, installa
   const created = await createInvite({
     issuer: entry.record.issuer,
     issuedByName: entry.record.issuedByName,
+    issuerEmail: entry.record.issuerEmail,
     guestName: entry.record.guestName,
     guestEmail: entry.record.guestEmail,
     permittedCanvases: entry.record.permittedCanvases,

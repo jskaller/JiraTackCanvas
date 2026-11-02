@@ -24,6 +24,16 @@ function descriptionToAdf(text) {
 export function renderTicketForm(container, options) {
   const { config, session, capture, onCancel, onCreated, defaultProject, defaultAssignee, defaultIssueTypeId, defaultPriorityId, pins } = options;
   const isGuest = Boolean(session && session.scope === 'guest_create');
+  const guestNameInput = isGuest ? textInput('Your name', (session && session.guestName) || '') : null;
+  const guestEmailInput = isGuest ? textInput('you@example.com', (session && session.guestEmail) || '') : null;
+  if (guestNameInput) {
+    guestNameInput.disabled = true;
+    guestNameInput.title = 'Set by the person who invited you.';
+  }
+  if (guestEmailInput) {
+    guestEmailInput.disabled = true;
+    guestEmailInput.title = 'Set by the person who invited you.';
+  }
   let screenshotDataUrl = options.screenshotDataUrl || null;
   let submitting = false;
   const pageUrl = normalizeUrl(stripDeepLinkParams(window.location.href));
@@ -146,6 +156,10 @@ export function renderTicketForm(container, options) {
   topBar.appendChild(topCancelButton);
   form.appendChild(topBar);
 
+  if (isGuest) {
+    form.appendChild(field('Your Name', guestNameInput));
+    form.appendChild(field('Your Email', guestEmailInput));
+  }
   form.appendChild(field('Project', projectSelect || projectInput));
   form.appendChild(field('Issue type', issueTypeSelect));
   form.appendChild(assigneeWrap);

@@ -810,7 +810,11 @@ async function handleCapture(capture) {
   const usablePins = sortedPins.filter((pin) => !isSeedTicket(pin));
   const newestPin = usablePins.length > 0 ? usablePins[0] : null;
   const defaultProject = newestPin && newestPin.projectKey ? newestPin.projectKey : undefined;
-  const defaultAssignee = newestPin && newestPin.assignee ? { ...newestPin.assignee } : undefined;
+  const sponsorAssignee = session && session.scope === 'guest_create' && session.issuer
+    ? { accountId: session.issuer, displayName: session.issuerName || session.displayName || session.issuer }
+    : undefined;
+  const defaultAssignee = sponsorAssignee
+    || (newestPin && newestPin.assignee ? { ...newestPin.assignee } : undefined);
   const defaultIssueTypeId = newestPin && newestPin.issueTypeId ? newestPin.issueTypeId : undefined;
   const defaultPriorityId = newestPin && newestPin.priorityId ? newestPin.priorityId : undefined;
 

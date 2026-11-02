@@ -27,15 +27,18 @@ function resolveInstallationId(context) {
   return (context && context.installationId) || (context && context.extension && context.extension.installation && context.extension.installation.id) || '';
 }
 
-async function lookupDisplayName(accountId) {
-  if (!accountId) return null;
+async function lookupUser(accountId) {
+  if (!accountId) return { displayName: null, emailAddress: null };
   try {
     const res = await api.asApp().requestJira(route`/rest/api/3/user?accountId=${accountId}`);
-    if (!res.ok) return null;
+    if (!res.ok) return { displayName: null, emailAddress: null };
     const data = await res.json();
-    return (data && data.displayName) || null;
+    return {
+      displayName: (data && data.displayName) || null,
+      emailAddress: (data && data.emailAddress) || null,
+    };
   } catch (e) {
-    return null;
+    return { displayName: null, emailAddress: null };
   }
 }
 
@@ -227,13 +230,14 @@ export async function generateGuestToken(context, payload) {
 
   const issuer = (context && (context.accountId || context.userId)) || '';
   const installationId = resolveInstallationId(context);
-  const issuedByName = await lookupDisplayName(issuer);
+  const sponsor = await lookupUser(issuer);
 
   let created;
   try {
     created = await createInvite({
       issuer,
-      issuedByName,
+      issuedByName: sponsor.displayName,
+      issuerEmail: sponsor.emailAddress,
       guestName,
       guestEmail,
       permittedCanvases,

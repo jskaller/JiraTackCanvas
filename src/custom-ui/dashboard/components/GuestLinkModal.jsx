@@ -59,6 +59,15 @@ export default function GuestLinkModal({ canvases, defaultCanvas, onClose }) {
     setBusy(false);
   }
 
+  function emailUrl() {
+    if (!result || !result.installerUrl) return;
+    const to = result.guestEmail || guestEmail;
+    const name = result.guestName || guestName || 'there';
+    const subject = 'Your JiraTack review link';
+    const body = `Hi ${name},\n\nHere is your JiraTack review link. Open it, then drag the JiraTack button to your bookmarks bar.\n\n${result.installerUrl}\n\nThe link is valid for 72 hours.`;
+    window.location.href = `mailto:${encodeURIComponent(to)}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+  }
+
   async function copyUrl() {
     if (!result || !result.installerUrl) return;
     try {
@@ -98,6 +107,9 @@ export default function GuestLinkModal({ canvases, defaultCanvas, onClose }) {
             <div className="jt-modal-actions">
               <button type="button" className="jt-button jt-button-primary" onClick={copyUrl}>
                 {copied ? 'Copied' : 'Copy to Clipboard'}
+              </button>
+              <button type="button" className="jt-button" onClick={emailUrl}>
+                Email link
               </button>
               <button type="button" className="jt-button" onClick={onClose}>
                 Close

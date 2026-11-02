@@ -214,6 +214,10 @@ export async function exchangeToken(payload, request) {
         isAdmin: false,
         displayName,
         pairingId,
+        guestName: invite.guestName || null,
+        guestEmail: invite.guestEmail || null,
+        issuerName: invite.issuedByName || displayName || null,
+        issuerEmail: invite.issuerEmail || null,
       });
     }
   }

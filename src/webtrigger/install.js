@@ -157,10 +157,16 @@ function phaseOne(token, urls) {
   return { statusCode: 200, headers: HTML_HEADERS, body: page('Get JiraTack', body) };
 }
 
-function validPage(token, installId, remaining, urls, guestName) {
+function validPage(token, installId, remaining, urls, invite) {
   const href = bookmarkletFor(buildCompositeToken(token, installId), urls);
 
-  const invited = guestName ? `<p class="muted">You are invited as <strong>${escapeHtml(guestName)}</strong>.</p>` : '';
+  const guestName = invite && invite.guestName;
+  const sponsor = invite && (invite.issuedByName || invite.issuer);
+  const sponsorContact = invite && invite.issuerEmail ? ` (${escapeHtml(invite.issuerEmail)})` : '';
+  const invitedParts = [];
+  if (guestName) invitedParts.push(`You are invited as <strong>${escapeHtml(guestName)}</strong>.`);
+  if (sponsor) invitedParts.push(`Invited by ${escapeHtml(sponsor)}${sponsorContact}.`);
+  const invited = invitedParts.length > 0 ? `<p class="muted">${invitedParts.join(' ')}</p>` : '';
   const body = `<h1>Get JiraTack</h1>${invited}
 <div class="card disabled">
   <h2>🔌 Install the extension <span class="muted">(recommended)</span></h2>
@@ -263,5 +269,5 @@ export const handler = async (req) => {
     };
   }
 
-  return validPage(token, installId, remainingPairings(used), urls, invite.guestName);
+  return validPage(token, installId, remainingPairings(used), urls, invite);
 };
