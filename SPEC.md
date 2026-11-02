@@ -322,11 +322,17 @@ The `javascript:` bookmarklet body is roughly 3,500 characters (3,495 measured w
 
 5. On `load`, verifies `window.__jiratackInit` is a function, clears the bootstrap, and calls it.
 
-6. On failure — `onerror`, a synchronous throw on `s.src` (Trusted Types), a missing `__jiratackInit`, or a 15-second timeout — replaces the spinner with an in-page card: "JiraTack could not start on this page", a reason, and a Dismiss button. The reason distinguishes a CSP block from a Trusted Types block, a script that loaded but did not initialise, and a timeout. Every failure is also logged as `[JiraTack] …` for diagnosis.
+6. If the external script fails, **falls back to fetching the bundle and injecting it as an inline `<script>`** (D31). This succeeds wherever the page allowed the bookmarklet itself to run — it needs `'unsafe-inline'`, which that already required — and needs no `'unsafe-eval'`. No popup, no iframe, no `eval`; screenshots and the overlay are unaffected because the code runs in the page's own context.
+
+7. If both deliveries fail — a refused download, inline scripts refused by the page, a synchronous throw on `s.src` or `script.textContent` (Trusted Types), a bundle that loaded without `__jiratackInit`, or a 15-second timeout — replaces the spinner with an in-page card: "JiraTack could not start here", a reason, and a Dismiss button. The reason names the step that failed rather than assuming CSP. Every failure is also logged as `[JiraTack] …` for diagnosis.
 
 The exchange response carries the live `currentSdkVersion` and the installer `installUrl`. When the bookmark's baked-in `sdkVersion` differs, the sidebar shows "This bookmarklet is out of date" plus a refresh link that rebuilds the installer URL from the composite token, preserving the invitation and pairing.
 
-Host-page CSP can block the external script entirely — measured on github.com, developer.mozilla.org, en.wikipedia.org, and accounts.google.com — and the user now sees an explanation instead of a disappearing spinner. Running the client on those sites still requires the extension channel (D22); the message is honesty, not a fix.
+What each layer covers, measured 2026-11-02 (D22 amendment):
+
+- **External script refused, fallback works** — `montefioreeinstein.org` and the enterprise-CMS class: the bookmarklet runs and the page sets no `default-src`/`connect-src`, so the bundle can be fetched and inlined (verified live, 290 KB bundle).
+- **Bookmarklet itself refused** — `github.com`, `developer.mozilla.org`, `mail.google.com`, `outlook.office.com`, `app.asana.com`, `linkedin.com`, `x.com`, `stripe.com`, `paypal.com`, `wellsfargo.com`, `discord.com`, `linear.app`, `airbnb.com`. `script-src` with a nonce or hash makes the `javascript:` URL illegal, so none of our code exists. Only the extension channel (D22) covers these.
+- **Fetch refused while inline is allowed** — a locked `default-src`/`connect-src` leaves no way to obtain the code, and `eval` would not help because there is nothing to evaluate. `en.wikipedia.org` (article pages) and `epic.com` are examples.
 
 **Version coupling.** `sdkVersion` is a content hash (D13). Bookmarks embed the version at generation time, so an SDK change requires re-dragging the bookmarklet; an old bookmark keeps requesting the old hash.
 
@@ -981,7 +987,8 @@ Retirement is a filter, never a deletion.
 
 | Condition | Behaviour |
 | --- | --- |
-| SDK script blocked by host CSP | In-page card: "JiraTack could not start on this page" with the reason (CSP, Trusted Types, failed init, or timeout) and a Dismiss button |
+| SDK script blocked by host CSP | Bootstrap retries by fetching the bundle and inlining it (D31). Only if that also fails: in-page card "JiraTack could not start here" naming the failed step (download refused, inline refused, failed init, or timeout), with a Dismiss button |
+| Bookmarklet refused by host CSP | Nothing runs — `script-src` with a nonce or hash makes the `javascript:` URL illegal (D22). Requires the extension channel |
 | Session JWT expired | Silent re-exchange; if that fails, "Bookmarklet expired. Generate a new one from Jira." with a dashboard link |
 | Canvas/guest token revoked | Same as above |
 | Installation license inactive | Persistent red banner in the sidebar |

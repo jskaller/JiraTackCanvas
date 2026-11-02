@@ -646,6 +646,41 @@ Called by the bootstrap after the SDK script loads. If `window.__jiratackActiveC
 
 `canvasId === "universal"` selects launcher mode and must not be treated as a canvas name.
 
+### 5.1a Loader chain (D31)
+
+The bootstrap delivers the SDK in two ways and reports which step failed.
+
+```text
+1. <script src="{sdkUrl}?v={sdkVersion}">            onload → __jiratackInit(c)
+2. on error → fetch("{sdkUrl}?v=…&inline=1",        text → <script> textContent
+               { cache: 'no-store', credentials: 'omit' })
+              → executes synchronously on insert → __jiratackInit(c)
+3. both fail → in-page card naming the step:
+   - download refused (HTTP/network/CORS)
+   - inline scripts refused by the page
+   - bundle executed but `__jiratackInit` is missing
+```
+
+`inline=1` is advisory only; the web trigger serves the same body for any query string. `credentials: 'omit'` means the request is unauthenticated and cross-origin, so the web trigger **must** return `Access-Control-Allow-Origin: *` (and `Access-Control-Expose-Headers: ETag`); without it step 2 fails on exactly the sites it exists for. No `eval`, no `new Function`, no popup, no iframe.
+
+### 5.1b SDK endpoint (`jiratack-sdk`)
+
+```text
+GET|HEAD|OPTIONS <sdkUrl>            public, no identity, no cookies
+200  Content-Type: text/javascript; charset=utf-8
+     Cache-Control: no-cache
+     ETag: "<SDK_VERSION>"
+     Access-Control-Allow-Origin: *
+     Access-Control-Allow-Methods: GET, HEAD, OPTIONS
+     Access-Control-Allow-Headers: If-None-Match, Content-Type
+     Access-Control-Expose-Headers: ETag, Content-Length
+304  when If-None-Match contains the current ETag (no body)
+OPTIONS is answered by the handler with 204 (the platform may front it with 200);
+     a simple GET needs no preflight
+```
+
+The body is the bundle with `__JIRATACK_SDK_VERSION__` already replaced (D13). CORS is required by the inline fallback (D31), not by the `<script src>` path, which is not a cross-origin `fetch`.
+
 ### 5.2 Overlay DOM contract
 
 ```text

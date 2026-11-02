@@ -242,25 +242,31 @@ Notes:
 
 The bookmarklet loads the SDK as `<script src="{sdkUrl}?v=…">`. That request is governed by the **host page's** `script-src`, and the browser is the arbiter — nothing the app does can override it.
 
-Measured on live sites (2026-10-29/30, real deployed web trigger, Chromium):
+CSP decides **two** questions, and they have different answers (D22 amendment, D31). Re-measured 2026-11-02 in Chromium by navigating to a `javascript:` URL on each site:
 
-| Site | CSP shape | External SDK |
-| --- | --- | --- |
-| github.com | `script-src <assets> 'sha256-…'` | Blocked |
-| developer.mozilla.org | `script-src 'self' …` | Blocked |
-| en.wikipedia.org | `script-src … 'self' …` | Blocked |
-| accounts.google.com | nonce + Trusted Types | Blocked (Trusted Types first, then `script-src`) |
-| example.com, shopify.com, login.salesforce.com, theguardian.com, w3.org | none, or `https:`/`frame-ancestors` only | Loads |
+| Site | CSP shape | Bookmarklet runs? | External SDK |
+| --- | --- | --- | --- |
+| github.com | `script-src <assets> 'sha256-…'` | **No** — violation logged | n/a |
+| developer.mozilla.org | `script-src-elem 'self' …` | **No** | n/a |
+| mail.google.com, outlook.office.com, app.asana.com, linkedin.com, x.com, stripe.com, paypal.com, wellsfargo.com, discord.com, linear.app, airbnb.com | nonce and/or hash, no effective `'unsafe-inline'` | **No** | n/a |
+| montefioreeinstein.org | `script-src 'self' 'unsafe-inline' 'unsafe-eval' …` | **Yes** | Blocked → inlined fallback |
+| en.wikipedia.org | `'unsafe-inline'` + `default-src` allowlist | **Yes** | Blocked, and `fetch` blocked too → no code channel |
+| apple.com, bankofamerica.com, youtube.com, asana.com, hubspot.com | allowlist, `fetch` permitted | **Yes** | Blocked → inlined fallback |
+| example.com, shopify.com, login.salesforce.com, theguardian.com, w3.org | none, or `https:`/`frame-ancestors` only | **Yes** | Loads |
 
 Consequences for this architecture:
 
-- The failure is now **explained in-page**: `src/shared/bookmarklet.js` catches `onerror`, a synchronous `s.src` throw (Trusted Types), a loaded script that never initialised, and a 15-second timeout, then replaces the spinner with a reason and a Dismiss button. The site still cannot run the client.
+- **Two-stage delivery (D31).** The bootstrap tries the external script, then fetches the bundle and injects it as an inline `<script>`. The inline step needs only `'unsafe-inline'`, which the bookmarklet itself already needed, and no `'unsafe-eval'`, so it adds no new requirement and keeps `eval` out of the product. The SDK endpoint returns `Access-Control-Allow-Origin: *` for that fetch.
 
-- Inlining the SDK does not help — the bundle is 284 KB at this build, far beyond practical `javascript:` URL length, and injected inline scripts are themselves blocked on the strict sites above.
+- **Screenshots and the overlay are unaffected** by the fallback: the code runs in the page's own context. No popup window, no iframe.
 
-- An iframe fallback does not help — the web trigger sends `X-Frame-Options: deny`, and strict sites block the frame with `frame-src`.
+- **Failure is explained in-page** and names the step: download refused, inline refused, loaded-without-init, or timeout.
 
-- The chosen direction is a content-script extension, whose isolated world is not subject to the page's `script-src`. That is recorded in D22 and owned by the alignment document; no extension code exists in this repository.
+- **Inlining the whole SDK in the bookmarklet does not help** — the bundle is 290 KB at this build; Firefox caps bookmark URLs around 64 KB and refuses `javascript:` URLs under CSP outright.
+
+- **An iframe fallback does not help** — the web trigger sends `X-Frame-Options: deny`, strict sites block the frame with `frame-src`, and `srcdoc` inherits the parent policy.
+
+- **Where the bookmarklet itself is refused, only the extension works** — its isolated world is not subject to the page's `script-src`. Recorded in D22 and owned by the alignment document; no extension code exists in this repository.
 
 Any change to the delivery mechanism must preserve the property that the SDK talks to the web trigger with a JWT and never to Jira directly.
 
@@ -284,7 +290,7 @@ Any change to the delivery mechanism must preserve the property that the SDK tal
 
 8. **Guest links delegate the issuer's access.** Bounded by canvas scope and a short invite expiry (72 h for new invites, D26); recorded in D19.
 
-9. **Strict-CSP sites cannot run the bookmarklet at all.** §11. The bootstrap now states why instead of failing silently; running there requires the extension channel (D22).
+9. **Sites whose CSP requires a nonce or hash cannot run the bookmarklet at all.** §11. The `javascript:` URL itself is refused, so there is no code to explain it; the extension channel (D22) is the only path. Where the bookmarklet *does* run but the external script is refused, the loader inlines the bundle (D31). A locked `connect-src` defeats that too.
 
 10. **Page identity is inferred, so it can be wrong.** Pins store the URL as captured and identity is derived at read time; the reviewer can switch between Smart, Exact and Whole page when the inference misleads (D23). The heuristic still has edge cases in both directions.
 

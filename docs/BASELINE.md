@@ -13,8 +13,8 @@
 | | Value | Source |
 | --- | --- | --- |
 | Tagged commit (pre-deploy snapshot) | `git rev-parse baseline/pre-pivot-2026-10-30` | git |
-| App version (deployed) | **5.17.0** (major 5) | `forge install list`, `forge version details` |
-| Development last deployed | 2026-11-02 (5.17.0, no upgrade required) | `forge deploy` output |
+| App version (deployed) | **5.21.0** (major 5) | `forge install list`, `forge version details` |
+| Development last deployed | 2026-11-02 (5.21.0, no upgrade required) | `forge deploy` output |
 | Installation | upgraded to major 5 | `forge install --upgrade` |
 | SDK hash (deployed) | `b85ebfaac98f` | `src/lib/version.js` |
 | SDK hash (tree) | `b85ebfaac98f` | `src/lib/version.js` |
@@ -27,7 +27,7 @@
 
 ## 2. Deployed vs tree
 
-**Deployed 2026-11-02.** Development runs `f4fd5e3` as app **5.6.0**, SDK `b85ebfaac98f`, four scopes. No `forge install --upgrade` was needed: scopes were unchanged since 5.0.0.
+**Deployed 2026-11-02.** Development runs the current tree as app **5.21.0**, SDK `b85ebfaac98f`, four scopes. No `forge install --upgrade` was needed: scopes were unchanged since 5.0.0.
 
 | Change | Commits | Status |
 | --- | --- | --- |

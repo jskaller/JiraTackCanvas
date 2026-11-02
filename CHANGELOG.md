@@ -13,9 +13,18 @@ All notable changes to JiraTack.
 
 ### Delivery and platform
 
-- Measured host-page CSP behaviour for the bookmarklet; recorded the delivery
-  decision and adopted a content-script extension as the CSP-resilient channel
-  (D22). Bookmarklet unchanged; strict-CSP sites still fail silently.
+- **CSP fallback loader (D22 amendment, D31).** When the host page refuses the
+  external SDK script, the bootstrap fetches the bundle and injects it as an
+  inline `<script>` — no `eval`, no popup, no iframe, screenshots and the
+  overlay unchanged. The SDK web trigger now sends CORS headers for that fetch.
+  Verified live on `montefioreeinstein.org`: the real 290 KB bundle loads and
+  `__jiratackInit` becomes a function. Failures now name the step (download,
+  inline script, or init) instead of assuming CSP.
+- Measured that CSP blocks the bookmarklet in **two** stages: a `javascript:`
+  URL is refused outright where `script-src` uses a nonce or hash (GitHub, MDN,
+  LinkedIn, X, Stripe, PayPal, Outlook and others), and separately the external
+  script can be refused where the bookmarklet does run. Only the second stage is
+  fixable without the extension.
 
 ### Storage
 

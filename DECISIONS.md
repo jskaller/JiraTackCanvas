@@ -111,7 +111,14 @@ Single decision log for JiraTack. Every open and resolved decision appears exact
 
 A content-script browser extension is adopted as the CSP-resilient channel. Content scripts run in an isolated world and are not subject to the page's `script-src`; overlay DOM and `fetch` to the web trigger are governed by the extension's own policy and `host_permissions`. The bookmarklet is retained for the licensed-user flow and for sites that permit it.
 
-**Rejected alternatives:** Inlining the whole SDK in the bookmarklet (the bundle is 284 KB, far beyond practical `javascript:` URL length; and an injected inline `<script>` was itself blocked on github.com and developer.mozilla.org, so it would not fix the target sites); an iframe popover served from the web trigger (measured blocked twice — `X-Frame-Options: deny` on the web trigger, and `frame-src` on strict sites); a hybrid of the two (inherits both limitations, adds only sites that allow inline but not external scripts); asking customers to add the web trigger origin to `script-src` (requires per-site admin action, unusable for a demo).
+**Amended 2026-11-02 — the two CSP stages were conflated.** Re-measured in Chromium by navigating to a `javascript:` URL and by clicking such a link under a controlled policy. CSP decides **two** questions, and D22 recorded only the second:
+
+1. **Can the bookmarklet run at all?** A `javascript:` URL is adjudicated as inline script. Where `script-src` carries a nonce or hash and no effective `'unsafe-inline'`, the browser refuses to run it, so none of our code exists on the page. Verified live: `github.com` and `developer.mozilla.org` log *"Running the JavaScript URL violates the following Content Security Policy directive 'script-src …'"* and nothing executes. The same shape appears on `mail.google.com`, `outlook.office.com`, `app.asana.com`, `linkedin.com`, `x.com`, `stripe.com`, `paypal.com`, `wellsfargo.com`, `discord.com`, `linear.app`, `linear`, `airbnb.com`. For these the extension remains the only channel; that part of D22 stands.
+2. **Can the SDK be delivered?** Only asked where (1) passed. `montefioreeinstein.org` runs the bookmarklet but refuses the external `<script src>`; with no `default-src`/`connect-src`, the fallback fetches and inlines the real 290 KB bundle there (verified live 2026-11-02: `__jiratackInit` is a function). `en.wikipedia.org` also runs the bookmarklet, but its `default-src` allowlist governs `fetch` and excludes our origin, so the bundle cannot be obtained at all — inline, `eval` or otherwise.
+
+The original matrix attributed group 2 to "external SDK blocked" without testing group 1, which made GitHub and Wikipedia look like one class. They are two, and only group 2 is fixable by the loader (D31). The sentence below that an injected inline `<script>` "was itself blocked on github.com and developer.mozilla.org" remains true and is the same fact as group 1: those sites block inline script, so neither the fallback nor the bookmarklet itself can run.
+
+**Rejected alternatives:** Inlining the whole SDK in the bookmarklet (the bundle is 284 KB, far beyond practical `javascript:` URL length; and an injected inline `<script>` was itself blocked on github.com and developer.mozilla.org, so it would not fix the target sites); an iframe popover served from the web trigger (measured blocked twice — `X-Frame-Options: deny` on the web trigger, and `frame-src` on strict sites); a hybrid of the two (inherits both limitations, adds only sites that allow inline but not external scripts); asking customers to add the web trigger origin to `script-src` (requires per-site admin action, unusable for a demo). Note: the "hybrid" was dismissed on the assumption that it added few sites; measurement shows it covers Wikipedia, Montefiore and the enterprise-CMS class, which is why it is adopted in D31.
 
 **Known limitations:** The extension is not built; this decision records the direction, not shipped code. MV3 forbids remotely hosted code, so the SDK must be bundled into the extension rather than fetched. Enterprise extension allowlists can block installation. Firefox content scripts have different injection semantics. Until the extension ships, strict-CSP sites remain unsupported; the bootstrap explains the failure rather than leaving it silent, but explanation is not coverage.
 
@@ -290,6 +297,35 @@ Deactivation is enforced in `createIssue`/`updateIssue` (a state read per guest 
 
 **Status:** Open — the next decision, not implemented.
 **Question:** where tier limits come from (app-level entitlement per `AD B-04`, not the Forge license payload), what counts (`active` vs `consumed` bindings), where it is enforced (pre-create in `createIssue`), and what happens at cap (`PR-08`: no hard wall). `CAPACITY_EXCEEDED` is registered in the error registry and nothing throws it.
+
+### D31 — SDK delivery chain for pages the bookmarklet *can* run on
+
+**Status:** Resolved (2026-11-02)
+**Resolution:** Delivering the same result in two ways, chosen at runtime, with no popup, no iframe and no `eval`:
+
+1. **External script** — `{sdkUrl}?v={version}`, revalidated by ETag (5.14). Fastest and cached.
+2. **On error, fetch and inline** — `fetch(sdkUrl, { cache: 'no-store', credentials: 'omit' })`, then inject the text as an inline `<script>`. This needs `'unsafe-inline'`, which the bookmarklet **already** needed in order to run at all, and it does **not** need `'unsafe-eval'`. It therefore adds no new requirement and covers strictly more sites than `eval` would, while keeping `eval` out of the product.
+3. **Failure names the step** — refused download, blocked inline script, or loaded-but-not-started. The bootstrap no longer infers "CSP" from `onerror`.
+
+**Why this is sufficient for the class it targets.** Measured 2026-11-02 in Chromium against a controlled page shaped like `montefioreeinstein.org` (`script-src 'self' 'unsafe-inline'`, our origin absent): the external script is blocked and logged as a violation, the cross-origin `fetch` succeeds, the inline injection executes, and `__jiratackInit` runs. Executed end-to-end against the real bootstrap: `INIT:canvas-1`, no error card. The web trigger now returns `Access-Control-Allow-Origin: *` and `Access-Control-Expose-Headers: ETag`; without CORS the fallback fails on exactly the sites it exists for.
+
+**Screenshots, in-page UI, and no popup.** The fallback runs in the page's own context, so html2canvas and the overlay are unaffected. Nothing moves to a second window, and no `window.open` is attempted.
+
+**Rejected alternatives:**
+- `fetch` + `eval` — needs `'unsafe-eval'`, which the inline path does not, and puts `eval` in the shipped product. Strictly worse for the same coverage.
+- Inlining the whole bundle in the `javascript:` URL — the bundle is 290 KB. Firefox caps bookmark URLs at roughly 64 KB and Firefox blocks `javascript:` URLs under CSP outright (Bugzilla 866522, still open), so this is not portable and cannot be the primary path.
+- Companion window on our origin — rejected by product: no screenshots, and a second window the reviewer cannot see in play. Popup blockers make it unreliable.
+- iframe popover from the web trigger — `X-Frame-Options` on the trigger and `frame-src` on strict sites; also inherits the parent's CSP for `srcdoc`.
+- Asking each customer to allowlist the web trigger origin — per-site admin work, impossible for a hospital or an enterprise demo.
+
+**Known limitations:**
+- **Nonce/hash `script-src` sites remain unreachable.** The bookmarklet is itself inline script; verified live that `github.com` and `developer.mozilla.org` refuse it with *"Running the JavaScript URL violates … script-src"* before any of our code exists. Only the extension (D22) covers them.
+- **`connect-src` locked to third-party hosts** defeats the fetch while allowing inline: the code has nowhere to come from except the URL (e.g. `epic.com`).
+- **Trusted Types** requiring `TrustedScript` defeats `script.textContent`; the bootstrap catches the throw and reports it.
+- The bootstrap lives in the bookmark URL, so **this change requires one re-drag**. Once dragged, SDK changes continue to arrive by revalidation.
+- Coverage numbers are a sample of 68 public sites, not a guarantee per customer.
+
+**Applies to:** SPEC.md §6.1; CONTRACTS.md §5.1a, §5.1b; ARCHITECTURE.md §11; `src/shared/bookmarklet.js`, `src/webtrigger/sdk.js`.
 
 ### D13 — SDK version source
 
