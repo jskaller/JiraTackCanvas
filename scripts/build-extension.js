@@ -18,7 +18,6 @@ const shared = ['background.js', 'options.html', 'options.js', 'extensionConfig.
 const targets = [
   { dir: 'extension', manifest: 'manifest.chrome.json' },
   { dir: 'dist/extension-firefox', manifest: 'manifest.firefox.json' },
-  { dir: 'dist/extension-safari', manifest: 'manifest.safari.json' },
 ];
 
 // config parser lives with the shared modules so it can be unit tested

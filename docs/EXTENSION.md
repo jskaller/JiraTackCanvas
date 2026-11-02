@@ -36,8 +36,7 @@ for users who cannot install anything.
 ```text
 npm run build            # bundles the SDK
 npm run icons            # regenerates extension/icons (only if the art changes)
-npm run build:extension  # assembles ./extension, dist/extension-firefox,
-                         # and dist/extension-safari
+npm run build:extension  # assembles ./extension and dist/extension-firefox
 ```
 
 `npm run build:extension` copies the built SDK into the extension, injects the
@@ -56,22 +55,9 @@ select `./extension`.
 **Firefox** — `about:debugging#/runtime/this-firefox` → *Load Temporary Add-on*
 → select `dist/extension-firefox/manifest.json`.
 
-**Safari** — requires Xcode once (`sudo xcodebuild -runFirstLaunch`). Generate
-and build the project:
-
-```text
-npm run build:extension
-xcrun safari-web-extension-converter dist/extension-safari \
-  --project-location safari --app-name JiraTack \
-  --bundle-identifier com.jiratack.extension --no-open --force
-xcodebuild -project safari/JiraTack/JiraTack.xcodeproj \
-  -scheme "JiraTack (macOS)" -configuration Debug \
-  -destination 'platform=macOS' CODE_SIGNING_ALLOWED=NO build
-```
-
-Then open `safari/JiraTack/JiraTack.xcodeproj` in Xcode, Run the macOS scheme,
-sign in to Safari's Develop menu if prompted, and enable JiraTack in Safari →
-Settings → Extensions. `safari/` is a generated directory and is gitignored.
+**Safari** — not supported. No Safari package is built. The installer page
+detects Safari and recommends Chrome, Edge or Firefox, because some sites block
+the bookmarklet and Safari has no extension here to fall back on.
 
 ## Configure
 
@@ -118,7 +104,6 @@ not, because it needs a live token.
 | Chrome 156 | `./extension` | Injected on Instagram, GitHub, LinkedIn; overlay rendered |
 | Edge | `./extension` | Same Chromium package; not separately run |
 | Firefox 159 | `dist/extension-firefox` | Installs as a temporary add-on (`jiratack@local`); click path not exercised |
-| Safari | `dist/extension-safari` → Xcode project | Converter clean, `xcodebuild` reports BUILD SUCCEEDED; enabling needs a local Xcode run |
 
 The remote debugging protocols cannot click a toolbar icon, so Firefox and
 Safari are install/build-verified rather than click-verified. A manual click is

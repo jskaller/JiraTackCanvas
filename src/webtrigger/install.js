@@ -175,7 +175,7 @@ function validPage(token, installId, remaining, urls, invite) {
   const body = `<h1>Get JiraTack</h1>${invited}
 <div class="card disabled">
   <h2>🔌 Install the extension <span class="muted">(recommended)</span></h2>
-  <p>Works on Chrome and Edge today; other browsers to follow.</p>
+  <p>Works on Chrome, Edge and Firefox. Safari is not supported in this release, and some sites block the bookmarklet, so a Safari reviewer needs one of those three.</p>
   <p><strong>Coming soon — use the bookmarklet for now.</strong></p>
 </div>
 <div class="card">
@@ -188,7 +188,19 @@ function validPage(token, installId, remaining, urls, invite) {
     <li>Click the JiraTack bookmark on that page.</li>
   </ol>
 </div>
-<p class="capacity">Reviewer capacity for this invite: ${remaining} of ${MAX_PAIRINGS} devices remaining.</p>`;
+<p class="muted" id="jt-browser-note" hidden></p>
+<p class="capacity">Reviewer capacity for this invite: ${remaining} of ${MAX_PAIRINGS} devices remaining.</p>
+<script>
+(function () {
+  var ua = navigator.userAgent || '';
+  var isSafari = /Safari\//.test(ua) && !/Chrome\/|Chromium\/|Edg\/|OPR\//.test(ua);
+  if (!isSafari) return;
+  var note = document.getElementById('jt-browser-note');
+  if (!note) return;
+  note.hidden = false;
+  note.textContent = 'This is Safari. The JiraTack extension is not available for Safari in this release, and some sites block the bookmarklet. Use Chrome, Edge or Firefox to pin on those sites.';
+})();
+</script>`;
 
   return { statusCode: 200, headers: HTML_HEADERS, body: page('Get JiraTack', body) };
 }
