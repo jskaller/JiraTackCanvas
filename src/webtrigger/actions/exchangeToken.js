@@ -162,6 +162,16 @@ export async function exchangeToken(payload, request) {
         return errorResult('TOKEN_INVALID', 'This invitation is paused. Ask the person who sent it to reactivate it.');
       }
 
+      // Invitations minted before D29 have no named reviewer. Fail here rather
+      // than issuing a session whose form would render three empty fields.
+      if (!invite.guestName || !invite.guestEmail) {
+        console.error('[JiraTack] Invitation predates named issuance:', parsed.inviteToken.slice(0, 8));
+        return errorResult(
+          'TOKEN_INVALID',
+          'This invitation is out of date. Ask the person who sent it for a new link.',
+        );
+      }
+
       // Jira privacy often hides emailAddress at issuance. Retry once when the
       // guest opens the link, and persist it so the installer/list can show it.
       if (invite.issuer && (!invite.issuerEmail || !invite.issuedByName)) {
