@@ -13,8 +13,8 @@
 | | Value | Source |
 | --- | --- | --- |
 | Tagged commit (pre-deploy snapshot) | `git rev-parse baseline/pre-pivot-2026-10-30` | git |
-| App version (deployed) | **5.2.0** (major 5) | `forge install list`, `forge version details` |
-| Development last deployed | 2026-11-02 (5.2.0, no upgrade required) | `forge deploy` output |
+| App version (deployed) | **5.3.0** (major 5) | `forge install list`, `forge version details` |
+| Development last deployed | 2026-11-02 (5.3.0, no upgrade required) | `forge deploy` output |
 | Installation | upgraded to major 5 | `forge install --upgrade` |
 | SDK hash (deployed) | `d5d8edafeda5` | `src/lib/version.js` |
 | SDK hash (tree) | `d5d8edafeda5` | `src/lib/version.js` |
@@ -38,6 +38,7 @@
 | Docs rewrite | `2c06aa9` … `201bc2f` | No runtime effect |
 | Pairings (S2 refactor) and the two-phase installer with 72h invites (S4/B1) | `82c18e8`, `792f0db`, `62966f6` | **Deployed** 2026-11-02 — server-side harness checks pass; manual cases in `docs/TEST-SCRIPT-S2-S4.md` still pending |
 | Admin token inventory + revoke; malformed-token hardening | `5fbad06` | **Deployed** 2026-11-02 — unblocks TEST_PLAN Case 6 |
+| KVS query pagination (token list + pairing index) | `376935b` | **Deployed** 2026-11-02 — the token list previously failed at 1,000 rows |
 
 **Deployed scopes are still the old six.** Confirmed with `forge version details -e development --non-interactive --json`: `manage:jira-configuration` and `manage:jira-project` are present in the live app, absent from `manifest.yml`.
 
