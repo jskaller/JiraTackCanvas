@@ -26,7 +26,7 @@ function buildMultipartBody(fileBuffer, filename, mimeType) {
   };
 }
 
-async function attachScreenshot(issueKey, screenshotDataUrl) {
+async function attachScreenshot(issueKey, screenshotDataUrl, filenameOverride) {
   const match = /^data:(image\/[a-zA-Z0-9.+-]+);base64,(.+)$/.exec(screenshotDataUrl);
   if (!match) {
     throw new Error('Unsupported screenshot data URL.');
@@ -35,7 +35,7 @@ async function attachScreenshot(issueKey, screenshotDataUrl) {
   const mime = match[1];
   const buffer = Buffer.from(match[2], 'base64');
   const ext = (mime.split('/')[1] || 'png').split('+')[0];
-  const filename = `jiratack-${issueKey}.${ext}`;
+  const filename = filenameOverride || `jiratack-${issueKey}.${ext}`;
   const { body, boundary } = buildMultipartBody(buffer, filename, mime);
 
   const res = await api.asApp().requestJira(route`/rest/api/3/issue/${issueKey}/attachments`, {
@@ -276,6 +276,7 @@ export async function createIssue(payload, claims) {
     console.error('[JiraTack] Created issue without metadata:', created.key);
   }
 
+  let failedAttachments = 0;
   const screenshotUploadId = payload && payload.screenshotUploadId;
   if (typeof screenshotUploadId === 'string' && screenshotUploadId.length > 0) {
     const shot = await readScreenshotUpload(screenshotUploadId, claims);
@@ -286,7 +287,7 @@ export async function createIssue(payload, claims) {
       );
     } else {
       try {
-        await attachScreenshot(created.key, shot.dataUrl);
+        await attachScreenshot(created.key, shot.dataUrl, shot.filename);
       } catch (e) {
         console.error('[JiraTack] Screenshot attachment failed:', e);
       } finally {
@@ -295,8 +296,31 @@ export async function createIssue(payload, claims) {
     }
   }
 
+  // Attachments (any file type) reuse the chunked upload path. Each is attached
+  // independently: one bad file must not cost the ticket or the other files.
+  const attachmentUploadIds = Array.isArray(payload && payload.attachmentUploadIds)
+    ? payload.attachmentUploadIds
+    : [];
+  for (const uploadId of attachmentUploadIds) {
+    if (typeof uploadId !== 'string' || uploadId.length === 0) continue;
+    const file = await readScreenshotUpload(uploadId, claims);
+    if (!file.ok) {
+      console.error('[JiraTack] Attachment upload unusable:', uploadId);
+      continue;
+    }
+    try {
+      await attachScreenshot(created.key, file.dataUrl, file.filename);
+    } catch (e) {
+      console.error('[JiraTack] Attachment failed:', e);
+      failedAttachments += 1;
+    } finally {
+      await deleteScreenshotUpload(uploadId, file.chunkCount);
+    }
+  }
+
   const warnings = [];
   if (!metadataResult.ok) warnings.push('metadata-not-stored');
+  if (failedAttachments > 0) warnings.push('attachment-failed');
   if (reporterDropped) warnings.push('reporter-not-set');
 
   return {

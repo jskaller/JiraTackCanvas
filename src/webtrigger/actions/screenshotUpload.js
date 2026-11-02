@@ -1,6 +1,7 @@
 import crypto from 'crypto';
 import { kvs, kvsGet, kvsSet } from '../../lib/kvs.js';
 import { errorResult } from '../../lib/errors.js';
+import { sanitiseFilename } from '../../shared/filename.js';
 
 /**
  * Screenshots never travel through a single request. The client uploads
@@ -8,7 +9,7 @@ import { errorResult } from '../../lib/errors.js';
  * web-trigger body limit), then createIssue receives only `screenshotUploadId`.
  */
 export const CHUNK_SIZE = 200 * 1024; // base64 chars per chunk (~150 KiB raw)
-export const MAX_CHUNKS = 20;         // ≈4 MiB base64 ≈ 3 MiB binary
+export const MAX_CHUNKS = 72;         // ≈14 MiB base64 ≈ 10 MiB binary; Jira's own limit decides
 const TTL_SECONDS = 15 * 60;
 
 function manifestKey(id) {
@@ -31,17 +32,20 @@ export async function beginScreenshotUpload(payload, claims) {
   const mimeType = payload && payload.mimeType;
   const size = payload && payload.size;
 
-  if (typeof mimeType !== 'string' || !/^image\/[a-z0-9.+-]+$/i.test(mimeType)) {
-    return errorResult('VALIDATION_ERROR', 'mimeType must be an image type.');
+  // Screenshots and attachments share this pipeline. Jira decides what it will
+  // accept; we only guard against nonsense and the transport ceiling.
+  if (typeof mimeType !== 'string' || !/^[a-z0-9.+-]+\/[a-z0-9.+-]+$/i.test(mimeType)) {
+    return errorResult('VALIDATION_ERROR', 'mimeType is invalid.');
   }
   if (!Number.isInteger(size) || size <= 0 || size > CHUNK_SIZE * MAX_CHUNKS) {
-    return errorResult('VALIDATION_ERROR', 'Screenshot is too large.');
+    return errorResult('VALIDATION_ERROR', 'File is too large for this upload path.');
   }
 
   const uploadId = crypto.randomBytes(16).toString('hex');
   const manifest = {
     owner: ownerOf(claims),
     mimeType,
+    filename: sanitiseFilename(payload && payload.filename, mimeType),
     size,
     chunks: Math.ceil(size / CHUNK_SIZE),
     createdAt: Date.now(),
@@ -109,6 +113,8 @@ export async function readScreenshotUpload(uploadId, claims) {
   return {
     ok: true,
     dataUrl: `data:${manifest.mimeType};base64,${parts.join('')}`,
+    mimeType: manifest.mimeType,
+    filename: manifest.filename,
     chunkCount: manifest.chunks,
   };
 }

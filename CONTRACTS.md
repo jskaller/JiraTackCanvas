@@ -286,7 +286,7 @@ Request: {
   action: "createIssue",
   payload: {
     canvasId, url, pinPosition, selector, summary, descriptionAdf,
-    screenshotUploadId, consoleLog, issueTypeId, projectKey,
+    screenshotUploadId, attachmentUploadIds, consoleLog, issueTypeId, projectKey,
     priorityId, assigneeAccountId, parentKey
   }
 }
@@ -325,7 +325,7 @@ Server behaviour:
 
 8. Write the property: `PUT /rest/api/3/issue/{key}/properties/com.jiratack.metadata` with `{ guest?, pin, version: 1 }`, retry once. On persistent failure the call still succeeds with `warning: "metadata-not-stored"` — the ticket exists but is invisible to every JiraTack surface, so the SDK must say so.
 
-9. If `screenshotUploadId`: assemble chunks via `readScreenshotUpload`, attach via `/rest/api/3/issue/{key}/attachments` with `X-Atlassian-Token: no-check`, then delete the upload. Missing/expired upload → log, proceed. Attachment failure → log, proceed. The ticket is never blocked on the image, and the metadata write is never rolled back.
+9. If `screenshotUploadId` or any `attachmentUploadIds[]`: assemble chunks via `readScreenshotUpload`, attach via `/rest/api/3/issue/{key}/attachments` with `X-Atlassian-Token: no-check`, then delete each upload. Missing/expired upload → log, proceed. Per-file failure → log, increment `failedAttachments`, proceed. The ticket is never blocked on an attachment, and the metadata write is never rolled back. `warning: "attachment-failed"` appears in the success envelope when any file failed.
 
 10. Jira 400/422 → `VALIDATION_ERROR` with `details: { status, errorMessages, errors }`. Other non-2xx → `INTERNAL`. There is no field-dropping retry: no JiraTack-created field exists to drop.
 
@@ -333,12 +333,17 @@ Server behaviour:
 
 ```text
 beginScreenshotUpload  → { uploadId, chunkSize }
-  payload: { mimeType: "image/*", size: number }      // size = total base64 length
+  payload: { mimeType, size, filename? }              // any type/subtype; size = base64 length
 uploadScreenshotChunk  → { received: index }
   payload: { uploadId, index, data: string }          // data ≤ chunkSize base64 chars
+attachmentLimits       → { enabled, uploadLimit }     // Jira's own ceiling, in bytes
 ```
 
-- `CHUNK_SIZE` = 200 KiB of base64 characters (`200 * 1024`); `MAX_CHUNKS` = 20; so `size` must be an integer with `0 < size ≤ 4,096,000`.
+- Despite the historical name, this pipeline carries **any** file: screenshots and ticket attachments share it. `mimeType` must match `type/subtype`; there is no client-side allowlist — Jira decides what it accepts.
+
+- `filename` is sanitised by `src/shared/filename.js` (no CR/LF, no quotes, no path separators, ≤120 chars) because it is interpolated into a multipart `Content-Disposition` header.
+
+- `CHUNK_SIZE` = 200 KiB of base64 characters (`200 * 1024`); `MAX_CHUNKS` = 72; so `size` must be an integer with `0 < size ≤ 14,745,600` (≈10 MB binary). This is a transport ceiling, not a product limit: `attachmentLimits` reports Jira's configured `uploadLimit`, and the client refuses oversized files before uploading.
 
 - `uploadId` is 32 hex chars, bound to `claims.sub`.
 

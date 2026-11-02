@@ -1,4 +1,21 @@
-import { createIssue, getIssueTypes, getPriorities, searchUsers, uploadScreenshot } from './api.js';
+function readFileAsDataUrl(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result || ''));
+    reader.onerror = () => reject(reader.error || new Error('Could not read the file.'));
+    reader.readAsDataURL(file);
+  });
+}
+
+import {
+  createIssue,
+  getIssueTypes,
+  getPriorities,
+  searchUsers,
+  uploadScreenshot,
+  uploadAttachment,
+  getAttachmentLimits,
+} from './api.js';
 import { serializeToAdf } from '../shared/adfSerializer.js';
 import { normalizeUrl, stripDeepLinkParams } from '../shared/urlNormalize.js';
 import { formatConsoleLog } from './consoleProxy.js';
@@ -226,6 +243,30 @@ export function renderTicketForm(container, options) {
 
   form.appendChild(preview);
   renderPreview();
+
+  // Attachments. No type allowlist: Jira decides what it accepts, and the size
+  // ceiling comes from Jira's own attachment metadata rather than a guess.
+  const attachmentsBox = el('div', 'jiratack-attachments');
+  const attachmentLabel = el('label', 'jiratack-field');
+  attachmentLabel.appendChild(el('span', 'jiratack-field-label', 'Attach files'));
+  const attachmentInput = el('input', 'jiratack-attachment-input');
+  attachmentInput.type = 'file';
+  attachmentInput.multiple = true;
+  attachmentLabel.appendChild(attachmentInput);
+  const attachmentNote = el('div', 'jiratack-form-hint', '');
+  attachmentsBox.appendChild(attachmentLabel);
+  attachmentsBox.appendChild(attachmentNote);
+  form.appendChild(attachmentsBox);
+
+  let attachmentLimit = 0;
+  getAttachmentLimits(config, session).then((limits) => {
+    if (!limits || !limits.uploadLimit) return;
+    attachmentLimit = limits.uploadLimit;
+    const mb = Math.round(limits.uploadLimit / (1024 * 1024));
+    attachmentNote.textContent = `Up to ${mb} MB per file, as set by Jira.`;
+  }).catch(() => {
+    // Limits are advisory; the server still enforces Jira's rule.
+  });
 
   if (options.screenshotFailed) {
     form.appendChild(
@@ -504,6 +545,22 @@ export function renderTicketForm(container, options) {
         }
       }
 
+      const attachmentIds = [];
+      const files = Array.from(attachmentInput.files || []);
+      for (const file of files) {
+        if (attachmentLimit && file.size > attachmentLimit) {
+          const mb = Math.round(attachmentLimit / (1024 * 1024));
+          throw new Error(`${file.name} is larger than Jira allows (${mb} MB).`);
+        }
+        const dataUrl = await readFileAsDataUrl(file);
+        const uploadId = await uploadAttachment(config, session, {
+          dataUrl,
+          filename: file.name,
+          mimeType: file.type || 'application/octet-stream',
+        });
+        if (uploadId) attachmentIds.push(uploadId);
+      }
+
       const result = await createIssue(config, session, {
         canvasId: config.canvasId,
         url: pageUrl,
@@ -512,6 +569,7 @@ export function renderTicketForm(container, options) {
         summary,
         descriptionAdf,
         screenshotUploadId,
+        attachmentUploadIds: attachmentIds,
         consoleLog,
         issueTypeId,
         projectKey,

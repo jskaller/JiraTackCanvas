@@ -133,6 +133,43 @@ export function createApiClient(options = {}) {
     return begin.uploadId;
   }
 
+  /**
+   * Any file, not just images: the web trigger validates the type and Jira
+   * enforces the size. Returns an upload id for createIssue to attach.
+   */
+  async function uploadAttachment(config, session, { dataUrl, filename, mimeType }) {
+    const match = /^data:([a-z0-9.+-]+\/[a-z0-9.+-]+);base64,(.+)$/i.exec(dataUrl || '');
+    if (!match) return null;
+
+    const type = mimeType || match[1];
+    const base64 = match[2];
+    const begin = await postAction(
+      config,
+      session,
+      'beginScreenshotUpload',
+      { mimeType: type, size: base64.length, filename: filename || null },
+      true,
+    );
+    if (!begin || !begin.uploadId) return null;
+
+    const chunkSize = begin.chunkSize || 200 * 1024;
+    let index = 0;
+    for (let offset = 0; offset < base64.length; offset += chunkSize, index += 1) {
+      await postAction(
+        config,
+        session,
+        'uploadScreenshotChunk',
+        { uploadId: begin.uploadId, index, data: base64.slice(offset, offset + chunkSize) },
+        true,
+      );
+    }
+    return begin.uploadId;
+  }
+
+  async function getAttachmentLimits(config, session) {
+    return postAction(config, session, 'attachmentLimits', {}, true);
+  }
+
   return {
     postAction,
     getPins,
@@ -145,6 +182,8 @@ export function createApiClient(options = {}) {
     createCanvas,
     searchUsers,
     uploadScreenshot,
+    uploadAttachment,
+    getAttachmentLimits,
   };
 }
 
@@ -161,3 +200,5 @@ export const listCanvasesForUser = browserClient.listCanvasesForUser;
 export const createCanvas = browserClient.createCanvas;
 export const searchUsers = browserClient.searchUsers;
 export const uploadScreenshot = browserClient.uploadScreenshot;
+export const uploadAttachment = browserClient.uploadAttachment;
+export const getAttachmentLimits = browserClient.getAttachmentLimits;

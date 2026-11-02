@@ -11,6 +11,7 @@ import { getIssueTypes } from './actions/getIssueTypes.js';
 import { listCanvasesForUser } from './actions/listCanvasesForUser.js';
 import { createCanvas } from './actions/createCanvas.js';
 import { beginScreenshotUpload, uploadScreenshotChunk } from './actions/screenshotUpload.js';
+import { attachmentLimits } from './actions/attachmentLimits.js';
 import { requireAdminClaims } from '../lib/access.js';
 
 const JSON_HEADERS = { 'Content-Type': ['application/json'] };
@@ -87,6 +88,12 @@ export const handler = async (req, context) => {
       const auth = await authenticate(req, context, ['create', 'universal', 'guest_create']);
       if (!auth.ok) return envelope(auth);
       return envelope(await uploadScreenshotChunk(payload, auth.claims));
+    }
+
+    if (action === 'attachmentLimits') {
+      const auth = await authenticate(req, context, ['create', 'universal', 'guest_create']);
+      if (!auth.ok) return envelope(auth);
+      return envelope(await attachmentLimits());
     }
 
     if (action === 'getTransitions') {
