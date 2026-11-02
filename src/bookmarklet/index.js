@@ -11,6 +11,8 @@ import { installFitScale } from './fitScale.js';
 import { playDoneAnimation } from './done.js';
 import { installConsoleProxy, restoreConsoleProxy, clearConsoleBuffer } from './consoleProxy.js';
 import { normalizeUrl, stripDeepLinkParams } from '../shared/urlNormalize.js';
+import { buildRefreshUrl } from '../shared/bookmarklet.js';
+import { toSafeHttpUrl } from '../shared/safeUrl.js';
 import styles from './styles.css?inline';
 
 const LOG_PREFIX = '[JiraTack]';
@@ -584,6 +586,39 @@ function selectAndScroll(key) {
   select(key);
 }
 
+/**
+ * The bundle is fetched with ?v=<version baked into the bookmark>, so a bookmark
+ * dragged from an older build keeps running old code with no way to notice.
+ * The exchange reports the live SDK version; when they differ, offer a one-click
+ * replacement link that preserves the invitation and pairing.
+ */
+function warnIfOutdated(config, session) {
+  if (!session || !session.currentSdkVersion) return;
+  if (session.currentSdkVersion === config.sdkVersion) return;
+  const sidebar = document.getElementById('jiratack-sidebar');
+  if (!sidebar || document.getElementById('jiratack-outdated')) return;
+
+  const banner = document.createElement('div');
+  banner.id = 'jiratack-outdated';
+  banner.className = 'jiratack-outdated';
+  banner.appendChild(document.createTextNode('This bookmarklet is out of date.'));
+
+  const href = toSafeHttpUrl(buildRefreshUrl(session.installUrl, config.token));
+  if (href) {
+    const link = document.createElement('a');
+    link.href = href;
+    link.target = '_blank';
+    link.rel = 'noopener noreferrer';
+    link.textContent = 'Get the new bookmarklet';
+    banner.appendChild(document.createTextNode(' '));
+    banner.appendChild(link);
+  } else {
+    banner.appendChild(document.createTextNode(' Re-drag it from Jira.'));
+  }
+
+  sidebar.insertBefore(banner, sidebar.firstChild);
+}
+
 function renderPinsAndSidebar() {
   if (!current) return;
   const { overlay, config, session } = current;
@@ -668,6 +703,11 @@ function renderPinsAndSidebar() {
     onFilterChange: handleFilterChange,
     onMatchModeChange: handleMatchModeChange,
   });
+
+  if (current.session && !current.outdatedWarned) {
+    current.outdatedWarned = true;
+    warnIfOutdated(current.config, current.session);
+  }
 
   if (!current.loading && (!universal || hasCanvas)) {
     current.pinModeController = installPinMode({

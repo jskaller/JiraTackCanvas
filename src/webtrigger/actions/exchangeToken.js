@@ -8,6 +8,7 @@ import { invitationState, canPairNewDevice } from '../../lib/inviteModel.js';
 import { pairingIdFor } from '../../lib/credentialsModel.js';
 import { errorResult } from '../../lib/errors.js';
 import { resolveWebtriggerUrls } from '../../lib/webtriggerUrls.js';
+import { SDK_VERSION } from '../../lib/version.js';
 
 const SESSION_TTL_SECONDS = 8 * 60 * 60;
 let cachedJiraBaseUrl = null;
@@ -73,13 +74,15 @@ function headerValue(request, name) {
 }
 
 async function commonResponse(config, extra) {
-  const { apiUrl, sdkUrl } = await resolveWebtriggerUrls(config);
+  const { apiUrl, sdkUrl, installUrl } = await resolveWebtriggerUrls(config);
   const jiraBaseUrl = await getJiraBaseUrl();
   return {
     ok: true,
     data: {
       apiUrl,
       sdkUrl,
+      installUrl: installUrl || null,
+      currentSdkVersion: SDK_VERSION,
       jiraBaseUrl,
       configVersion: config.configVersion || '',
       ...extra,

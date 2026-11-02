@@ -156,6 +156,8 @@ export function createSessionManager(storage) {
       guestEmail: data.guestEmail || null,
       issuerName: data.issuerName || null,
       issuerEmail: data.issuerEmail || null,
+      installUrl: data.installUrl || null,
+      currentSdkVersion: data.currentSdkVersion || null,
       jiraBaseUrl: data.jiraBaseUrl || null,
       displayName: data.displayName || null,
       isAdmin: data.isAdmin === true,
