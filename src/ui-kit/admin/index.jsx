@@ -136,6 +136,17 @@ const AdminApp = () => {
         </Button>,
       );
     }
+    if (invite.installerUrl) {
+      buttons.push(
+        <Button
+          key="open"
+          appearance="subtle"
+          onClick={() => window.open(invite.installerUrl, '_blank', 'noopener,noreferrer')}
+        >
+          Open link
+        </Button>,
+      );
+    }
     if (invite.status !== 'revoked') {
       buttons.push(
         <Button

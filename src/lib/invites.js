@@ -7,6 +7,8 @@ import { ensureBinding, getBinding } from './bindings.js';
 import { parentRefOf } from './credentialsModel.js';
 import { pairingService } from './credentials.js';
 import { tokenReference } from './tokenRef.js';
+import { getInstallationConfig } from './config.js';
+import { resolveWebtriggerUrls } from './webtriggerUrls.js';
 import {
   LINK_TTL_MS,
   invitationState,
@@ -136,6 +138,13 @@ async function resolveSponsor(record, cache, token) {
 
 export async function listInvites({ viewerAccountId, isAdmin, now = Date.now() }) {
   const invites = await loadInvites();
+  let installUrl = null;
+  try {
+    const config = await getInstallationConfig();
+    ({ installUrl } = await resolveWebtriggerUrls(config));
+  } catch (e) {
+    installUrl = null;
+  }
   const visible = isAdmin
     ? invites
     : invites.filter((entry) => entry.record.issuer === viewerAccountId);
@@ -160,6 +169,9 @@ export async function listInvites({ viewerAccountId, isAdmin, now = Date.now() }
       pinCount: binding ? binding.pinCount || 0 : 0,
       lastPinAt: binding ? binding.lastPinAt || null : null,
       canvases: Array.isArray(record.permittedCanvases) ? record.permittedCanvases : [],
+      installerUrl: installUrl && !record.revoked
+        ? `${installUrl}${installUrl.includes('?') ? '&' : '?'}token=${encodeURIComponent(entry.token)}`
+        : null,
       revokedAt: record.revokedAt || null,
     };
   }));
