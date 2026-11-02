@@ -89,11 +89,12 @@ chrome.runtime.onMessage.addListener(function (message, sender) {
   var width = Number(message.width);
   if (!isFinite(width) || width < 320 || width > 2560) return;
   var chromeWidth = Number(message.chromeWidth) || 0;
+  var sidebarWidth = Number(message.sidebarWidth) || 0;
 
   chrome.windows.get(windowId, function (current) {
     if (chrome.runtime.lastError || !current) return;
     if (!previousWidths[windowId]) previousWidths[windowId] = current.width;
-    chrome.windows.update(windowId, { width: Math.round(width + chromeWidth) }, function () {
+    chrome.windows.update(windowId, { width: Math.round(width + chromeWidth + sidebarWidth) }, function () {
       void chrome.runtime.lastError;
     });
   });

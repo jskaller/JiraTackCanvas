@@ -15,11 +15,13 @@ window.addEventListener('message', function (event) {
   if (width !== null && (!isFinite(width) || width < 320 || width > 2560)) return;
 
   var chromeWidth = Number(data.chromeWidth);
+  var sidebarWidth = Number(data.sidebarWidth);
   try {
     chrome.runtime.sendMessage({
       type: 'jiratack-resize',
       width: width,
       chromeWidth: isFinite(chromeWidth) ? chromeWidth : 0,
+      sidebarWidth: isFinite(sidebarWidth) ? sidebarWidth : 0,
     });
   } catch (e) {
     // The extension was reloaded; the page keeps working without presets.

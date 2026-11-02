@@ -1256,9 +1256,13 @@ function renderViewportBar(config) {
   const bar = document.createElement('div');
   bar.id = 'jiratack-viewport-bar';
   bar.style.cssText = 'position:fixed;left:12px;bottom:12px;z-index:2147483647;display:flex;gap:4px;align-items:center;padding:4px 6px;border-radius:6px;background:#fff;border:1px solid #dfe1e6;box-shadow:0 4px 12px rgba(9,30,66,.2);font:12px -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;';
-  bar.title = 'Resize the browser window. This is a real width, not device emulation.';
+  bar.title = 'Page width, sidebar excluded. Real layout, not device emulation.';
 
-  const buttonStyle = 'padding:2px 8px;border:1px solid #dfe1e6;border-radius:3px;background:#fff;cursor:pointer;font:inherit;';
+  const buttonStyle = 'padding:2px 8px;min-width:36px;border:1px solid #dfe1e6;border-radius:3px;background:#fff;color:#172b4d;cursor:pointer;font:600 12px/1.4 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;';
+  // A preset is the width of the *page*, so the window must also carry the
+  // sidebar (320) and the browser chrome. Without this, 375 left ~55px of page
+  // and the layout collapsed.
+  const SIDEBAR_WIDTH = 320;
   const chromeWidth = window.outerWidth - window.innerWidth;
 
   [375, 768, 1024, 1280].forEach((width) => {
@@ -1267,7 +1271,7 @@ function renderViewportBar(config) {
     button.textContent = String(width);
     button.style.cssText = buttonStyle;
     button.addEventListener('click', () => {
-      window.postMessage({ source: 'jiratack', type: 'resize', width, chromeWidth }, '*');
+      window.postMessage({ source: 'jiratack', type: 'resize', width, chromeWidth, sidebarWidth: SIDEBAR_WIDTH }, '*');
     });
     bar.appendChild(button);
   });
@@ -1277,7 +1281,7 @@ function renderViewportBar(config) {
   fit.textContent = 'Fit';
   fit.style.cssText = buttonStyle;
   fit.addEventListener('click', () => {
-    window.postMessage({ source: 'jiratack', type: 'resize', width: null, chromeWidth }, '*');
+    window.postMessage({ source: 'jiratack', type: 'resize', width: null, chromeWidth, sidebarWidth: SIDEBAR_WIDTH }, '*');
   });
   bar.appendChild(fit);
 
