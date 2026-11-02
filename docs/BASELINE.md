@@ -13,8 +13,8 @@
 | | Value | Source |
 | --- | --- | --- |
 | Tagged commit (pre-deploy snapshot) | `git rev-parse baseline/pre-pivot-2026-10-30` | git |
-| App version (deployed) | **5.6.0** (major 5) | `forge install list`, `forge version details` |
-| Development last deployed | 2026-11-02 (5.6.0, no upgrade required) | `forge deploy` output |
+| App version (deployed) | **5.7.0** (major 5) | `forge install list`, `forge version details` |
+| Development last deployed | 2026-11-02 (5.7.0, no upgrade required) | `forge deploy` output |
 | Installation | upgraded to major 5 | `forge install --upgrade` |
 | SDK hash (deployed) | `44da8c1fbfc0` | `src/lib/version.js` |
 | SDK hash (tree) | `44da8c1fbfc0` | `src/lib/version.js` |
@@ -41,6 +41,7 @@
 | KVS query pagination (token list + pairing index) | `376935b` | **Deployed** 2026-11-02 — the token list previously failed at 1,000 rows |
 | Guest invitations: named reviewers, sponsor, deactivate/regenerate/revoke, pairings until revoked | `993f478` | **Deployed** 2026-11-02 — SDK changed to `44da8c1fbfc0`; guest bookmarks must be re-dragged |
 | Guest identity prefill, sponsor default/contact, mailto link | `f4fd5e3` | **Deployed** 2026-11-02 — SDK `44da8c1fbfc0`; re-drag guest bookmarks |
+| Admin list payload fix, bound-email display, sponsor backfill | `3efc160` | **Deployed** 2026-11-02 — SDK `44da8c1fbfc0` |
 
 **Deployed scopes are still the old six.** Confirmed with `forge version details -e development --non-interactive --json`: `manage:jira-configuration` and `manage:jira-project` are present in the live app, absent from `manifest.yml`.
 

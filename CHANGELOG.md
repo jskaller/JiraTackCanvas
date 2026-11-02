@@ -49,6 +49,11 @@ All notable changes to JiraTack.
 
 - Guest form shows the invited name/email read-only; guest tickets default the
   assignee to the sponsor; the installer names the sponsor and their email.
+- Fixed the admin invitations list failing with "Provided request body is invalid"
+  (Forge's bridge needs a payload object).
+- Installer and guest sidebar show the address the invitation is bound to.
+- Sponsor name/email are retried and persisted on first guest exchange, since
+  Jira privacy often hides `emailAddress` at issuance.
 - Dashboard success screen adds **Email link** (a `mailto:` with the guest
   address and installer URL). Forge has no outbound email, so this opens the
   sponsor's mail client rather than sending server-side.
