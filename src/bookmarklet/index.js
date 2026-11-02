@@ -1276,6 +1276,40 @@ function renderViewportBar(config) {
     bar.appendChild(button);
   });
 
+  // Custom width. Key events are stopped so typing a width cannot trigger the
+  // host page's own keyboard shortcuts.
+  const custom = document.createElement('input');
+  custom.type = 'number';
+  custom.min = '320';
+  custom.max = '2560';
+  custom.placeholder = 'Width';
+  custom.style.cssText = 'width:72px;padding:2px 6px;border:1px solid #dfe1e6;border-radius:3px;color:#172b4d;font:600 12px/1.4 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;';
+  const applyCustom = document.createElement('button');
+  applyCustom.type = 'button';
+  applyCustom.textContent = 'Go';
+  applyCustom.style.cssText = buttonStyle;
+  applyCustom.title = 'Apply this page width';
+
+  const commitCustom = () => {
+    const value = Number(custom.value);
+    if (!Number.isFinite(value) || value < 320 || value > 2560) return;
+    window.postMessage({
+      source: 'jiratack', type: 'resize', width: Math.round(value), chromeWidth, sidebarWidth: SIDEBAR_WIDTH,
+    }, '*');
+  };
+  applyCustom.addEventListener('click', commitCustom);
+  custom.addEventListener('keydown', (e) => {
+    e.stopPropagation();
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      commitCustom();
+    }
+  });
+  custom.addEventListener('keyup', (e) => e.stopPropagation());
+
+  bar.appendChild(custom);
+  bar.appendChild(applyCustom);
+
   const fit = document.createElement('button');
   fit.type = 'button';
   fit.textContent = 'Fit';

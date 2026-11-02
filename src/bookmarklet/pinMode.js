@@ -125,7 +125,7 @@ export function installPinMode(options = {}) {
     if (!active) return;
     const target = event.target;
     if (!target || target.nodeType !== 1) return;
-    if (target.closest && target.closest('#jiratack-overlay')) {
+    if (target.closest && target.closest('#jiratack-overlay, #jiratack-viewport-bar')) {
       hideOutline();
       return;
     }
@@ -149,7 +149,7 @@ export function installPinMode(options = {}) {
     if (!active) return;
     const target = event.target;
     if (!target || target.nodeType !== 1) return;
-    if (target.closest && target.closest('#jiratack-overlay')) return;
+    if (target.closest && target.closest('#jiratack-overlay, #jiratack-viewport-bar')) return;
 
     event.preventDefault();
     event.stopPropagation();
