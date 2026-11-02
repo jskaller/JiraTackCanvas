@@ -1,7 +1,7 @@
 # SPEC.md — v3.1
 
 **Status:** Current. Behaviour of shipped code only.
-**Verified against:** tag `baseline/pre-pivot-2026-10-30` (2026-10-30), app 5.0.0, SDK `c8a16fffacf6`.
+**Verified against:** tag `baseline/pre-pivot-2026-10-30` (2026-10-30), app 5.0.0, SDK `223c52912f96`.
 **Supersedes:** SPEC.md v2.3 in full; v3.1 adds D23 (page identity and match modes).
 
 **Precedence.** `CONTRACTS.md` wins on wire-level details (shapes, signatures, error codes, manifest, `package.json`). `DECISIONS.md` wins on any question, open or closed. This document wins on product behaviour.
@@ -713,7 +713,7 @@ Compact vertical layout with a sticky top bar carrying "New ticket" and **Cancel
 | --- | --- |
 | Project | Select from `permittedProjects`, or free text when the list is `"*"` |
 | Issue type | Loaded per project; default = last-used → `Task` → first non-Epic type |
-| Assignee | Typeahead; guest tickets must target a licensed user |
+| Assignee | Typeahead; defaults to the last assignee used, else the sponsor for guests; guest tickets must target a licensed user |
 | Reporter | Read-only, shows the authenticated user; not rendered for guests |
 | Summary | 215-character input limit; `[JiraTack]` prefix added by the server |
 | Description | Plain textarea, converted to ADF — not a rich-text editor |
