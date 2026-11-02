@@ -1,8 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import ForgeReconciler, {
-  Box,
   Button,
-  ButtonGroup,
+  DynamicTable,
   Heading,
   Inline,
   Lozenge,
@@ -27,8 +26,19 @@ function formatWhen(value) {
   if (!value) return 'never';
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return 'unknown';
-  return date.toLocaleString();
+  return date.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
 }
+
+const HEAD = {
+  cells: [
+    { key: 'guest', content: 'Guest', width: 26 },
+    { key: 'sponsor', content: 'Sponsor', width: 18 },
+    { key: 'status', content: 'Status', width: 10 },
+    { key: 'link', content: 'Link expires', width: 14 },
+    { key: 'usage', content: 'Pairings · pins', width: 14 },
+    { key: 'actions', content: 'Actions', width: 18 },
+  ],
+};
 
 const AdminApp = () => {
   const [config, setConfig] = useState(DEFAULT_CONFIG);
@@ -102,62 +112,76 @@ const AdminApp = () => {
   const named = invites.filter((invite) => invite.guestName || invite.guestEmail);
   const legacy = invites.filter((invite) => !invite.guestName && !invite.guestEmail);
 
-  const renderInvite = (invite, isLegacy) => {
+  const actionsFor = (invite, isLegacy) => {
     const busy = busyRef === invite.tokenRef;
-    return (
-      <Box key={invite.tokenRef}>
-        <Stack space="space.100">
-          <Inline space="space.100" shouldWrap>
-            <Text>{isLegacy ? 'Legacy link' : invite.guestName}</Text>
-            <Text>{isLegacy ? '(no reviewer recorded)' : invite.guestEmail}</Text>
-            <Text>· sponsor {invite.issuedByName || invite.issuedBy || 'unknown'}</Text>
-            <Lozenge appearance={STATUS_APPEARANCE[invite.status] || 'default'}>{invite.status}</Lozenge>
-          </Inline>
-
-          <Inline space="space.100" shouldWrap>
-            <Text>Link expires {formatWhen(invite.linkExpiresAt)}</Text>
-            <Text>· {invite.pairings} of {invite.pairingsLimit} pairings</Text>
-            <Text>· {invite.pinCount} pins</Text>
-          </Inline>
-
-          <Text>{(invite.canvases || []).join(', ')}</Text>
-
-          <ButtonGroup>
-            {!isLegacy && invite.status === 'active' && (
-              <Button appearance="subtle" isDisabled={busy} onClick={() => act(invite.tokenRef, 'setGuestInviteActive', { active: false })}>
-                Deactivate
-              </Button>
-            )}
-            {!isLegacy && invite.status === 'inactive' && (
-              <Button appearance="subtle" isDisabled={busy} onClick={() => act(invite.tokenRef, 'setGuestInviteActive', { active: true })}>
-                Activate
-              </Button>
-            )}
-            {!isLegacy && invite.status !== 'revoked' && (
-              <Button appearance="subtle" isDisabled={busy} onClick={() => act(invite.tokenRef, 'regenerateGuestInvite')}>
-                New link
-              </Button>
-            )}
-            {invite.status !== 'revoked' && (
-              <Button
-                appearance="subtle"
-                isDisabled={busy}
-                onClick={() => {
-                  if (confirmRef === invite.tokenRef) {
-                    act(invite.tokenRef, 'revokeGuestInvite');
-                  } else {
-                    setConfirmRef(invite.tokenRef);
-                  }
-                }}
-              >
-                {confirmRef === invite.tokenRef ? 'Confirm revoke' : 'Revoke'}
-              </Button>
-            )}
-          </ButtonGroup>
-        </Stack>
-      </Box>
-    );
+    const buttons = [];
+    if (!isLegacy && invite.status === 'active') {
+      buttons.push(
+        <Button key="toggle" appearance="subtle" isDisabled={busy} onClick={() => act(invite.tokenRef, 'setGuestInviteActive', { active: false })}>
+          Deactivate
+        </Button>,
+      );
+    }
+    if (!isLegacy && invite.status === 'inactive') {
+      buttons.push(
+        <Button key="toggle" appearance="subtle" isDisabled={busy} onClick={() => act(invite.tokenRef, 'setGuestInviteActive', { active: true })}>
+          Activate
+        </Button>,
+      );
+    }
+    if (!isLegacy && invite.status !== 'revoked') {
+      buttons.push(
+        <Button key="relink" appearance="subtle" isDisabled={busy} onClick={() => act(invite.tokenRef, 'regenerateGuestInvite')}>
+          New link
+        </Button>,
+      );
+    }
+    if (invite.status !== 'revoked') {
+      buttons.push(
+        <Button
+          key="revoke"
+          appearance="subtle"
+          isDisabled={busy}
+          onClick={() => {
+            if (confirmRef === invite.tokenRef) {
+              act(invite.tokenRef, 'revokeGuestInvite');
+            } else {
+              setConfirmRef(invite.tokenRef);
+            }
+          }}
+        >
+          {confirmRef === invite.tokenRef ? 'Confirm revoke' : 'Revoke'}
+        </Button>,
+      );
+    }
+    return <Inline space="space.050">{buttons}</Inline>;
   };
+
+  const rowsFor = (list, isLegacy) => list.map((invite) => ({
+    key: invite.tokenRef,
+    cells: [
+      {
+        key: 'guest',
+        content: (
+          <Stack space="space.025">
+            <Text>{isLegacy ? 'Legacy link' : invite.guestName}</Text>
+            <Text>{isLegacy ? 'no reviewer recorded' : invite.guestEmail}</Text>
+          </Stack>
+        ),
+      },
+      { key: 'sponsor', content: <Text>{invite.issuedByName || invite.issuedBy || 'unknown'}</Text> },
+      {
+        key: 'status',
+        content: <Lozenge appearance={STATUS_APPEARANCE[invite.status] || 'default'}>{invite.status}</Lozenge>,
+      },
+      { key: 'link', content: <Text>{formatWhen(invite.linkExpiresAt)}</Text> },
+      {
+        key: 'usage',
+        content: <Text>{invite.pairings} of {invite.pairingsLimit} · {invite.pinCount} pins</Text>,
+      },
+      { key: 'actions', content: actionsFor(invite, isLegacy) },
+    ],
+  }));
 
   return (
     <Stack space="space.400">
@@ -169,11 +193,13 @@ const AdminApp = () => {
         </SectionMessage>
       )}
 
-      <Stack space="space.150">
-        <Heading level="h4">View permission mode</Heading>
-        <Text>per_user_projects — each viewer sees pins only in projects they can browse. Guests see the projects their sponsor can browse, within the canvases you pick.</Text>
-        <Text>open — everyone with a bookmarklet sees all pins regardless of project access.</Text>
-        <ButtonGroup>
+      <Stack space="space.100">
+        <Heading level="h4">Access model</Heading>
+        <Text>
+          Guests see the projects their sponsor can browse, restricted to the canvases you selected when
+          issuing the link.
+        </Text>
+        <Inline space="space.100">
           <Button
             appearance={mode === 'per_user_projects' ? 'primary' : 'default'}
             onClick={() => setMode('per_user_projects')}
@@ -186,12 +212,12 @@ const AdminApp = () => {
           >
             Open
           </Button>
-        </ButtonGroup>
+        </Inline>
       </Stack>
 
-      <Stack space="space.150">
+      <Stack space="space.100">
         <Heading level="h4">Guest invitations</Heading>
-        <Text>Each invitation names one reviewer. Deactivating pauses access; revoking is permanent.</Text>
+        <Text>One reviewer per invitation. Deactivating pauses access; revoking is permanent.</Text>
 
         {invitesError && (
           <SectionMessage appearance="error" title="Invitations">
@@ -199,20 +225,29 @@ const AdminApp = () => {
           </SectionMessage>
         )}
 
-        {named.length === 0 && !invitesError && <Text>No guest invitations issued.</Text>}
-
-        {named.map((invite) => renderInvite(invite, false))}
+        <DynamicTable
+          head={HEAD}
+          rows={rowsFor(named, false)}
+          emptyView={<Text>No guest invitations issued.</Text>}
+        />
 
         {legacy.length > 0 && (
-          <SectionMessage appearance="warning" title={`${legacy.length} legacy link(s) without a reviewer`}>
-            <Stack space="space.100">
-              <Text>These were issued before invitations carried a reviewer name and email. They cannot be identified, so revoke them and issue new links.</Text>
-              <Button appearance="subtle" onClick={() => setShowLegacy((value) => !value)}>
-                {showLegacy ? 'Hide' : 'Show'}
-              </Button>
-              {showLegacy && legacy.map((invite) => renderInvite(invite, true))}
-            </Stack>
-          </SectionMessage>
+          <Stack space="space.100">
+            <SectionMessage appearance="warning" title={`${legacy.length} legacy link(s) cannot be identified`}>
+              <Stack space="space.100">
+                <Text>
+                  These were issued before invitations carried a reviewer name and email. Revoke them and
+                  issue new links.
+                </Text>
+                <Inline>
+                  <Button appearance="subtle" onClick={() => setShowLegacy((value) => !value)}>
+                    {showLegacy ? 'Hide legacy links' : 'Show legacy links'}
+                  </Button>
+                </Inline>
+              </Stack>
+            </SectionMessage>
+            {showLegacy && <DynamicTable head={HEAD} rows={rowsFor(legacy, true)} />}
+          </Stack>
         )}
       </Stack>
     </Stack>
