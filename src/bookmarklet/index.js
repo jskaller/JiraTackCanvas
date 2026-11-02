@@ -1199,6 +1199,7 @@ async function init(config) {
     }
 
     const canvasId = config.canvasId;
+    renderViewportBar(config);
     let data;
     try {
       data = await getPins(config, session, canvasId, getPageUrl(), true);
@@ -1235,6 +1236,48 @@ async function init(config) {
   // Arm the timer unconditionally: the tick itself checks that an overlay and a
   // session exist, so early returns from init cannot leave a stray interval.
   startPolling();
+}
+
+/**
+ * Viewport presets (plan 6.6). Resizing the real window is the only honest
+ * option: DevTools device emulation needs the debugger permission and a
+ * permanent warning bar. This is a real layout at a real width, so media
+ * queries fire; it is not device emulation, and the copy says so.
+ */
+function renderViewportBar(config) {
+  if (!config || config.channel !== 'extension') return;
+  const existing = document.getElementById('jiratack-viewport-bar');
+  if (existing) existing.remove();
+
+  const bar = document.createElement('div');
+  bar.id = 'jiratack-viewport-bar';
+  bar.style.cssText = 'position:fixed;left:12px;bottom:12px;z-index:2147483647;display:flex;gap:4px;align-items:center;padding:4px 6px;border-radius:6px;background:#fff;border:1px solid #dfe1e6;box-shadow:0 4px 12px rgba(9,30,66,.2);font:12px -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;';
+  bar.title = 'Resize the browser window. This is a real width, not device emulation.';
+
+  const buttonStyle = 'padding:2px 8px;border:1px solid #dfe1e6;border-radius:3px;background:#fff;cursor:pointer;font:inherit;';
+  const chromeWidth = window.outerWidth - window.innerWidth;
+
+  [375, 768, 1024, 1280].forEach((width) => {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.textContent = String(width);
+    button.style.cssText = buttonStyle;
+    button.addEventListener('click', () => {
+      window.postMessage({ source: 'jiratack', type: 'resize', width, chromeWidth }, '*');
+    });
+    bar.appendChild(button);
+  });
+
+  const fit = document.createElement('button');
+  fit.type = 'button';
+  fit.textContent = 'Fit';
+  fit.style.cssText = buttonStyle;
+  fit.addEventListener('click', () => {
+    window.postMessage({ source: 'jiratack', type: 'resize', width: null, chromeWidth }, '*');
+  });
+  bar.appendChild(fit);
+
+  document.body.appendChild(bar);
 }
 
 window.__jiratackInit = init;

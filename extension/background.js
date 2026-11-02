@@ -42,6 +42,12 @@ function closeOverlay(tabId) {
 }
 
 function startOverlay(tabId, config) {
+  // The bridge is isolated-world on purpose: the SDK cannot call chrome APIs.
+  chrome.scripting.executeScript({
+    target: { tabId: tabId },
+    files: ['bridge.js'],
+  }, function () { void chrome.runtime.lastError; });
+
   chrome.scripting.executeScript({
     target: { tabId: tabId },
     world: 'MAIN',
@@ -63,6 +69,35 @@ function startOverlay(tabId, config) {
     });
   });
 }
+
+// Remember each window's original width so "Fit" can put it back.
+var previousWidths = {};
+
+chrome.runtime.onMessage.addListener(function (message, sender) {
+  if (!message || message.type !== 'jiratack-resize' || !sender || !sender.tab) return;
+  var windowId = sender.tab.windowId;
+
+  if (message.width === null) {
+    var restore = previousWidths[windowId];
+    if (restore) {
+      chrome.windows.update(windowId, { width: restore }, function () { void chrome.runtime.lastError; });
+      delete previousWidths[windowId];
+    }
+    return;
+  }
+
+  var width = Number(message.width);
+  if (!isFinite(width) || width < 320 || width > 2560) return;
+  var chromeWidth = Number(message.chromeWidth) || 0;
+
+  chrome.windows.get(windowId, function (current) {
+    if (chrome.runtime.lastError || !current) return;
+    if (!previousWidths[windowId]) previousWidths[windowId] = current.width;
+    chrome.windows.update(windowId, { width: Math.round(width + chromeWidth) }, function () {
+      void chrome.runtime.lastError;
+    });
+  });
+});
 
 chrome.action.onClicked.addListener(function (tab) {
   if (!tab || !tab.id) return;

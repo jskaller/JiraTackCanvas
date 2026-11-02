@@ -14,7 +14,7 @@ if (!fs.existsSync(bundle)) {
   process.exit(1);
 }
 
-const shared = ['background.js', 'options.html', 'options.js', 'extensionConfig.js'];
+const shared = ['background.js', 'bridge.js', 'options.html', 'options.js', 'extensionConfig.js'];
 const targets = [
   { dir: 'extension', manifest: 'manifest.chrome.json' },
   { dir: 'dist/extension-firefox', manifest: 'manifest.firefox.json' },

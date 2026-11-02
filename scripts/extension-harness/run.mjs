@@ -117,6 +117,8 @@ async function main() {
       canvasId: 'universal',
       canvasName: 'Fixture canvas',
       sdkVersion,
+      // background.js sets this; the harness calls init directly, so mirror it
+      channel: 'extension',
     };
     await ext.evaluate(`chrome.storage.local.set({ jiratackConfig: ${JSON.stringify(config)} })`);
 
@@ -199,6 +201,21 @@ async function main() {
       record(`${fixture.path}: overlay rendered`, state.overlay === true, String(state.overlay));
       record(`${fixture.path}: sidebar rendered`, state.sidebar === true, String(state.sidebar));
       record(`${fixture.path}: init ran with canvas`, Boolean(state.canvas), String(state.canvas));
+
+      if (fixture.canvasId !== 'universal') {
+        const parsedBar = await waitFor(async () => {
+          const raw = await page.evaluate(`JSON.stringify({
+            present: !!document.getElementById('jiratack-viewport-bar'),
+            buttons: document.querySelectorAll('#jiratack-viewport-bar button').length,
+            filter: /All/.test(document.getElementById('jiratack-sidebar') ? document.getElementById('jiratack-sidebar').textContent : '')
+          })`);
+          const probe = JSON.parse(raw);
+          return probe.present && probe.filter ? probe : null;
+        }, { timeout: 8000, interval: 200 }) || { present: false, buttons: 0, filter: false };
+
+        record(`${fixture.path}: viewport presets render`, parsedBar.present && parsedBar.buttons === 5, JSON.stringify(parsedBar));
+        record(`${fixture.path}: sidebar filters render`, parsedBar.filter === true, String(parsedBar.filter));
+      }
 
       if (fixture.canvasId !== 'universal') {
         const pins = await waitFor(async () => {
