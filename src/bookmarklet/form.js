@@ -244,6 +244,82 @@ export function renderTicketForm(container, options) {
   form.appendChild(preview);
   renderPreview();
 
+  // Text-edit suggestion (plan 6.4). Seeded from the page selection so the
+  // common case — highlight the wrong copy, then file it — needs no typing of
+  // the original.
+  const textEditBox = el('div', 'jiratack-textedit');
+  textEditBox.appendChild(el('span', 'jiratack-field-label', 'Suggest a text change (optional)'));
+  const textEditOriginal = el('textarea', 'jiratack-textarea');
+  textEditOriginal.placeholder = 'Original text (select it on the page first)';
+  const textEditReplacement = el('textarea', 'jiratack-textarea');
+  textEditReplacement.placeholder = 'Suggested replacement';
+  try {
+    const selected = window.getSelection ? String(window.getSelection() || '').trim() : '';
+    if (selected) textEditOriginal.value = selected.slice(0, 2000);
+  } catch (e) {
+    // selection is a convenience, never a requirement
+  }
+  textEditBox.appendChild(textEditOriginal);
+  textEditBox.appendChild(textEditReplacement);
+  form.appendChild(textEditBox);
+
+  // Screen recording (plan 6.5). WebM because Chrome and Firefox both produce
+  // it; MP4 would fork the pipeline and Jira's previewer is not the only
+  // consumer — our issue panel plays it from attachment content.
+  let videoBlob = null;
+  const videoBox = el('div', 'jiratack-video');
+  const videoButton = el('button', 'jiratack-button', 'Record screen (up to 60s)');
+  videoButton.type = 'button';
+  const videoStatus = el('div', 'jiratack-form-hint', '');
+  const videoPreview = el('video', 'jiratack-video-preview');
+  videoPreview.controls = true;
+  videoPreview.style.display = 'none';
+  videoPreview.style.maxWidth = '100%';
+  videoBox.appendChild(videoButton);
+  videoBox.appendChild(videoStatus);
+  videoBox.appendChild(videoPreview);
+  form.appendChild(videoBox);
+
+  videoButton.addEventListener('click', async () => {
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getDisplayMedia || typeof MediaRecorder === 'undefined') {
+      showError('Screen recording is not available in this browser.');
+      return;
+    }
+    let stream;
+    try {
+      stream = await navigator.mediaDevices.getDisplayMedia({ video: { frameRate: 30 }, audio: true });
+    } catch (e) {
+      return; // the picker was dismissed
+    }
+    const mimeType = ['video/webm;codecs=vp8,opus', 'video/webm;codecs=vp9,opus', 'video/webm']
+      .find((type) => MediaRecorder.isTypeSupported(type));
+    if (!mimeType) {
+      stream.getTracks().forEach((track) => track.stop());
+      showError('This browser cannot record WebM.');
+      return;
+    }
+    const recorder = new MediaRecorder(stream, { mimeType, videoBitsPerSecond: 1500000 });
+    const chunks = [];
+    recorder.addEventListener('dataavailable', (event) => {
+      if (event.data && event.data.size) chunks.push(event.data);
+    });
+    recorder.addEventListener('stop', () => {
+      stream.getTracks().forEach((track) => track.stop());
+      videoBlob = new Blob(chunks, { type: 'video/webm' });
+      videoPreview.src = URL.createObjectURL(videoBlob);
+      videoPreview.style.display = 'block';
+      videoStatus.textContent = `Recorded ${(videoBlob.size / 1024 / 1024).toFixed(1)} MB`;
+      videoButton.disabled = false;
+      window.clearTimeout(stopTimer);
+    });
+    recorder.start();
+    videoButton.disabled = true;
+    videoStatus.textContent = 'Recording… stops after 60 seconds.';
+    const stopTimer = window.setTimeout(() => {
+      if (recorder.state === 'recording') recorder.stop();
+    }, 60000);
+  });
+
   // Attachments. No type allowlist: Jira decides what it accepts, and the size
   // ceiling comes from Jira's own attachment metadata rather than a guess.
   const attachmentsBox = el('div', 'jiratack-attachments');
@@ -533,7 +609,16 @@ export function renderTicketForm(container, options) {
     submitButton.textContent = 'Creating…';
 
     try {
-      const descriptionAdf = descriptionToAdf(descriptionInput.value);
+      const originalText = textEditOriginal.value.trim();
+      const replacementText = textEditReplacement.value.trim();
+      let descriptionText = descriptionInput.value;
+      if (originalText && replacementText) {
+        descriptionText = `Text change\nOriginal: ${originalText}\nSuggested: ${replacementText}\n\n${descriptionText}`;
+        if (!summaryInput.value.trim()) {
+          summaryInput.value = `Text edit: ${originalText.slice(0, 60)}`;
+        }
+      }
+      const descriptionAdf = descriptionToAdf(descriptionText);
 
       let screenshotUploadId = null;
       if (screenshotDataUrl) {
@@ -559,6 +644,20 @@ export function renderTicketForm(container, options) {
           mimeType: file.type || 'application/octet-stream',
         });
         if (uploadId) attachmentIds.push(uploadId);
+      }
+
+      if (videoBlob) {
+        if (attachmentLimit && videoBlob.size > attachmentLimit) {
+          const mb = Math.round(attachmentLimit / (1024 * 1024));
+          throw new Error(`The recording is larger than Jira allows (${mb} MB).`);
+        }
+        const videoDataUrl = await readFileAsDataUrl(videoBlob);
+        const videoUploadId = await uploadAttachment(config, session, {
+          dataUrl: videoDataUrl,
+          filename: `jiratack-recording-${Date.now()}.webm`,
+          mimeType: 'video/webm',
+        });
+        if (videoUploadId) attachmentIds.push(videoUploadId);
       }
 
       const result = await createIssue(config, session, {
