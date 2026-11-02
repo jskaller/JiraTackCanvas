@@ -11,9 +11,12 @@ import { installFitScale } from './fitScale.js';
 import { playDoneAnimation } from './done.js';
 import { installConsoleProxy, restoreConsoleProxy, clearConsoleBuffer } from './consoleProxy.js';
 import { normalizeUrl, stripDeepLinkParams } from '../shared/urlNormalize.js';
-import { buildRefreshUrl } from '../shared/bookmarklet.js';
+import { buildRefreshUrl, isSdkOutdated } from '../shared/bookmarklet.js';
 import { toSafeHttpUrl } from '../shared/safeUrl.js';
 import styles from './styles.css?inline';
+
+// Replaced at build time by scripts/embed-sdk.js with the bundle hash.
+export const RUNNING_SDK_VERSION = '__JIRATACK_SDK_VERSION__';
 
 const LOG_PREFIX = '[JiraTack]';
 const SIDEBAR_WIDTH_PX = 320;
@@ -31,6 +34,7 @@ if (typeof window !== 'undefined' && !window.__jiratackLayoutDebug) {
     }
     return {
       sdkVersion: debugConfig ? debugConfig.sdkVersion || '(unknown)' : '(not initialized)',
+      runningSdkVersion: RUNNING_SDK_VERSION,
       mode: current ? current.layoutMode || 'push' : '(closed)',
       scale: current && current.fitScale ? current.fitScale.scale : 1,
       fixedShifted: current && current.fixedShift ? current.fixedShift.size() : 0,
@@ -594,7 +598,7 @@ function selectAndScroll(key) {
  */
 function warnIfOutdated(config, session) {
   if (!session || !session.currentSdkVersion) return;
-  if (session.currentSdkVersion === config.sdkVersion) return;
+  if (!isSdkOutdated(RUNNING_SDK_VERSION, session.currentSdkVersion)) return;
   const sidebar = document.getElementById('jiratack-sidebar');
   if (!sidebar || document.getElementById('jiratack-outdated')) return;
 

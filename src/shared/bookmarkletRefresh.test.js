@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { buildRefreshUrl } from './bookmarklet.js';
+import { buildRefreshUrl, isSdkOutdated } from './bookmarklet.js';
 
 let passed = 0;
 let failed = 0;
@@ -39,6 +39,11 @@ check(
 
 check('missing install URL', buildRefreshUrl('', invite), null);
 check('missing token', buildRefreshUrl(base, ''), null);
+
+check('same version is current', isSdkOutdated('abc', 'abc'), false);
+check('different version is outdated', isSdkOutdated('abc', 'def'), true);
+check('missing server version is not a verdict', isSdkOutdated('abc', null), false);
+check('placeholder is ignored', isSdkOutdated('__JIRATACK_SDK_VERSION__', 'def'), false);
 
 console.log(`\n${passed}/${passed + failed} passed, ${failed} failed`);
 process.exit(failed === 0 ? 0 : 1);

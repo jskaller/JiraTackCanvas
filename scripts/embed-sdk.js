@@ -11,14 +11,19 @@ if (!fs.existsSync(bundlePath)) {
   process.exit(1);
 }
 
-const source = fs.readFileSync(bundlePath, 'utf8');
+const PLACEHOLDER = '__JIRATACK_SDK_VERSION__';
+const raw = fs.readFileSync(bundlePath, 'utf8');
+const version = crypto.createHash('sha256').update(raw).digest('hex').slice(0, 12);
+const source = raw.split(PLACEHOLDER).join(version);
+if (!raw.includes(PLACEHOLDER)) {
+  console.warn('[JiraTack] SDK version placeholder not found; the running bundle cannot self-identify.');
+}
 const escaped = source
   .replace(/\\/g, '\\\\')
   .replace(/`/g, '\\`')
   .replace(/\$\{/g, '\\${');
 
 const output = `export const sdkSource = \`${escaped}\`;\n`;
-const version = crypto.createHash('sha256').update(source).digest('hex').slice(0, 12);
 
 fs.writeFileSync(outPath, output, 'utf8');
 fs.writeFileSync(versionPath, `export const SDK_VERSION = '${version}';\n`, 'utf8');

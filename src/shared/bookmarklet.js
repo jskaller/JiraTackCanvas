@@ -40,3 +40,14 @@ export function buildRefreshUrl(installUrl, token) {
   const installId = value.slice(dot + 1);
   return `${installUrl}${join}token=${encodeURIComponent(inviteToken)}&installId=${encodeURIComponent(installId)}`;
 }
+
+/**
+ * A bookmark can be older than its URL suggests: the bundle is revalidated, so
+ * the code may be current while the version baked into the bookmark is not.
+ * Compare the *running* bundle against the server, never the bookmark string.
+ */
+export function isSdkOutdated(runningVersion, currentVersion) {
+  if (!runningVersion || !currentVersion) return false;
+  if (String(runningVersion).startsWith('__')) return false; // un-injected dev build
+  return runningVersion !== currentVersion;
+}
