@@ -261,13 +261,34 @@ function tokenReference(token) {
   return crypto.createHash('sha256').update(String(token)).digest('hex').slice(0, 12);
 }
 
+const TOKEN_QUERY_PAGE = 50;
+const TOKEN_QUERY_MAX = 1000;
+
+/**
+ * KVS rejects list queries at or above 100 rows ("Limit for list query should
+ * be below 100"), so page with the cursor and stop at the same overall cap the
+ * old single-shot query assumed.
+ */
 async function queryCanvasTokenEntries() {
-  const result = await kvs
-    .query()
-    .where('key', WhereConditions.beginsWith('canvasTokens:'))
-    .limit(1000)
-    .getMany();
-  return (result && result.results) || [];
+  const entries = [];
+  let cursor = null;
+
+  do {
+    let query = kvs
+      .query()
+      .where('key', WhereConditions.beginsWith('canvasTokens:'))
+      .limit(TOKEN_QUERY_PAGE);
+    if (cursor) query = query.cursor(cursor);
+
+    const page = await query.getMany();
+    const results = (page && page.results) || [];
+    entries.push(...results);
+    cursor = page && page.nextCursor ? page.nextCursor : null;
+
+    if (entries.length >= TOKEN_QUERY_MAX) break;
+  } while (cursor);
+
+  return entries.slice(0, TOKEN_QUERY_MAX);
 }
 
 export async function listCanvasTokens(context) {

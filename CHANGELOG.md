@@ -47,6 +47,10 @@ All notable changes to JiraTack.
 
 ### Admin and hardening (2026-11-02)
 
+- Fixed the token list failing on load: KVS rejects list queries at or above
+  100 rows, and the query asked for 1,000. Both the token inventory and the
+  pairing index now page with the cursor (50 per page).
+
 - Admin page gains a canvas/guest token inventory with a Revoke action, wired to
   the existing admin-only resolvers. Revocation tombstones the record, so the
   list keeps an audit trail and the installer can render a revoked state.
