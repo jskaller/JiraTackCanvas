@@ -1,6 +1,6 @@
 # Test script — S2 refactor + S4 + B1
 
-**Status:** deployed to development as app 5.2.0 on 2026-11-02 (commit `5fbad06`). Case 6 is now runnable: the admin page has a token inventory with Revoke. Server-side and browser-harness checks pass (phase-1 redirect, installId persistence, not-found state, no CSP header). Cases 1–7 require a Jira session and remain to be run; case 9 partially covered.
+**Status:** deployed as app 5.4.0 on 2026-11-02 (commit `993f478`). Cases 1-6 passed on earlier builds; D29 supersedes Case 4 and changes Case 7. The SDK changed (`9974a83d7b78`) when guest identity moved to issuance, so guest bookmarks must be re-dragged. Server-side and browser-harness checks pass (phase-1 redirect, installId persistence, not-found state, no CSP header). Cases 1–7 require a Jira session and remain to be run; case 9 partially covered.
 **Environment:** development (`jiratack.atlassian.net`), app 5.x, SDK `d5d8edafeda5`.
 **Prerequisites:** a guest-capable canvas; the dev site open in two browser profiles; DevTools available; `forge tunnel` or a deployed build.
 
@@ -149,15 +149,25 @@ If step 1 fails, the TTL is being enforced at the wrong layer (per-action rather
 | --- | --- | --- |
 | 1 — install, two sites | **PASS** | one pairing, both pins created |
 | 3 — second profile | **PASS** | new installId, second pairing |
-| 4 — two emails, one bookmark | **PASS** | distinct `bindingId` per ticket, identical `pairingId`, one pairing |
+| 4 — two emails, one bookmark | **SUPERSEDED (D29)** | one invitation = one named reviewer; see Case 10 |
 | 5 — cap and bypass | **PASS** | 10 pairings created, 11th `PAIRING_LIMIT`; already-paired id renders the valid page at 0 remaining; re-exchange is idempotent |
 | 6 — revocation cascade | **PASS** | re-exchange `TOKEN_INVALID`; pre-revoke JWT still returns pins (exp +459 min); installer shows "no longer active" |
-| 7 — invite expiry vs live session | **BLOCKED ON DECISION** | A (pairing lifetime independent) or B (72h hard wall) |
+| 7 — invite expiry vs live session | **EXPECTED PASS by design (D29)** | pairings exchange after link expiry; untested live |
 
 Bugs found by running the cases, both fixed and deployed:
 
 - malformed `canvasToken` returned `INTERNAL` 500 instead of `TOKEN_INVALID` (commit `5fbad06`);
 - the token list asked KVS for 1,000 rows and failed on load (commit `376935b`).
+
+## D29 cases (replacing Case 4)
+
+| # | Case | Steps | Expect |
+| --- | --- | --- | --- |
+| 10 | Named issuance | Dashboard → Generate Guest Link → enter name + email → copy link | Installer shows "You are invited as <name>"; sidebar form has no name/email fields |
+| 11 | Identity on ticket | Guest pins once | `com.jiratack.metadata` has `guest.name`, `guest.email`, `bindingId`, `pairingId`; reporter = sponsor |
+| 12 | Deactivate blocks writes | Admin → Deactivate, then guest pins in an open session | `INSUFFICIENT_SCOPE` immediately, not after 8h |
+| 13 | New link | Admin → New link; open old link, then new link | Old link refused; new link works; same reviewer/binding (no second slot) |
+| 14 | Pairing survives link expiry | Shorten link TTL in dev, pair, wait past expiry, pin again | Succeeds until deactivated/revoked |
 
 ## Rollback notes
 

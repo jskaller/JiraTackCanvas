@@ -45,6 +45,20 @@ All notable changes to JiraTack.
 - Bootstrap reports SDK load failures in-page (CSP, Trusted Types, failed
   init, timeout) instead of removing the spinner silently (D22).
 
+### Guest invitations (D29, 2026-11-02)
+
+- Guest links are now **named invitations**: the sponsor supplies the reviewer's
+  name and email; the binding is created at issuance and the guest no longer
+  enters identity in the sidebar.
+- Pairings live until the invitation is deactivated or revoked; the 72h link
+  gates only new devices. Invitation and pairing records no longer carry a KVS
+  TTL, which had been deleting them at 72h regardless of policy.
+- Admin page lists invitations with guest, email, sponsor, canvases, status,
+  pairings and pin count, and offers Deactivate/Activate, New link and Revoke.
+- Deactivation blocks guest writes immediately, not just new exchanges.
+- Supersedes the "two emails on one bookmark" behaviour (Case 4): one invitation
+  = one reviewer.
+
 ### Admin and hardening (2026-11-02)
 
 - Fixed the token list failing on load: KVS rejects list queries at or above
