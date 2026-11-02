@@ -2,7 +2,7 @@
 
 **Audience:** OpenCode. Every function signature, request/response shape, JQL template, error code, URL normalisation rule, and ADF node shape.
 **Precedence:** Where this document disagrees with SPEC.md or ARCHITECTURE.md on wire-level details, this document wins. Where it disagrees with DECISIONS.md, DECISIONS.md wins.
-**Verified against:** tag `baseline/pre-pivot-2026-10-30` (2026-10-30), app 5.0.0, SDK `1c14ac110cbd`.
+**Verified against:** tag `baseline/pre-pivot-2026-10-30` (2026-10-30), app 5.0.0, SDK `e4159e02f7db`.
 
 ---
 

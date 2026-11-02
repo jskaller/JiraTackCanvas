@@ -2,7 +2,7 @@
 
 **Audience:** OpenCode, first read. Context document; precedes `CONTRACTS.md`.
 **Status:** Current. Describes shipped code only.
-**Verified against:** tag `baseline/pre-pivot-2026-10-30` (2026-10-30), app 5.0.0, SDK `1c14ac110cbd`.
+**Verified against:** tag `baseline/pre-pivot-2026-10-30` (2026-10-30), app 5.0.0, SDK `e4159e02f7db`.
 **Supersedes:** ARCHITECTURE.md v1.x (four custom fields, description marker, two web triggers).
 
 Decisions referenced here are authoritative in `DECISIONS.md`. Wire-level shapes are authoritative in `CONTRACTS.md`.

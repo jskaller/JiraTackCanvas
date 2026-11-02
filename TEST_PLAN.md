@@ -3,7 +3,7 @@
 **Audience:** OpenCode, human tester. Per-sprint verification commands and assertions.
 **Precedence:** If a test conflicts with CONTRACTS.md, CONTRACTS.md wins. This document tells you *how* to verify; CONTRACTS.md tells you *what* the correct behavior is.
 **Rule:** A sprint is not complete until every assertion in its section passes. Do not proceed to the next sprint on partial passes.
-**Verified against:** tag `baseline/pre-pivot-2026-10-30` (2026-10-30), app 5.0.0, SDK `1c14ac110cbd`. Parts 1 and 6 were pruned of the retired custom-field/provisioning/audit/recovery tests (D18); Parts 2, 3, 5, 7 and 8 carry the current assertions. §3.13 covers the D23 match modes.
+**Verified against:** tag `baseline/pre-pivot-2026-10-30` (2026-10-30), app 5.0.0, SDK `e4159e02f7db`. Parts 1 and 6 were pruned of the retired custom-field/provisioning/audit/recovery tests (D18); Parts 2, 3, 5, 7 and 8 carry the current assertions. §3.13 covers the D23 match modes.
 
 ---
 

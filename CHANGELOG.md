@@ -49,6 +49,9 @@ All notable changes to JiraTack.
 
 - Guest form shows the invited name/email read-only; guest tickets default the
   assignee to the sponsor; the installer names the sponsor and their email.
+- Guest sessions are cached per invitation token, not just per canvas. A new
+  link no longer reuses a previous invitation's session (which showed empty
+  name/email/assignee with a fresh bookmark).
 - Cached guest sessions now carry a schema version, so a stale session can no
   longer hide the guest identity; invitations that predate named issuance show a
   warning instead of empty fields.
