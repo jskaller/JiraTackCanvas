@@ -145,7 +145,7 @@ const AdminApp = () => {
           const legacy = !invite.guestName && !invite.guestEmail;
           const busy = busyRef === invite.tokenRef;
           return (
-            <Box key={invite.tokenRef} padding="space.150">
+            <Box key={invite.tokenRef}>
               <Stack space="space.100">
                 <Inline space="space.100" shouldWrap>
                   <Text>{legacy ? 'Legacy link (no reviewer identity)' : invite.guestName}</Text>
