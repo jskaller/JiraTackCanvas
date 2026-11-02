@@ -9,7 +9,7 @@ import ForgeReconciler, {
   Stack,
   Text,
 } from '@forge/react';
-import { invoke } from '@forge/bridge';
+import { invoke, router } from '@forge/bridge';
 
 const DEFAULT_CONFIG = {
   viewPermissionMode: 'per_user_projects',
@@ -141,7 +141,13 @@ const AdminApp = () => {
         <Button
           key="open"
           appearance="subtle"
-          onClick={() => window.open(invite.installerUrl, '_blank', 'noopener,noreferrer')}
+          onClick={async () => {
+            try {
+              await router.open(invite.installerUrl);
+            } catch (e) {
+              setInvitesError(e && e.message ? e.message : 'Could not open the installer link.');
+            }
+          }}
         >
           Open link
         </Button>,
