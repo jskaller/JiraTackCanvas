@@ -1200,6 +1200,9 @@ async function init(config) {
       renderPinsAndSidebar();
       if (deepTicket) selectAndScroll(deepTicket);
       console.log(`${LOG_PREFIX} Universal launcher ready with ${current.canvases.length} canvas(es)`);
+      // This branch returns before the end of init, so the timer must be armed
+      // here too — the launcher link is the one most people install.
+      startPolling();
       return;
     }
 
