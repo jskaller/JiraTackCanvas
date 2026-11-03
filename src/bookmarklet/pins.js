@@ -60,6 +60,14 @@ export function renderPins(container, pins, options = {}) {
 
   visiblePins.forEach((pin) => {
     const placement = resolvePlacement(pin);
+    // A pin that cannot be anchored to its element is positioned by document
+    // pixels, which do not follow reflow. Say so rather than drawing it as if
+    // the position were trustworthy.
+    if (placement.mode !== 'selector') {
+      console.warn(
+        `[JiraTack] pin ${pin.key} is ${placement.mode}: selector=${JSON.stringify(pin.selector)} position=${JSON.stringify(pin.pinPosition)}`,
+      );
+    }
     const el = document.createElement('div');
     el.className = 'jiratack-pin';
     el.dataset.key = pin.key;
