@@ -32,7 +32,10 @@ function resolvePlacement(pin) {
     }
   }
 
-  if (pair) {
+  // Only a pin captured without a selector stores document pixels. If a
+  // selector was recorded but no longer resolves, the numbers are element
+  // percentages and must not be read as pixels — that put pins near the origin.
+  if (pair && !pin.selector) {
     return { mode: 'absolute', x: pair[0], y: pair[1] };
   }
 

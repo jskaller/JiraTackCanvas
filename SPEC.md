@@ -815,7 +815,11 @@ pathOnlyUrl(url):             # "Whole page" identity
 | Selector resolved | `relX,relY` (e.g. `45.2,32.8`) | Percentage offset inside the element's box |
 | No selector | `absX,absY` (e.g. `840,620`) | Pixel offset from the document origin |
 
-Restoration order: selector → absolute → detached cluster. A pin is never silently dropped.
+Restoration order: selector → detached cluster, with absolute used only when no selector was recorded. A pin is never silently dropped.
+
+An unresolvable selector means the stored numbers are element percentages, so they must not be read as document pixels — doing so placed pins near the origin. Such pins appear in the detached cluster instead.
+
+Capture never anchors to `body`/`html` or to a box covering more than 80% of the viewport, and never builds a selector from JiraTack's own `jiratack-*` classes (they exist only while pin mode is active): both degrade to document pixels at capture time.
 
 ### 12.3 Deep links
 

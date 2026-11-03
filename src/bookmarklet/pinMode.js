@@ -22,6 +22,9 @@ function isUniqueSelector(selector, element) {
 function buildClassSelector(element) {
   const classes = Array.from(element.classList)
     .filter((name) => /^[a-zA-Z_][\w-]*$/.test(name))
+    // Our own interaction classes exist only while pin mode is active, so a
+    // selector built from one can never resolve afterwards.
+    .filter((name) => !name.startsWith('jiratack-'))
     .slice(0, 2);
   if (classes.length === 0) return '';
   return `.${classes.map(cssEscape).join('.')}`;
@@ -82,8 +85,18 @@ export function generateSelector(element) {
 }
 
 export function computePinPosition(element, clientX, clientY) {
-  const selector = generateSelector(element);
+  const rawSelector = generateSelector(element);
   const captureContext = collectCaptureContext(element);
+
+  // A click on the page background targets <body>, and a container spanning
+  // most of the viewport is just as meaningless an anchor: a percentage inside
+  // it moves whenever the page reflows. Both degrade to document pixels.
+  let selector = rawSelector;
+  if (element && element.getBoundingClientRect) {
+    const box = element.getBoundingClientRect();
+    const viewport = Math.max(1, window.innerWidth * window.innerHeight);
+    if (box.width * box.height > viewport * 0.8) selector = null;
+  }
 
   if (selector) {
     const rect = element.getBoundingClientRect();
