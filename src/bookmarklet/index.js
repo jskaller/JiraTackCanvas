@@ -1255,10 +1255,10 @@ function renderViewportBar(config) {
 
   const bar = document.createElement('div');
   bar.id = 'jiratack-viewport-bar';
-  bar.style.cssText = 'position:fixed;left:12px;bottom:12px;z-index:2147483647;display:flex;gap:4px;align-items:center;padding:4px 6px;border-radius:6px;background:#fff;border:1px solid #dfe1e6;box-shadow:0 4px 12px rgba(9,30,66,.2);font:12px -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;';
+  bar.style.cssText = 'position:fixed;left:12px;bottom:12px;z-index:2147483647;display:flex;gap:4px;align-items:center;padding:4px 6px;border-radius:6px;background:#fff;color:#172b4d;color-scheme:light;border:1px solid #dfe1e6;box-shadow:0 4px 12px rgba(9,30,66,.2);font:12px -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;';
   bar.title = 'Page width, sidebar excluded. Real layout, not device emulation.';
 
-  const buttonStyle = 'padding:2px 8px;min-width:36px;border:1px solid #dfe1e6;border-radius:3px;background:#fff;color:#172b4d;cursor:pointer;font:600 12px/1.4 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;';
+  const buttonStyle = 'padding:2px 8px;min-width:36px;border:1px solid #dfe1e6;border-radius:3px;background:#fff;color:#172b4d;color-scheme:light;cursor:pointer;font:600 12px/1.4 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;';
   // A preset is the width of the *page*, so the window must also carry the
   // sidebar (320) and the browser chrome. Without this, 375 left ~55px of page
   // and the layout collapsed.
@@ -1283,7 +1283,7 @@ function renderViewportBar(config) {
   custom.min = '320';
   custom.max = '2560';
   custom.placeholder = 'Width';
-  custom.style.cssText = 'width:72px;padding:2px 6px;border:1px solid #dfe1e6;border-radius:3px;color:#172b4d;font:600 12px/1.4 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;';
+  custom.style.cssText = 'width:72px;padding:2px 6px;border:1px solid #dfe1e6;border-radius:3px;background:#fff;color:#172b4d;color-scheme:light;font:600 12px/1.4 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;';
   const applyCustom = document.createElement('button');
   applyCustom.type = 'button';
   applyCustom.textContent = 'Go';
