@@ -213,7 +213,8 @@ async function main() {
           return probe.present && probe.filter ? probe : null;
         }, { timeout: 8000, interval: 200 }) || { present: false, buttons: 0, filter: false };
 
-        record(`${fixture.path}: viewport presets render`, parsedBar.present && parsedBar.buttons === 5, JSON.stringify(parsedBar));
+        // four presets + Go (custom width) + Fit
+        record(`${fixture.path}: viewport presets render`, parsedBar.present && parsedBar.buttons === 6, JSON.stringify(parsedBar));
         record(`${fixture.path}: sidebar filters render`, parsedBar.filter === true, String(parsedBar.filter));
       }
 
