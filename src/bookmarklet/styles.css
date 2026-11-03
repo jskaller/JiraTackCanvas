@@ -113,7 +113,8 @@
 .jiratack-detached-cluster {
   position: absolute;
   top: 12px;
-  right: 12px;
+  /* clear of the 320px sidebar: at right:12px the cluster renders underneath it */
+  right: calc(320px + 12px);
   display: none;
   flex-direction: column;
   gap: 6px;
