@@ -36,7 +36,7 @@ for users who cannot install anything.
 ```text
 npm run build            # bundles the SDK
 npm run icons            # regenerates extension/icons (only if the art changes)
-npm run build:extension  # assembles ./extension and dist/extension-firefox
+npm run build:extension  # assembles dist/extension-chrome and dist/extension-firefox
 ```
 
 `npm run build:extension` copies the built SDK into the extension, injects the
@@ -47,10 +47,10 @@ package.
 ## Install (development)
 
 **Chrome** — `chrome://extensions` → enable *Developer mode* → *Load unpacked* →
-select `./extension`.
+select `./dist/extension-chrome`.
 
 **Edge** — identical package, no separate build: `edge://extensions` → enable
-*Developer mode* → *Load unpacked* → select `./extension`.
+*Developer mode* → *Load unpacked* → select `./dist/extension-chrome`.
 
 **Firefox** — `about:debugging#/runtime/this-firefox` → *Load Temporary Add-on*
 → select `dist/extension-firefox/manifest.json`.

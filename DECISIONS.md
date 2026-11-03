@@ -337,7 +337,7 @@ Deactivation is enforced in `createIssue`/`updateIssue` (a state read per guest 
 
 **Injection model.** The SDK is injected on demand (`chrome.scripting.executeScript`) rather than declared as a content script: the bundle is ~290 KB and every open tab would otherwise pay for it while idle. The injected code runs in the **page's world** (`world: 'MAIN'`), not an isolated one, so the page's CSP does not apply while `consoleProxy`, `__jiratackInit`/`__jiratackClose` and the layout debug hook keep working exactly as in the bookmarklet. An isolated world would have looked safer and quietly broken console capture. `activeTab` is used rather than `<all_urls>`: access is granted by the click, per tab, so there is no "read all your data" install warning.
 
-**Verification.** Chrome 156, 2026-11-02. Extension loaded from `./extension`, real pages: `instagram.com`, `github.com` and `linkedin.com` — all three refuse the bookmarklet — each injected the SDK (`typeof __jiratackInit === 'function'`) and rendered `#jiratack-overlay`, `#jiratack-sidebar` and the sidebar header in the page DOM. The run granted `<all_urls>` because a headless browser cannot click a toolbar icon to earn `activeTab`; the shipped manifest does not. Ticket creation was not exercised (needs a live token).
+**Verification.** Chrome 156, 2026-11-02. Extension loaded from `dist/extension-chrome`, real pages: `instagram.com`, `github.com` and `linkedin.com` — all three refuse the bookmarklet — each injected the SDK (`typeof __jiratackInit === 'function'`) and rendered `#jiratack-overlay`, `#jiratack-sidebar` and the sidebar header in the page DOM. The run granted `<all_urls>` because a headless browser cannot click a toolbar icon to earn `activeTab`; the shipped manifest does not. Ticket creation was not exercised (needs a live token).
 
 Firefox 159 accepts the package as a temporary add-on (`installTemporaryAddon` over the remote debugging protocol returns `{"addon":{"id":"jiratack@local"}}` and the add-on appears in `listAddons`), which proves the MV3 manifest, the `background.scripts` form and the icon set are valid; the click path is not exercised because the remote protocol cannot click a toolbar icon. Edge needs no separate build: it loads the Chrome package unchanged. Safari is out of scope (no package, no Xcode project); the installer detects it and recommends another browser.
 
@@ -345,7 +345,7 @@ Firefox 159 accepts the package as a temporary add-on (`installTemporaryAddon` o
 
 **Known limitations:** Firefox is install-verified, not click-verified. Safari is unsupported. The extension still needs the canvas token, pasted from the bookmarklet link; tokens are stored in extension storage, protected by the browser profile, not by an OS keychain. Enterprise extension allowlists can block installation. MV3 forbids remotely hosted code, so SDK updates ship with the package — for a side-loaded build that means re-copying the folder, unlike the bookmarklet's ETag revalidation. Safari requires `xcodebuild -runFirstLaunch` and an Xcode run to install; store distribution needs an Apple developer account.
 
-**Applies to:** `docs/EXTENSION.md`, `extension/`, `scripts/build-extension.js`, `src/shared/extensionConfig.js`; CONTRACTS §5.1 (config shape reused); D22.
+**Applies to:** `docs/EXTENSION.md`, `src/extension/`, `scripts/build-extension.js`, `src/shared/extensionConfig.js`; CONTRACTS §5.1 (config shape reused); D22.
 
 ### D13 — SDK version source
 

@@ -46,18 +46,18 @@ function newestMtime(dir) {
 }
 
 function prepareBuild() {
-  if (!fs.existsSync('extension/sdk.js')) {
-    throw new Error('extension/sdk.js missing — run `npm run build:extension` first');
+  if (!fs.existsSync('dist/extension-chrome/sdk.js')) {
+    throw new Error('dist/extension-chrome missing — run `npm run build:extension` first');
   }
   // A stale bundle makes the harness pass on code nobody changed, or fail on
   // code nobody wrote. Refuse rather than measure the wrong build.
-  const sourceTime = newestMtime('src/bookmarklet');
-  const bundleTime = fs.statSync('extension/sdk.js').mtimeMs;
+  const sourceTime = Math.max(newestMtime('src/bookmarklet'), newestMtime('src/extension'));
+  const bundleTime = fs.statSync('dist/extension-chrome/sdk.js').mtimeMs;
   if (sourceTime > bundleTime) {
     throw new Error('extension/sdk.js is older than src/bookmarklet — run `npm run build && npm run build:extension`');
   }
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'jiratack-ext-'));
-  fs.cpSync('extension', dir, { recursive: true });
+  fs.cpSync('dist/extension-chrome', dir, { recursive: true });
   const manifestPath = path.join(dir, 'manifest.json');
   const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
   manifest.host_permissions = ['<all_urls>'];

@@ -14,9 +14,10 @@ if (!fs.existsSync(bundle)) {
   process.exit(1);
 }
 
-const shared = ['background.js', 'bridge.js', 'options.html', 'options.js', 'extensionConfig.js'];
+const SOURCE = 'src/extension';
+const shared = ['background.js', 'bridge.js', 'options.html', 'options.js'];
 const targets = [
-  { dir: 'extension', manifest: 'manifest.chrome.json' },
+  { dir: 'dist/extension-chrome', manifest: 'manifest.chrome.json' },
   { dir: 'dist/extension-firefox', manifest: 'manifest.firefox.json' },
 ];
 
@@ -50,25 +51,23 @@ for (const target of targets) {
   }
 
   for (const file of shared) {
-    const from = file === 'extensionConfig.js'
-      ? 'src/shared/extensionConfig.js'
-      : path.join('extension', file);
-    copy(from, path.join(target.dir, file));
+    copy(path.join(SOURCE, file), path.join(target.dir, file));
   }
 
+  // shared config parser lives with the other shared modules so it is tested
+  copy('src/shared/extensionConfig.js', path.join(target.dir, 'extensionConfig.js'));
+
   // icons are shared by every package
-  const iconSource = path.resolve('extension/icons');
+  const iconSource = path.resolve(SOURCE, 'icons');
   const iconTarget = path.resolve(target.dir, 'icons');
-  if (path.resolve(target.dir) !== path.resolve('extension')) {
-    fs.mkdirSync(iconTarget, { recursive: true });
-    for (const file of fs.readdirSync(iconSource)) {
-      fs.copyFileSync(path.join(iconSource, file), path.join(iconTarget, file));
-    }
+  fs.mkdirSync(iconTarget, { recursive: true });
+  for (const file of fs.readdirSync(iconSource)) {
+    fs.copyFileSync(path.join(iconSource, file), path.join(iconTarget, file));
   }
-  copy(path.join('extension', target.manifest), path.join(target.dir, 'manifest.json'));
+  copy(path.join(SOURCE, target.manifest), path.join(target.dir, 'manifest.json'));
 
   console.log(`[JiraTack] extension assembled at ${target.dir}`);
 }
 
-const manifest = JSON.parse(fs.readFileSync(path.resolve('extension/manifest.json'), 'utf8'));
-console.log(`[JiraTack] ${manifest.name} ${manifest.version} \u2014 load unpacked from ./extension`);
+const manifest = JSON.parse(fs.readFileSync(path.resolve('dist/extension-chrome/manifest.json'), 'utf8'));
+console.log(`[JiraTack] ${manifest.name} ${manifest.version} \u2014 load unpacked from ./dist/extension-chrome`);
