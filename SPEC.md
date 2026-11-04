@@ -296,6 +296,8 @@ canvas:<key> → { key, name, names, folder, archived, thumbnail?, thumbnailAt?,
 canvasName:<normalised> → <key>            // every name the canvas has ever had
 canvasPreviewStamp → number                // changes whenever a preview is written or cleared
 canvasPreviewCache → { stamp, previews: { <key>: dataUrl } }   // ≤ 120k chars, else absent
+canvasRegistryStamp → number               // changes whenever a record is written or deleted
+canvasRegistryCache → { stamp, records, index }  // launcher snapshot, no preview data
 ```
 
 The signing secret is created with `keyPolicy: 'FAIL_IF_EXISTS'` (the KVS API's actual compare-and-set; the older `must_be_missing` option is not supported and silently degraded to an overwrite until 2026-10-31). It is currently stored as a plain KVS value, not with `kvs.setSecret`; migration is tracked in the security review.

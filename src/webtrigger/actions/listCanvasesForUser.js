@@ -3,7 +3,13 @@ import { getInstallationConfig } from '../../lib/config.js';
 import { errorResult } from '../../lib/errors.js';
 import { normalizeUrl } from '../../shared/urlNormalize.js';
 import { METADATA_PROPERTY_KEY, metadataFromIssue } from '../../lib/metadata.js';
-import { loadCanvasNameIndex, loadCanvasRecords, normaliseCanvasName } from '../../lib/canvasRegistry.js';
+import {
+  loadCanvasNameIndex,
+  loadCanvasRecords,
+  loadRegistrySnapshot,
+  normaliseCanvasName,
+  saveRegistrySnapshot,
+} from '../../lib/canvasRegistry.js';
 import { findRecordByName } from '../../lib/canvasNames.js';
 import { findCanvasKeyInMaps } from '../../lib/canvasIdentity.js';
 
@@ -20,8 +26,16 @@ export async function listCanvasesForUser(payload, claims) {
 
   // Renaming only changes the registry record; tickets keep the name from
   // capture time. Group by the stable key and show the CURRENT name (D43).
-  const records = await loadCanvasRecords();
-  const nameIndex = await loadCanvasNameIndex();
+  // The registry is rebuilt on every open otherwise — up to 140 queries at the
+  // caps — so it is served from a stamped snapshot when one is valid.
+  let registry = await loadRegistrySnapshot();
+  if (!registry) {
+    const freshRecords = await loadCanvasRecords();
+    const freshIndex = await loadCanvasNameIndex();
+    registry = { records: freshRecords, nameIndex: freshIndex };
+    await saveRegistrySnapshot(freshRecords, freshIndex);
+  }
+  const { records, nameIndex } = registry;
   const canvases = new Map();
   let nextPageToken = null;
   let fetched = 0;

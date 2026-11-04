@@ -7,7 +7,7 @@ All notable changes to JiraTack.
 > the description marker, recovery). They are kept for history and are **not**
 > a description of current behaviour — see `SPEC.md` v3.0 for that. The
 > `0.9.0`-style headings track `package.json`, not the Forge app version
-> (currently 5.83.0 in development).
+> (currently 5.84.0 in development).
 
 ## [Unreleased]
 
@@ -27,6 +27,11 @@ All notable changes to JiraTack.
   the admin page as an installation-level setting.
 
 ### Install, guests and organisation
+
+- **The launcher no longer rebuilds the registry on every open.** The canvas list is served
+  from a stamped snapshot, so opening the overlay costs one lookup instead of up to 140 KVS
+  queries. Any canvas write bumps the stamp, so a new or renamed canvas still appears on the
+  next open; a snapshot too large to cache falls back to scanning.
 
 - **Resolution heals the registry, and previews no longer force a record scan.** A lookup
   that had to bypass the missing `canvasName:` row now writes it back, so a canvas with a

@@ -30,6 +30,76 @@ const PREVIEW_STAMP_KEY = 'canvasPreviewStamp';
 const PREVIEW_CACHE_KEY = 'canvasPreviewCache';
 const PREVIEW_CACHE_MAX_CHARS = 120000;
 
+// The launcher rebuilds the registry on every open (up to 140 KVS queries at the
+// caps). Records are small once the preview payload is stripped, so the launch
+// list can be served from one stamped document instead.
+const REGISTRY_STAMP_KEY = 'canvasRegistryStamp';
+const REGISTRY_CACHE_KEY = 'canvasRegistryCache';
+const REGISTRY_CACHE_MAX_CHARS = 120000;
+
+/** Changes whenever a canvas record is written or deleted. */
+export async function readRegistryStamp() {
+  try {
+    const value = await kvsGet(REGISTRY_STAMP_KEY);
+    return typeof value === 'number' ? value : 0;
+  } catch (e) {
+    return 0;
+  }
+}
+
+async function bumpRegistryStamp() {
+  try {
+    await kvsSet(REGISTRY_STAMP_KEY, Date.now());
+  } catch (e) {
+    // A stale launcher cache only delays a new canvas by one open.
+  }
+}
+
+/**
+ * The launcher's registry, stripped of preview data and filed under a stamp.
+ * Returns `{ records: Map, nameIndex: Map }`, or null when absent, stale, or too
+ * large to have been cached.
+ */
+export async function loadRegistrySnapshot() {
+  try {
+    const cached = await kvsGet(REGISTRY_CACHE_KEY);
+    if (!cached || !Array.isArray(cached.records)) return null;
+    const stamp = await readRegistryStamp();
+    if (cached.stamp !== stamp) return null;
+    return {
+      records: new Map(cached.records.map((record) => [record.key, record])),
+      nameIndex: new Map(Array.isArray(cached.index) ? cached.index : []),
+    };
+  } catch (e) {
+    return null;
+  }
+}
+
+export async function saveRegistrySnapshot(records, nameIndex) {
+  const stamp = await readRegistryStamp();
+  const payload = {
+    stamp,
+    records: [...records.values()].map((record) => ({
+      key: record.key,
+      name: record.name,
+      names: Array.isArray(record.names) ? record.names : [record.name],
+      folder: record.folder || null,
+      archived: record.archived === true,
+    })),
+    index: [...nameIndex.entries()],
+  };
+  try {
+    if (JSON.stringify(payload).length > REGISTRY_CACHE_MAX_CHARS) {
+      await kvsDelete(REGISTRY_CACHE_KEY);
+      return false;
+    }
+    await kvsSet(REGISTRY_CACHE_KEY, payload);
+    return true;
+  } catch (e) {
+    return false;
+  }
+}
+
 /** Changes whenever any canvas preview is written or cleared. */
 export async function readPreviewStamp() {
   try {
@@ -122,6 +192,7 @@ async function writeCanvasRecord(record) {
     names,
   };
   await kvsSet(canvasRecordKey(next.key), next);
+  await bumpRegistryStamp();
   // Every historical name points at the same key, so renaming never orphans
   // the tickets written before it.
   for (const name of names) {
@@ -331,6 +402,7 @@ export async function deleteCanvasRecord(key) {
     await kvsDelete(canvasRecordKey(key));
     // Name index entries are left in place: deleting them could make a
     // recreated canvas adopt old tickets silently.
+    await bumpRegistryStamp();
     await bumpPreviewStamp();
   } catch (e) {
     // ignore

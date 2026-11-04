@@ -503,7 +503,10 @@ Scans `labels = "jiratack"` with properties (pages of 100, up to 2,000) and grou
 - overlap `permittedProjects` (a canvas with no project keys is allowed through),
 - and are neither archived nor deleted.
 
-Used by the personal bookmarklet's launcher. Guests get their canvas list from the JWT instead.
+Used by the personal bookmarklet's launcher. The registry it groups against is read from
+`canvasRegistryCache` (a stamped, preview-free snapshot); a miss or a changed
+`canvasRegistryStamp` rebuilds it once from `loadCanvasRecords` + `loadCanvasNameIndex`.
+Guests get their canvas list from the JWT instead.
 
 ### 3.9 `createCanvas` — admin only (D21)
 
