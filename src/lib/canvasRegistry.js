@@ -22,6 +22,64 @@ const RECORD_PREFIX = 'canvas:';
 const NAME_PREFIX = 'canvasName:';
 const RECORD_VERSION = 1;
 
+// Card previews are data URLs (~40–90 KB each), so they cannot ride in the
+// dashboard summary cache without risking the KVS document limit. They live in
+// their own installation-level document, keyed by a stamp that changes whenever
+// a preview is written or cleared.
+const PREVIEW_STAMP_KEY = 'canvasPreviewStamp';
+const PREVIEW_CACHE_KEY = 'canvasPreviewCache';
+const PREVIEW_CACHE_MAX_CHARS = 120000;
+
+/** Changes whenever any canvas preview is written or cleared. */
+export async function readPreviewStamp() {
+  try {
+    const value = await kvsGet(PREVIEW_STAMP_KEY);
+    return typeof value === 'number' ? value : 0;
+  } catch (e) {
+    return 0;
+  }
+}
+
+async function bumpPreviewStamp() {
+  const next = Date.now();
+  try {
+    await kvsSet(PREVIEW_STAMP_KEY, next);
+  } catch (e) {
+    // The stamp is an optimisation: a stale cache only delays a new preview.
+  }
+  return next;
+}
+
+/** The cached `{ key: dataUrl }` map, or null when absent. */
+export async function loadPreviewCache() {
+  try {
+    const value = await kvsGet(PREVIEW_CACHE_KEY);
+    if (!value || typeof value !== 'object' || !value.previews) return null;
+    return value;
+  } catch (e) {
+    return null;
+  }
+}
+
+/**
+ * Cache the preview map, but only while it comfortably fits a KVS document.
+ * A larger install falls back to reading the records, which is slower but never
+ * wrong — the alternative is a cache write that fails on every request.
+ */
+export async function savePreviewCache(previews, stamp) {
+  const payload = { stamp, previews };
+  try {
+    if (JSON.stringify(payload).length > PREVIEW_CACHE_MAX_CHARS) {
+      await kvsDelete(PREVIEW_CACHE_KEY);
+      return false;
+    }
+    await kvsSet(PREVIEW_CACHE_KEY, payload);
+    return true;
+  } catch (e) {
+    return false;
+  }
+}
+
 export { normaliseCanvasName, findRecordByName };
 
 export function generatedCanvasKey(name) {
@@ -187,7 +245,9 @@ export async function setCanvasThumbnail(key, dataUrl) {
     thumbnailVersion: 2,
   };
   delete next.thumbnailNote;
-  return writeCanvasRecord(next);
+  const written = await writeCanvasRecord(next);
+  await bumpPreviewStamp();
+  return written;
 }
 
 /**
@@ -254,7 +314,9 @@ export async function clearCanvasThumbnail(key) {
   delete next.thumbnailAt;
   delete next.thumbnailVersion;
   delete next.thumbnailNote;
-  return writeCanvasRecord(next);
+  const written = await writeCanvasRecord(next);
+  await bumpPreviewStamp();
+  return written;
 }
 
 export async function setCanvasArchived(key, archived) {
@@ -269,6 +331,7 @@ export async function deleteCanvasRecord(key) {
     await kvsDelete(canvasRecordKey(key));
     // Name index entries are left in place: deleting them could make a
     // recreated canvas adopt old tickets silently.
+    await bumpPreviewStamp();
   } catch (e) {
     // ignore
   }

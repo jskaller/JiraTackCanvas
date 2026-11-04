@@ -1,7 +1,7 @@
 import { beforeEach, test } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { kvs, resetKvs } from '../../../scripts/test-support/stubs/forge-kvs.mjs';
+import { kvs, kvsStats, resetKvs } from '../../../scripts/test-support/stubs/forge-kvs.mjs';
 import { resetApi, onPath, jsonResponse, unmatchedRequests } from '../../../scripts/test-support/stubs/forge-api.mjs';
 import {
   canvasNameIndexKey,
@@ -182,4 +182,44 @@ test('a ticket carrying a stale canvas key still matches by name', async () => {
 
   assert.deepEqual(result.data.pins.map((pin) => pin.key), ['TEST-10']);
   assert.equal(result.data.canvasKey, record.key);
+});
+
+/**
+ * A seed-key canvas with a lost index row can only be found by scanning. The
+ * first call repairs the row; later polls must not scan again.
+ */
+test('a lost index row is repaired so polling stops scanning every record', async () => {
+  const { record } = await ensureCanvasRecord({ name: 'Cancer Pages', seedKey: 'KAN-90' });
+  await kvs.delete(canvasNameIndexKey('Cancer Pages'));
+  stubSearch([
+    jiraIssue({
+      key: 'TEST-30',
+      metadata: pinMetadata({
+        canvas: 'Cancer Pages',
+        canvasId: record.key,
+        url: 'https://example.com/',
+      }),
+    }),
+  ]);
+
+  const first = await getPinsForCanvasAndUrl(
+    { canvasId: 'Cancer Pages', url: 'https://example.com/', all: true },
+    CREATE_CLAIMS,
+  );
+  assert.equal(first.data.canvasKey, record.key);
+  assert.equal(await kvs.get(canvasNameIndexKey('Cancer Pages')), record.key);
+
+  const before = kvsStats();
+  const second = await getPinsForCanvasAndUrl(
+    { canvasId: 'Cancer Pages', url: 'https://example.com/', all: true },
+    CREATE_CLAIMS,
+  );
+  const after = kvsStats();
+
+  assert.equal(second.data.pins.length, 1);
+  assert.equal(
+    (after.queries['canvas:'] || 0) - (before.queries['canvas:'] || 0),
+    0,
+    'the second poll must not scan the records',
+  );
 });

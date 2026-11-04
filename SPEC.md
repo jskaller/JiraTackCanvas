@@ -292,6 +292,10 @@ userTokens:<token>  → { userId, installationId, scope, isAdmin, permittedProje
                         issuedAt, expiresAt, revoked }
 jiratack_licensed_users:<accountId> → true
 sessionSigningSecret → string
+canvas:<key> → { key, name, names, folder, archived, thumbnail?, thumbnailAt?, thumbnailVersion?, thumbnailNote? }
+canvasName:<normalised> → <key>            // every name the canvas has ever had
+canvasPreviewStamp → number                // changes whenever a preview is written or cleared
+canvasPreviewCache → { stamp, previews: { <key>: dataUrl } }   // ≤ 120k chars, else absent
 ```
 
 The signing secret is created with `keyPolicy: 'FAIL_IF_EXISTS'` (the KVS API's actual compare-and-set; the older `must_be_missing` option is not supported and silently degraded to an overwrite until 2026-10-31). It is currently stored as a plain KVS value, not with `kvs.setSecret`; migration is tracked in the security review.
@@ -613,7 +617,7 @@ Admin-only actions are hidden for non-admins **and** every privileged resolver r
   - **Access** — open the canvas in Jira, invite a guest.
 - Archive and delete are confirmed in a modal; delete is refused while any ticket is not Done. Deleted and archived canvases are tracked in `installationConfig` and reflected on the registry record.
 
-**Canvas keys (D42).** A canvas is identified by its seed ticket key (`KAN-123`, or `c-xxxxxxxx` when no seed exists); the name is an editable label. Every historical name stays indexed, so tickets written before a rename still resolve to the canvas. One resolver decides which canvas an id refers to, whether the id is a key or a label: record key, then the name index, then the deterministic key derived from the name, then (only if needed) a scan of the records. A ticket records the **label** in `pin.canvas` and the **key** in `pin.canvasId`; a generated key that resolves to nothing is refused rather than recreated. The launcher shows one entry per canvas label.
+**Canvas keys (D42).** A canvas is identified by its seed ticket key (`KAN-123`, or `c-xxxxxxxx` when no seed exists); the name is an editable label. Every historical name stays indexed, so tickets written before a rename still resolve to the canvas. One resolver decides which canvas an id refers to, whether the id is a key or a label: record key, then the name index, then the deterministic key derived from the name, then (only if needed) a scan of the records. A resolution that had to bypass the name index repairs that row, so a lost index costs one scan rather than one per call. A ticket records the **label** in `pin.canvas` and the **key** in `pin.canvasId`; a generated key that resolves to nothing is refused rather than recreated. The launcher shows one entry per canvas label.
 
 **Registry health (admin).** The admin page can report what is actually stored — canvases, name-index rows, orphaned rows, unindexed records, duplicate labels, previews, legacy preview keys, and tickets missing a canvas key or resolving to nothing — with samples. Read-only; it exists so compatibility fallbacks are retired on evidence.
 

@@ -748,9 +748,16 @@ registryHealth(context, {})
 `resolveCanvas` is the only place that turns an id into a record. Order: the value as a
 record key → the `canvasName:` index → the deterministic `generatedCanvasKey(name)` (one
 read covers pre-seed canvases) → optionally a full record scan (a seed-key canvas whose
-index row was lost). `looksLikeRecordKey` only decides whether an attempted key read is
+index row was lost). A resolution that bypassed the index writes the missing
+`canvasName:<name>` row (best effort), so a lost index costs one scan rather than one per
+call — `getPins` runs every 15 seconds. `looksLikeRecordKey` only decides whether an attempted key read is
 worth doing; `isGeneratedCanvasKey` (`c-` plus eight hex characters) is the one shape that is
 never a human name, so it can be refused when unknown.
+
+Card previews are cached separately from the dashboard summary
+(`canvasPreviewCache` + `canvasPreviewStamp`, ≤ 120k characters; absent when too large),
+because data URLs would exceed the KVS document limit. A write or clear bumps the stamp and
+the next dashboard read rebuilds the map once.
 
 `registryHealth` is read-only and admin-only. It reports orphaned index rows, records with
 an unindexed name, duplicate labels, previews stored versus missing, legacy

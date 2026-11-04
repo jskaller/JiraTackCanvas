@@ -13,8 +13,8 @@
 | | Value | Source |
 | --- | --- | --- |
 | Tagged commit (pre-deploy snapshot) | `git rev-parse baseline/pre-pivot-2026-10-30` | git |
-| App version (deployed) | **5.82.0** | `forge deploy` output, `forge install list` |
-| Development last deployed | 2026-11-04T23:25Z (scopes unchanged unless stated) | `forge deploy list` |
+| App version (deployed) | **5.83.0** | `forge deploy` output, `forge install list` |
+| Development last deployed | 2026-11-04T23:39Z (scopes unchanged unless stated) | `forge deploy list` |
 | Installation | upgraded to major 5 | `forge install --upgrade` |
 | SDK hash (deployed) | `86da66a835c1` | served `ETag`, `src/lib/version.js` |
 | SDK hash (tree) | `86da66a835c1` | `src/lib/version.js` |
@@ -27,7 +27,7 @@
 
 ## 2. Deployed vs tree
 
-**Deployed 2026-11-04.** Development runs the current tree as app **5.82.0**, SDK `86da66a835c1`, four scopes. No `forge install --upgrade` was needed: scopes were unchanged since 5.0.0.
+**Deployed 2026-11-04.** Development runs the current tree as app **5.83.0**, SDK `86da66a835c1`, four scopes. No `forge install --upgrade` was needed: scopes were unchanged since 5.0.0.
 
 | Change | Commits | Status |
 | --- | --- | --- |
@@ -74,6 +74,7 @@
 | Card preview shows the full page width: the card clips the bottom of the image instead of `object-fit: cover` cropping the sides, and the capture always scrolls to the top-left and renders at the exact viewport width (no offset) (5.80.0) | working tree (uncommitted) | **Deployed** 2026-11-04 as 5.80.0 — SDK `86da66a835c1`; unit 28, harness 166/166 |
 | Card previews have one generation: a pre-5.72 `canvasThumb:` key is adopted onto the canvas record and deleted; resolver/webtrigger tests (28) with in-memory Forge stubs; the deployment ledger is written and checked by a script | working tree (uncommitted) | **Deployed** 2026-11-04 as 5.81.0 |
 | One canvas identity resolver used by every surface (key, name index, deterministic key, optional scan); labels and keys separated in metadata; read-only registry health report on the admin page — architecture-review items 1 and 3 | working tree (uncommitted) | **Deployed** 2026-11-04 as 5.82.0 |
+| A lost `canvasName:` row is repaired on use (no scan per 15 s poll); card previews cached under a stamp so a warm dashboard read no longer scans every record — architecture-review items 2 and 4 | working tree (uncommitted) | **Deployed** 2026-11-04 as 5.83.0 |
 
 **Deployed scopes are the four in `manifest.yml`.** Confirmed with `forge version details -e development --non-interactive --json`: `storage:app`, `read:jira-work`, `write:jira-work`, `read:jira-user`. The two `manage:jira-*` scopes were dropped before 5.0.0.
 

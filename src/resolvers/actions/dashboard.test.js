@@ -1,7 +1,7 @@
 import { beforeEach, test } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { readKvs, resetKvs, seedKvs } from '../../../scripts/test-support/stubs/forge-kvs.mjs';
+import { kvsStats, readKvs, resetKvs, seedKvs } from '../../../scripts/test-support/stubs/forge-kvs.mjs';
 import { resetApi, onPath, jsonResponse } from '../../../scripts/test-support/stubs/forge-api.mjs';
 import { ensureCanvasRecord, readCanvasRecord, setCanvasThumbnail } from '../../lib/canvasRegistry.js';
 import { dashboardAggregate } from './dashboard.js';
@@ -175,4 +175,42 @@ test('a stale canvas key on a ticket does not split the canvas', async () => {
   assert.equal(result.data.canvases.length, 1);
   assert.equal(result.data.canvases[0].canvasKey, record.key);
   assert.equal(result.data.canvases[0].ticketCount, 2);
+});
+
+/**
+ * Previews are the only reason the dashboard used to read every record on every
+ * view. They are cached under a stamp, so a warm read costs no scan — and a
+ * preview written later still appears, because the stamp changes.
+ */
+test('a warm dashboard read does not rescan the records, and a new preview still appears', async () => {
+  const { record } = await ensureCanvasRecord({ name: 'Cached canvas' });
+  stubSearch([
+    jiraIssue({
+      key: 'TEST-40',
+      metadata: pinMetadata({
+        canvas: 'Cached canvas',
+        canvasId: record.key,
+        url: 'https://example.com/',
+      }),
+    }),
+  ]);
+
+  const first = await dashboardAggregate(ADMIN_CONTEXT, {});
+  assert.equal(first.data.canvases[0].thumbnail, null);
+  assert.ok(readKvs('canvasPreviewCache'), 'the preview map should be cached');
+
+  const afterFirst = kvsStats();
+  const second = await dashboardAggregate(ADMIN_CONTEXT, {});
+  const afterSecond = kvsStats();
+
+  assert.equal(second.data.canvases[0].thumbnail, null);
+  assert.equal(
+    (afterSecond.queries['canvas:'] || 0) - (afterFirst.queries['canvas:'] || 0),
+    0,
+    'a warm read must not scan the records',
+  );
+
+  await setCanvasThumbnail(record.key, THUMBNAIL);
+  const third = await dashboardAggregate(ADMIN_CONTEXT, {});
+  assert.equal(third.data.canvases[0].thumbnail, THUMBNAIL);
 });

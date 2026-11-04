@@ -7,7 +7,7 @@ All notable changes to JiraTack.
 > the description marker, recovery). They are kept for history and are **not**
 > a description of current behaviour — see `SPEC.md` v3.0 for that. The
 > `0.9.0`-style headings track `package.json`, not the Forge app version
-> (currently 5.82.0 in development).
+> (currently 5.83.0 in development).
 
 ## [Unreleased]
 
@@ -27,6 +27,13 @@ All notable changes to JiraTack.
   the admin page as an installation-level setting.
 
 ### Install, guests and organisation
+
+- **Resolution heals the registry, and previews no longer force a record scan.** A lookup
+  that had to bypass the missing `canvasName:` row now writes it back, so a canvas with a
+  lost index costs one scan instead of a scan on every 15-second poll. Card previews are
+  cached in their own document under a stamp (data URLs would exceed the KVS limit), so a
+  warm dashboard read no longer reads every canvas record; a write or clear bumps the stamp
+  and the next read rebuilds once.
 
 - **One canvas identity resolver, and a registry health report.** Every surface now asks
   the same function which canvas an id refers to (key, name index, deterministic key, then

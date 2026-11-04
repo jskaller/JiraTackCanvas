@@ -10,7 +10,10 @@ import {
   ensureCanvasRecord,
   loadCanvasNameIndex,
   loadCanvasRecords,
+  loadPreviewCache,
   normaliseCanvasName,
+  readPreviewStamp,
+  savePreviewCache,
 } from '../../lib/canvasRegistry.js';
 import { findCanvasKeyInMaps } from '../../lib/canvasIdentity.js';
 import { kvsGet, kvsSet, kvsDelete } from '../../lib/kvs.js';
@@ -82,6 +85,13 @@ async function computeAggregate(context) {
   }
 
   const nameIndex = await loadCanvasNameIndex();
+
+  // The preview map rides alongside the summary but not inside it: data URLs
+  // would blow the cache document (see canvasRegistry.savePreviewCache).
+  const previews = {};
+  for (const [recordKey, record] of records) {
+    if (record.thumbnailVersion === 2 && record.thumbnail) previews[recordKey] = record.thumbnail;
+  }
 
   async function canvasKeyFor(metadata) {
     const pin = (metadata && metadata.pin) || {};
@@ -234,6 +244,7 @@ async function computeAggregate(context) {
       ok: true,
       data: {
         canvases: summaries,
+        previews,
         configVersion: config.configVersion || '',
         hasAccess,
         isAdmin,
@@ -272,27 +283,51 @@ export async function dashboardAggregate(context, payload) {
   }
 
   let snapshot = cached && cached.at && (Date.now() - cached.at) < CACHE_TTL_MS ? cached : null;
+  let previews = null;
+
   if (!snapshot) {
     const computed = await computeAggregate(context);
     if (!computed.ok) return computed;
-    snapshot = { at: Date.now(), ...computed.data };
+    const { previews: computedPreviews, ...summary } = computed.data;
+    previews = computedPreviews || {};
+    snapshot = { at: Date.now(), ...summary };
     try {
       await kvsSet(cacheKey, snapshot, { ttl: { value: 1, unit: 'HOURS' } });
     } catch (e) {
       // A cache write failure only costs the next caller a rescan.
     }
+    // Written after computing, so a preview adopted during the aggregate is
+    // included and the stamp it is filed under is current.
+    await savePreviewCache(previews, await readPreviewStamp());
   }
 
   const config = await getInstallationConfig();
 
   const search = payload && typeof payload.search === 'string' ? payload.search.trim().toLowerCase() : '';
-  // Previews live on the canvas records; attach fresh so clearing shows at once.
-  const records = await loadCanvasRecords();
-  let list = snapshot.canvases.map((canvas) => {
-    const record = records.get(canvas.canvasKey) || null;
-    const thumbnail = record && record.thumbnailVersion === 2 ? record.thumbnail || null : null;
-    return { ...canvas, thumbnail };
-  });
+
+  // Previews live on the canvas records. Reading every record on every page
+  // view cost ~40 queries at the record cap, so they are cached under a stamp
+  // that any write bumps; a changed stamp rebuilds once, in the background of
+  // this request. Too many previews to cache falls back to reading records.
+  if (!previews) {
+    const stamp = await readPreviewStamp();
+    const cachedPreviews = await loadPreviewCache();
+    if (cachedPreviews && cachedPreviews.stamp === stamp) {
+      previews = cachedPreviews.previews;
+    } else {
+      const records = await loadCanvasRecords();
+      previews = {};
+      for (const [recordKey, record] of records) {
+        if (record.thumbnailVersion === 2 && record.thumbnail) previews[recordKey] = record.thumbnail;
+      }
+      await savePreviewCache(previews, stamp);
+    }
+  }
+
+  let list = snapshot.canvases.map((canvas) => ({
+    ...canvas,
+    thumbnail: previews[canvas.canvasKey] || null,
+  }));
 
   if (search) {
     list = list.filter((canvas) => String(canvas.canvasName || '').toLowerCase().includes(search)

@@ -131,3 +131,20 @@ test('key-shape helpers do not claim ordinary names', () => {
   assert.equal(looksLikeRecordKey('c-abcdef12'), true);
   assert.equal(looksLikeRecordKey('Q3 Marketing'), false);
 });
+
+/**
+ * Resolution must not pay a scan on every call: a lookup that had to bypass the
+ * name index writes the row back, which is what stops `getPins` scanning every
+ * 15 seconds for a canvas whose index was lost.
+ */
+test('a resolution that bypasses the index repairs it, once', async () => {
+  const generated = await seed({ name: 'Generated' });
+  await kvs.delete(canvasNameIndexKey('Generated'));
+  await resolveCanvas({ canvasName: 'Generated' });
+  assert.equal(await kvs.get(canvasNameIndexKey('Generated')), generated.key);
+
+  const seeded = await seed({ name: 'Seeded', seedKey: 'KAN-12' });
+  await kvs.delete(canvasNameIndexKey('Seeded'));
+  await resolveCanvas({ canvasName: 'Seeded' }, { scan: true });
+  assert.equal(await kvs.get(canvasNameIndexKey('Seeded')), seeded.key);
+});

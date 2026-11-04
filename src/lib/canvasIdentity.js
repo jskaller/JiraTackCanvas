@@ -1,10 +1,12 @@
 import {
+  canvasNameIndexKey,
   findCanvasKeyForName,
   generatedCanvasKey,
   loadCanvasRecords,
   readCanvasRecord,
 } from './canvasRegistry.js';
 import { findRecordByName, normaliseCanvasName } from './canvasNames.js';
+import { kvsSet } from './kvs.js';
 
 /**
  * Canvas identity (D42, consolidated).
@@ -45,6 +47,23 @@ function trim(value) {
   return typeof value === 'string' ? value.trim() : '';
 }
 
+/**
+ * A resolution that had to bypass the name index repairs it, once. Otherwise a
+ * canvas with a lost index row pays for a full record scan on every call — and
+ * `getPins` runs every 15 seconds.
+ */
+async function repairNameIndex(record, extraNames) {
+  const names = new Set([...(record.names || []), ...extraNames]);
+  for (const name of names) {
+    if (!name) continue;
+    try {
+      await kvsSet(canvasNameIndexKey(name), record.key);
+    } catch (e) {
+      // A failed repair only costs the next caller a scan.
+    }
+  }
+}
+
 function nameCandidates(key, name) {
   const values = [];
   if (name) values.push(name);
@@ -74,22 +93,31 @@ export async function resolveCanvas({ canvasKey, canvasName } = {}, options = {}
     if (record) return record;
   }
 
+  let indexMissed = false;
   for (const candidate of nameCandidates(key, name)) {
     const indexedKey = await findCanvasKeyForName(candidate);
     if (indexedKey) {
       const record = await readCanvasRecord(indexedKey);
       if (record) return record;
+    } else {
+      indexMissed = true;
     }
     // Pre-seed canvases are keyed by a hash of their name: one read, no scan.
     const derived = await readCanvasRecord(generatedCanvasKey(candidate));
-    if (derived) return derived;
+    if (derived) {
+      if (indexMissed) await repairNameIndex(derived, [candidate]);
+      return derived;
+    }
   }
 
   if (options.scan) {
     const records = await loadCanvasRecords();
     for (const candidate of nameCandidates(key, name)) {
       const found = findRecordByName(records, candidate);
-      if (found) return found;
+      if (found) {
+        await repairNameIndex(found, [candidate]);
+        return found;
+      }
     }
   }
 
