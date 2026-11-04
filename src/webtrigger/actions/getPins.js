@@ -5,8 +5,7 @@ import { normalizeUrl } from '../../shared/urlNormalize.js';
 import { isFilteredStatus, isRemovedStatus } from '../../lib/statusFilter.js';
 import { canAccessCanvas, canAccessProject } from '../middleware/scope.js';
 import { METADATA_PROPERTY_KEY, metadataFromIssue } from '../../lib/metadata.js';
-import { findCanvasKeyForName, loadCanvasRecords, readCanvasRecord } from '../../lib/canvasRegistry.js';
-import { findRecordByName } from '../../lib/canvasNames.js';
+import { canvasIdsFromPayload, resolveCanvas } from '../../lib/canvasIdentity.js';
 
 const PAGE_SIZE = 100;
 const MAX_SCANNED = 2000;
@@ -67,6 +66,20 @@ export async function getPinsForCanvasAndUrl(payload, claims) {
 
   const config = await getInstallationConfig();
 
+  // One resolver for every surface (D42). The request id may be a key or a
+  // label; tickets store the label in `pin.canvas` and the key in
+  // `pin.canvasId`, so resolve once and match on both. A pre-seed canvas
+  // resolves in a single read; only a seed-key canvas whose index row was lost
+  // falls back to scanning the records.
+  const canvas = await resolveCanvas(canvasIdsFromPayload({ canvasId: canvasName }), { scan: true });
+  const canvasKey = canvas ? canvas.key : null;
+  const canvasHasThumbnail = Boolean(canvas && canvas.thumbnailVersion === 2 && canvas.thumbnail);
+  const canvasNames = new Set(canvas ? canvas.names : [canvasName]);
+  const belongsToCanvas = (metadata) => {
+    if (canvasKey && metadata.pin.canvasId === canvasKey) return true;
+    return canvasNames.has(metadata.pin.canvas);
+  };
+
   const normalizedUrl = normalizeUrl(url);
   const wantAll = Boolean(payload && payload.all);
 
@@ -113,7 +126,7 @@ export async function getPinsForCanvasAndUrl(payload, claims) {
       for (const issue of issues) {
         const metadata = metadataFromIssue(issue);
         if (!metadata) continue;
-        if (metadata.pin.canvas !== canvasName) continue;
+        if (!belongsToCanvas(metadata)) continue;
 
         const issueUrl = metadata.pin.url;
         if (!wantAll) {
@@ -141,24 +154,15 @@ export async function getPinsForCanvasAndUrl(payload, claims) {
     return errorResult('INTERNAL', e && e.message ? e.message : String(e));
   }
 
-  // The name index can be missing for a pre-D42 canvas; the records know the
-  // name even when the index row does not.
-  const canvasKey = (await findCanvasKeyForName(canvasName))
-    || (findRecordByName(await loadCanvasRecords(), canvasName) || {}).key
-    || null;
-  let canvasHasThumbnail = false;
-  if (canvasKey) {
-    const record = await readCanvasRecord(canvasKey);
-    canvasHasThumbnail = Boolean(record && record.thumbnailVersion === 2 && record.thumbnail);
-  }
-
   return {
     ok: true,
     data: {
       pins,
       canvasKey: canvasKey || null,
       canvasHasThumbnail,
-      canvasName: claims.canvasName || canvasName,
+      // The record's current label wins: a client that sent a key still sees
+      // the name the canvas has today, even after a rename.
+      canvasName: (canvas && canvas.name) || claims.canvasName || canvasName,
       configVersion: config.configVersion || '',
       // Scan caps can silently drop pins; tell the client the list may be partial.
       truncated: scanned >= MAX_SCANNED && Boolean(nextPageToken),

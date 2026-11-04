@@ -5,6 +5,7 @@ import { normalizeUrl } from '../../shared/urlNormalize.js';
 import { METADATA_PROPERTY_KEY, metadataFromIssue } from '../../lib/metadata.js';
 import { loadCanvasNameIndex, loadCanvasRecords, normaliseCanvasName } from '../../lib/canvasRegistry.js';
 import { findRecordByName } from '../../lib/canvasNames.js';
+import { findCanvasKeyInMaps } from '../../lib/canvasIdentity.js';
 
 const PAGE_SIZE = 100;
 const MAX_TICKETS = 2000;
@@ -54,15 +55,16 @@ export async function listCanvasesForUser(payload, claims) {
         const capturedName = metadata.pin.canvas;
         if (!capturedName) continue;
 
-        // Index rows can be missing (interrupted write, pre-D42 build), so fall
-        // back to the records themselves before treating a ticket as keyless —
-        // a keyless group is what listed one canvas twice.
-        const byName = findRecordByName(records, capturedName);
-        const canvasKey = metadata.pin.canvasId
-          || nameIndex.get(normaliseCanvasName(capturedName))
-          || (byName ? byName.key : null)
+        // One resolver decides which canvas a ticket belongs to (D42). A
+        // keyless group is what listed one canvas twice.
+        const canvasKey = findCanvasKeyInMaps(
+          { canvasKey: metadata.pin.canvasId, canvasName: capturedName },
+          records,
+          nameIndex,
+        );
+        const record = (canvasKey && records.get(canvasKey))
+          || findRecordByName(records, capturedName)
           || null;
-        const record = (canvasKey && records.get(canvasKey)) || byName || null;
         const displayName = (record && record.name) || capturedName;
         // Group by the stable key when one is known, otherwise by name so a
         // mixed set of old and new tickets still lands in one entry.

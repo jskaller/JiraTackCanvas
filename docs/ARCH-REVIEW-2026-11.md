@@ -211,12 +211,16 @@ same shape as the existing `admin`/`getPins` tests.
 | **2** | `getPins` loads all records every 15 s when the index misses | Client sends `canvasKey` (the launcher list already carries it); server falls back to one deterministic read | Low | S | Removes an O(all canvases) loop |
 | **3** | Legacy data is invisible, fallbacks are guesses | Registry health report: index orphans, tickets without `canvasId`, legacy thumb keys, duplicate labels | Low | S/M | Makes legacy observable; unblocks deleting fallbacks |
 | **4** | Warm dashboard scans all records per view | Attach previews from the cached snapshot (already invalidated on write) or only for the visible page | Low | S | ~42 → ~2 KVS reads per view |
-| **5** | Name-based joins persist only for legacy tickets | One idempotent admin pass stamping `pin.canvasId` | Medium (writes to tickets) | M | Lets the name fallbacks die |
+| **5** | Name-based joins persist only for legacy tickets | One idempotent admin pass stamping `pin.canvasId` — **optional**: D42 records that legacy tickets are explicitly out of scope | Medium (writes to tickets) | M | Lets the name fallbacks die |
 | **6** | Launcher rebuilds the registry on every open | Cache `{records, index}` with write invalidation | Low | S/M | ~141 → a handful per open |
 | **7** | Five documents per behaviour change | Archive historical TEST_PLAN parts, generate CHANGELOG from commits, keep SPEC/CONTRACTS/DECISIONS | Low | S/M | Faster, less drift |
 | **8** | `exchangeToken` and upload paths untested | Add resolver-style tests with the new stubs | Low | S/M | Session/upload regressions caught |
 | **9** | `index.js` state object (2,071 lines) | Extract composer, pins/status, navigation into modules with own state | High | L | Fewer subtle overlay bugs — **defer** |
 | 10 | One dead identity resolver | Delete `resolveCanvasKey` after item 1 | Low | S | Stops reuse by mistake |
+
+**Status (5.82.0):** items **1** and **3** are done. `resolveCanvas` is the only identity
+resolver, and the registry report ships on the admin page. Items 2, 4, 5, 6, 7, 8 and 10
+remain open.
 
 **Sequence:** 1 → 3 → 2 → 4 → 6, then reassess 5, 7, 8. Item 1 removes the bug class;
 item 3 makes the data visible before any more fallbacks are deleted; 2/4/6 are cheap and

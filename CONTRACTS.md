@@ -245,8 +245,12 @@ Errors: `BAD_REQUEST` (no token), `TOKEN_INVALID`, `TOKEN_EXPIRED`.
 ```text
 Request:  { action: "getPinsForCanvasAndUrl", payload: { canvasId, url, all?: boolean } }
 Auth:     Bearer, scope create | view | guest_create
-Success:  { pins: [PinRecord], canvasName, configVersion, truncated }
+Success:  { pins: [PinRecord], canvasKey, canvasName, canvasHasThumbnail, configVersion, truncated }
 ```
+
+`canvasId` may be the stable key or the label; `resolveCanvas` decides (see §4.8e). The
+response always includes `canvasKey` and the record's **current** label in `canvasName`, so a
+client that sent a key still displays the name after a rename.
 
 Behaviour:
 
@@ -254,7 +258,7 @@ Behaviour:
 
 2. Search `labels = "jiratack"` with `properties: ["com.jiratack.metadata"]`, pages of 100, scanning up to 2,000 issues (§7.1).
 
-3. Skip issues without metadata; skip canvas mismatch; unless `all` is true, skip URL mismatch after normalisation.
+3. Skip issues without metadata; skip a canvas mismatch (a ticket matches when its `pin.canvasId` equals the resolved key, or its `pin.canvas` is one of the record's names); unless `all` is true, skip URL mismatch after normalisation.
 
 4. Skip any issue whose status is literally named `Removed` (case-insensitive); those never reach the client, whatever the rule says (D38).
 
@@ -558,7 +562,7 @@ Canvas creation is **admin-only on both paths** (D21); the earlier "creation is 
 ```text
 generateCanvasToken(context, payload)
   → { ok, data: { token, sessionJwt, apiUrl, sdkUrl, sdkVersion,
-                  canvasId, canvasName, scope, permittedProjects } }
+                  canvasId, canvasKey, canvasName, scope, permittedProjects } }
 Payload: { canvasName: string, scope: "create" | "view" }
 ```
 
@@ -572,7 +576,7 @@ Payload: { canvasName: string, scope: "create" | "view" }
    - With a canvas name and a non-`*` list: search `labels = "jiratack"` (100 max), collect the project keys of that canvas's tickets, intersect. Non-empty canvas and empty intersection → `NO_CANVAS_ACCESS`. An empty canvas issues the token; the viewer sees an empty overlay.
    - With no canvas name (personal and guest tokens) the intersection step is skipped.
 
-4. **Mint:** 64-hex token, record per §2.1 including `isAdmin`, TTL 30 days, plus a signed JWT so the caller can skip an exchange round-trip. Returns `apiUrl` and `sdkUrl` resolved independently (D10) and `sdkVersion` (D13).
+4. **Mint:** 64-hex token, record per §2.1 including `isAdmin`, TTL 30 days, plus a signed JWT so the caller can skip an exchange round-trip. Returns `apiUrl` and `sdkUrl` resolved independently (D10) and `sdkVersion` (D13). `canvasId` remains the label for older clients; `canvasKey` is the stable id (`null` when the canvas has no record yet).
 
 ### 4.2 `dashboardAggregate`
 
@@ -726,10 +730,33 @@ listAvailableTextFields(context) → { ok, data: { fields: [{ id, name }] } }
 - All three require Jira admin.
 - `listConfiguredProjects` returns the enabled project keys from the installation config; the create-canvas modal picks one so the right text-field catalogue loads.
 - `getCanvasConfig` resolves a key or name, reads the record for the label, and reads `canvasAux:<hash>`; it normalises both the current and the legacy D41 shapes (the older record's `projectKey` is ignored). `thumbnailCaptured` reports whether the record holds a card preview (`thumbnailVersion: 2` plus image data) and `thumbnailNote` carries the last failure reason recorded by `createIssue`.
-- `createIssue` accepts `canvasThumbnail` (a `data:image/*` URL, ≤ 150 000 chars) and `canvasThumbnailNote` (≤ 200 chars). The preview is written to the canvas record as `thumbnail`/`thumbnailAt`/`thumbnailVersion: 2`; when no usable image arrives and the record has none, the note is stored as `thumbnailNote` so the dashboard can show why. A canvas id that is an existing record key (`c-…`) resolves to that record, not to a new record named after the key. A preview held by the pre-5.72 `canvasThumb:<key>` record is adopted onto the canvas record on first read (`adoptLegacyThumbnail`) and the old key deleted; `clearCanvasPreview` removes both.
+- `createIssue` accepts `canvasThumbnail` (a `data:image/*` URL, ≤ 150 000 chars) and `canvasThumbnailNote` (≤ 200 chars). The preview is written to the canvas record as `thumbnail`/`thumbnailAt`/`thumbnailVersion: 2`; when no usable image arrives and the record has none, the note is stored as `thumbnailNote` so the dashboard can show why. A canvas id that is an existing record key (`c-…`) resolves to that record, not to a new record named after the key; a generated key that resolves to nothing answers `NOT_FOUND` (the canvas was deleted, and recreating a record named after the key would resurrect it). `pin.canvas` is always the canvas **label** and `pin.canvasId` the stable key, even when the client sent a key. A preview held by the pre-5.72 `canvasThumb:<key>` record is adopted onto the canvas record on first read (`adoptLegacyThumbnail`) and the old key deleted; `clearCanvasPreview` removes both.
 - `setCanvasConfig` validates through `normalizePrefillFields` → `BAD_REQUEST` on a bad row, and replaces the stored pre-fills; the record is `{ version: 2, prefillFields }`.
 - `renameCanvas` changes only the label: the key and the ticket data are untouched, and every previous name stays indexed. A name already used by another canvas → `VALIDATION_ERROR`. Archive/delete name lists are rewritten to the new name.
 - `listAvailableTextFields` returns the installation-level catalogue (`installationConfig.textFields`); while it is empty it unions the per-project lists from the first D41 cut, so existing configs keep working.
+
+### 4.8e Canvas identity (`resolveCanvas`) and `registryHealth` — admin only
+
+```text
+resolveCanvas({ canvasKey?, canvasName? }, { scan? })     // internal helper, not a resolver
+registryHealth(context, {})
+  → { ok, data: { canvases, nameIndexRows, orphanIndexRows, unindexedCanvases,
+                  duplicateLabels, legacyPreviewKeys, previews: { captured, missing },
+                  tickets: { scanned, withoutCanvasId, unresolved }, samples: {…} } }
+```
+
+`resolveCanvas` is the only place that turns an id into a record. Order: the value as a
+record key → the `canvasName:` index → the deterministic `generatedCanvasKey(name)` (one
+read covers pre-seed canvases) → optionally a full record scan (a seed-key canvas whose
+index row was lost). `looksLikeRecordKey` only decides whether an attempted key read is
+worth doing; `isGeneratedCanvasKey` (`c-` plus eight hex characters) is the one shape that is
+never a human name, so it can be refused when unknown.
+
+`registryHealth` is read-only and admin-only. It reports orphaned index rows, records with
+an unindexed name, duplicate labels, previews stored versus missing, legacy
+`canvasThumb:` keys, and tickets that are missing `pin.canvasId` or resolve to no record —
+with up to five samples per category. It exists so compatibility fallbacks are deleted on
+evidence rather than assumption.
 
 ### 4.9 Configuration resolvers
 

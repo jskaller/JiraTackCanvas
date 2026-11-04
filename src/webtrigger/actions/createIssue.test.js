@@ -117,3 +117,22 @@ test('a canvas id that is already a record key resolves to that record', async (
   assert.equal(stored.name, 'Shopify + Example.com');
   assert.equal(stored.thumbnail, THUMBNAIL);
 });
+
+test('an unknown generated key is refused instead of creating a phantom canvas', async () => {
+  const result = await createIssue(payload({ canvasId: 'c-00000000' }), CREATE_CLAIMS);
+
+  assert.equal(result.ok, false);
+  assert.equal(result.error.code, 'NOT_FOUND');
+  assert.equal(await findCanvasKeyForName('c-00000000'), null);
+});
+
+test('a key-shaped canvas id records the label, not the key, in pin.canvas', async () => {
+  const { record } = await ensureCanvasRecord({ name: 'Shopify + Example.com' });
+
+  const result = await createIssue(payload({ canvasId: record.key }), CREATE_CLAIMS);
+
+  assert.equal(result.ok, true);
+  const metadata = metadataWrite();
+  assert.equal(metadata.pin.canvas, 'Shopify + Example.com');
+  assert.equal(metadata.pin.canvasId, record.key);
+});

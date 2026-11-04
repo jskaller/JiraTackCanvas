@@ -10,7 +10,7 @@
     "tunnel": "forge tunnel",
     "build:extension": "node scripts/build-extension.js",
     "icons": "node scripts/make-icons.js",
-    "test:unit": "node --test src/shared/*.test.js src/lib/*.test.js src/bookmarklet/*.test.js",
+    "test:unit": "node --import ./scripts/test-support/register.mjs --test src/shared/*.test.js src/lib/*.test.js src/bookmarklet/*.test.js",
     "test:resolvers": "node --import ./scripts/test-support/register.mjs --test src/resolvers/actions/*.test.js src/webtrigger/actions/*.test.js",
     "test": "npm run test:unit && npm run test:resolvers",
     "test:extension": "node scripts/extension-harness/run.mjs",

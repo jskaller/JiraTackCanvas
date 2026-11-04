@@ -14,7 +14,9 @@ import {
   adoptLegacyThumbnail,
   clearCanvasThumbnail,
   deleteCanvasRecord,
-  findCanvasKeyForName,
+  loadCanvasNameIndex,
+  loadCanvasRecords,
+  normaliseCanvasName,
   readCanvasRecord,
   renameCanvasRecord,
   setCanvasArchived,
@@ -24,6 +26,7 @@ import { createInvite } from '../../lib/invites.js';
 import { tokenReference } from '../../lib/tokenRef.js';
 import { isJiraAdmin, requireAdmin } from '../../lib/access.js';
 import { METADATA_PROPERTY_KEY, metadataFromIssue } from '../../lib/metadata.js';
+import { canvasIdsFromPayload, findCanvasKeyInMaps, resolveCanvas } from '../../lib/canvasIdentity.js';
 import { SDK_VERSION } from '../../lib/version.js';
 
 const CANVAS_TOKEN_TTL_SECONDS = 2592000;
@@ -73,13 +76,14 @@ export async function listTextFields(context) {
   }
 }
 
-/** Resolve a canvas key from the payload (key preferred, name accepted). */
-async function canvasKeyFromPayload(payload) {
-  const key = payload && typeof payload.canvasKey === 'string' ? payload.canvasKey.trim() : '';
-  if (key) return key;
-  const name = payload && typeof payload.canvasName === 'string' ? payload.canvasName.trim() : '';
-  if (!name) return null;
-  return findCanvasKeyForName(name);
+/**
+ * Resolve the canvas a dashboard action refers to. The payload carries a key,
+ * a name, or both; `resolveCanvas` is the one place that knows the rules, so a
+ * missing name-index row no longer makes an action fail while the overlay
+ * happily resolves the same canvas.
+ */
+async function canvasFromPayload(payload) {
+  return resolveCanvas(canvasIdsFromPayload(payload), { scan: true });
 }
 
 /**
@@ -90,12 +94,13 @@ export async function getCanvasConfig(context, payload) {
   const denied = await requireAdmin(context, 'Only Jira admins can configure canvases.');
   if (denied) return denied;
 
-  const canvasKey = await canvasKeyFromPayload(payload);
-  if (!canvasKey) return errorResult('NOT_FOUND', 'That canvas is not known yet.');
+  const resolved = await canvasFromPayload(payload);
+  if (!resolved) return errorResult('NOT_FOUND', 'That canvas is not known yet.');
+  const canvasKey = resolved.key;
 
   try {
     // Adopts a preview still held by a pre-5.72 key before reporting on it.
-    const record = await adoptLegacyThumbnail(canvasKey);
+    const record = (await adoptLegacyThumbnail(canvasKey)) || resolved;
     const stored = await kvsGet(prefillConfigKey(canvasKey));
     return {
       ok: true,
@@ -120,8 +125,9 @@ export async function setCanvasConfig(context, payload) {
   const denied = await requireAdmin(context, 'Only Jira admins can configure canvases.');
   if (denied) return denied;
 
-  const canvasKey = await canvasKeyFromPayload(payload);
-  if (!canvasKey) return errorResult('NOT_FOUND', 'That canvas is not known yet.');
+  const resolved = await canvasFromPayload(payload);
+  if (!resolved) return errorResult('NOT_FOUND', 'That canvas is not known yet.');
+  const canvasKey = resolved.key;
 
   const normalised = normalizePrefillFields(payload && payload.prefillFields);
   if (!normalised.ok) {
@@ -207,14 +213,154 @@ export async function clearCanvasPreview(context, payload) {
   const denied = await requireAdmin(context, 'Only Jira admins can configure canvases.');
   if (denied) return denied;
 
-  const canvasKey = await canvasKeyFromPayload(payload);
-  if (!canvasKey) return errorResult('NOT_FOUND', 'That canvas is not known yet.');
+  const resolved = await canvasFromPayload(payload);
+  if (!resolved) return errorResult('NOT_FOUND', 'That canvas is not known yet.');
+  const canvasKey = resolved.key;
   try {
     await clearCanvasThumbnail(canvasKey);
     // Older builds stored the preview under a separate key; clear it too.
     await kvsDelete(`canvasThumb:${canvasKey}`);
     await invalidateCanvasSummary(context && context.accountId);
     return { ok: true, data: { canvasKey } };
+  } catch (e) {
+    return errorResult('INTERNAL', e && e.message ? e.message : String(e));
+  }
+}
+
+/**
+ * Registry health (D42). Legacy data is otherwise invisible: a missing
+ * `canvasName:` row, a ticket with no `canvasId`, or a preview still in the
+ * pre-5.72 key can only be guessed at. This reports what is actually there, so
+ * the remaining fallbacks can be deleted on evidence instead of hope.
+ */
+export async function registryHealth(context) {
+  const denied = await requireAdmin(context, 'Only Jira admins can inspect the canvas registry.');
+  if (denied) return denied;
+
+  try {
+    const records = await loadCanvasRecords();
+    const nameIndex = await loadCanvasNameIndex();
+
+    const orphanIndexRows = [];
+    for (const [name, key] of nameIndex) {
+      if (!records.has(key)) orphanIndexRows.push({ name, canvasKey: key });
+    }
+
+    const unindexedCanvases = [];
+    const duplicateLabels = [];
+    const labelsSeen = new Map();
+    let previewsCaptured = 0;
+    let previewsMissing = 0;
+
+    for (const record of records.values()) {
+      const missing = (record.names || []).filter((name) => !nameIndex.has(normaliseCanvasName(name)));
+      if (missing.length > 0) unindexedCanvases.push({ canvasKey: record.key, names: missing });
+
+      const label = normaliseCanvasName(record.name);
+      if (labelsSeen.has(label)) {
+        duplicateLabels.push({ label: record.name, canvasKeys: [labelsSeen.get(label), record.key] });
+      } else {
+        labelsSeen.set(label, record.key);
+      }
+
+      if (record.thumbnailVersion === 2 && record.thumbnail) previewsCaptured += 1;
+      else previewsMissing += 1;
+    }
+
+    let legacyPreviewKeys = 0;
+    try {
+      legacyPreviewKeys = (await kvsQueryAll('canvasThumb:', { max: 500, pageSize: 50 })).length;
+    } catch (e) {
+      legacyPreviewKeys = -1;
+    }
+
+    // Tickets: the ones the registry cannot place are the ones keeping the
+    // name-based fallbacks alive.
+    const tickets = { scanned: 0, withoutCanvasId: 0, unresolved: 0, withoutCanvasIdSamples: [], unresolvedSamples: [] };
+    const jql = 'labels = "jiratack" ORDER BY created DESC';
+    const PAGE_SIZE = 100;
+    const MAX_SCANNED = 2000;
+    let nextPageToken = null;
+
+    do {
+      const body = {
+        jql,
+        fields: ['project'],
+        properties: [METADATA_PROPERTY_KEY],
+        maxResults: PAGE_SIZE,
+      };
+      if (nextPageToken) body.nextPageToken = nextPageToken;
+
+      const res = await api.asUser().requestJira(route`/rest/api/3/search/jql`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      if (!res.ok) {
+        return errorResult('INTERNAL', `Jira search failed with HTTP ${res.status}.`);
+      }
+
+      const data = await res.json();
+      const issues = (data && data.issues) || [];
+      for (const issue of issues) {
+        const metadata = metadataFromIssue(issue);
+        if (!metadata) continue;
+        tickets.scanned += 1;
+
+        const pin = metadata.pin || {};
+        if (!pin.canvasId) {
+          tickets.withoutCanvasId += 1;
+          if (tickets.withoutCanvasIdSamples.length < 5) {
+            tickets.withoutCanvasIdSamples.push({ key: issue.key, canvasName: pin.canvas || null });
+          }
+          continue;
+        }
+
+        const resolvedKey = findCanvasKeyInMaps(
+          { canvasKey: pin.canvasId, canvasName: pin.canvas },
+          records,
+          nameIndex,
+        );
+        if (!resolvedKey) {
+          tickets.unresolved += 1;
+          if (tickets.unresolvedSamples.length < 5) {
+            tickets.unresolvedSamples.push({
+              key: issue.key,
+              canvasName: pin.canvas || null,
+              canvasId: pin.canvasId,
+            });
+          }
+        }
+      }
+
+      nextPageToken = data && !data.isLast ? data.nextPageToken : null;
+      if (!nextPageToken || issues.length === 0) break;
+    } while (tickets.scanned < MAX_SCANNED);
+
+    return {
+      ok: true,
+      data: {
+        canvases: records.size,
+        nameIndexRows: nameIndex.size,
+        orphanIndexRows: orphanIndexRows.length,
+        unindexedCanvases: unindexedCanvases.length,
+        duplicateLabels: duplicateLabels.length,
+        legacyPreviewKeys,
+        previews: { captured: previewsCaptured, missing: previewsMissing },
+        tickets: {
+          scanned: tickets.scanned,
+          withoutCanvasId: tickets.withoutCanvasId,
+          unresolved: tickets.unresolved,
+        },
+        samples: {
+          orphanIndexRows: orphanIndexRows.slice(0, 5),
+          unindexedCanvases: unindexedCanvases.slice(0, 5),
+          duplicateLabels: duplicateLabels.slice(0, 5),
+          withoutCanvasId: tickets.withoutCanvasIdSamples,
+          unresolved: tickets.unresolvedSamples,
+        },
+      },
+    };
   } catch (e) {
     return errorResult('INTERNAL', e && e.message ? e.message : String(e));
   }
@@ -417,6 +563,10 @@ export async function generateCanvasToken(context, payload) {
 
   const { apiUrl, sdkUrl } = await resolveWebtriggerUrls(config);
 
+  // `canvasId` stays a name for older clients; `canvasKey` is the stable id a
+  // client should use from now on (D42).
+  const canvasRecord = await resolveCanvas({ canvasName });
+
   return {
     ok: true,
     data: {
@@ -426,6 +576,7 @@ export async function generateCanvasToken(context, payload) {
       sdkUrl,
       sdkVersion: SDK_VERSION,
       canvasId: canvasName,
+      canvasKey: canvasRecord ? canvasRecord.key : null,
       canvasName,
       scope,
       permittedProjects,
@@ -703,13 +854,14 @@ export async function deleteCanvas(context, payload) {
     return errorResult('INSUFFICIENT_SCOPE', 'Admin access is required.');
   }
 
-  const canvasKey = await canvasKeyFromPayload(payload);
+  const resolved = await canvasFromPayload(payload);
+  const canvasKey = resolved ? resolved.key : null;
   const requestedName = payload && typeof payload.canvasName === 'string' ? payload.canvasName.trim() : '';
   if (!canvasKey && !requestedName) {
     return errorResult('BAD_REQUEST', 'canvasKey or canvasName is required.');
   }
 
-  const record = canvasKey ? await readCanvasRecord(canvasKey) : null;
+  const record = resolved;
   const names = Array.from(new Set([
     ...((record && record.names) || []),
     requestedName,
@@ -801,14 +953,14 @@ export async function archiveCanvas(context, payload) {
     return errorResult('INSUFFICIENT_SCOPE', 'Admin access is required.');
   }
 
-  const canvasKey = await canvasKeyFromPayload(payload);
+  const resolved = await canvasFromPayload(payload);
+  const canvasKey = resolved ? resolved.key : null;
   const requestedName = payload && typeof payload.canvasName === 'string' ? payload.canvasName.trim() : '';
   if (!canvasKey && !requestedName) {
     return errorResult('BAD_REQUEST', 'canvasKey or canvasName is required.');
   }
 
-  const record = canvasKey ? await readCanvasRecord(canvasKey) : null;
-  const canvasName = (record && record.name) || requestedName || canvasKey;
+  const canvasName = (resolved && resolved.name) || requestedName || canvasKey;
 
   try {
     await mutateInstallationConfig((draft) => {

@@ -55,6 +55,22 @@ const AdminApp = () => {
   const [fieldsSaved, setFieldsSaved] = useState(false);
   const [storeUrls, setStoreUrls] = useState({ chromeStoreUrl: '', firefoxXpiUrl: '' });
   const [storeSaved, setStoreSaved] = useState(false);
+  const [health, setHealth] = useState(null);
+  const [healthError, setHealthError] = useState(null);
+  const [healthBusy, setHealthBusy] = useState(false);
+
+  const loadHealth = async () => {
+    setHealthBusy(true);
+    setHealthError(null);
+    try {
+      const res = await invoke('registryHealth', {});
+      if (res && res.ok && res.data) setHealth(res.data);
+      else setHealthError((res && res.error && res.error.message) || 'Could not read the registry.');
+    } catch (e) {
+      setHealthError(e && e.message ? e.message : 'Could not read the registry.');
+    }
+    setHealthBusy(false);
+  };
 
   const loadInvites = async () => {
     try {
@@ -354,6 +370,63 @@ const AdminApp = () => {
           </Stack>
         )}
         {fieldsSaved && <Text>Saved.</Text>}
+      </Stack>
+
+      <Stack space="space.100">
+        <Heading level="h4">Canvas registry</Heading>
+        <Text>
+          What JiraTack actually has stored: canvases, name-index rows, card previews, and
+          tickets it cannot place. The legacy counts are what keep the compatibility fallbacks
+          alive — this is a read-only report.
+        </Text>
+        {healthError && (
+          <SectionMessage appearance="error" title="Registry">
+            <Text>{healthError}</Text>
+          </SectionMessage>
+        )}
+        <Inline space="space.100">
+          <Button onClick={loadHealth} isDisabled={healthBusy}>
+            {healthBusy ? 'Checking…' : 'Check registry'}
+          </Button>
+        </Inline>
+        {health && (
+          <Stack space="space.100">
+            <Text>
+              Canvases: {health.canvases} · name-index rows: {health.nameIndexRows} · duplicate
+              labels: {health.duplicateLabels}
+            </Text>
+            <Text>
+              Orphaned index rows: {health.orphanIndexRows} · unindexed canvases:{' '}
+              {health.unindexedCanvases}
+            </Text>
+            <Text>
+              Previews: {health.previews.captured} stored, {health.previews.missing} missing ·
+              legacy preview keys: {health.legacyPreviewKeys}
+            </Text>
+            <Text>
+              Tickets scanned: {health.tickets.scanned} · without a canvas key:{' '}
+              {health.tickets.withoutCanvasId} · unresolvable: {health.tickets.unresolved}
+            </Text>
+            {health.orphanIndexRows > 0 && (
+              <SectionMessage appearance="warning" title="Orphaned name-index rows">
+                <Text>
+                  {health.samples.orphanIndexRows
+                    .map((row) => `${row.name} → ${row.canvasKey}`)
+                    .join(', ')}
+                </Text>
+              </SectionMessage>
+            )}
+            {health.tickets.unresolved > 0 && (
+              <SectionMessage appearance="warning" title="Tickets without a canvas">
+                <Text>
+                  {health.samples.unresolved
+                    .map((row) => `${row.key} (${row.canvasId || row.canvasName})`)
+                    .join(', ')}
+                </Text>
+              </SectionMessage>
+            )}
+          </Stack>
+        )}
       </Stack>
 
       <Stack space="space.100">

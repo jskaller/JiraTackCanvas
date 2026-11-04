@@ -11,6 +11,7 @@ import { recordPinForBinding } from '../../lib/bindings.js';
 import { pairingService } from '../../lib/credentials.js';
 import { kvsGet, kvsSet, kvsDelete } from '../../lib/kvs.js';
 import { ensureCanvasRecord, setCanvasThumbnail, setCanvasThumbnailNote } from '../../lib/canvasRegistry.js';
+import { isGeneratedCanvasKey, resolveCanvas } from '../../lib/canvasIdentity.js';
 import {
   prefillConfigKey,
   prefillDescriptionEntries,
@@ -219,10 +220,22 @@ export async function createIssue(payload, claims) {
   const summary = rawSummary.startsWith('[JiraTack]') ? rawSummary : `[JiraTack] ${rawSummary}`;
 
   // Canvas identity (D42): the key is stable across renames; the name is the
-  // label at capture time. A canvas can exist before its seed ticket (manual
-  // ticket creation), so the record is ensured lazily.
-  const canvasRecord = await ensureCanvasRecord({ name: canvasName });
+  // label at capture time. The request id may be either, so one resolver
+  // decides. A canvas can exist before its seed ticket (manual ticket
+  // creation), so the record is ensured lazily for a name that is new.
+  const resolvedCanvas = await resolveCanvas({ canvasName });
+  if (!resolvedCanvas && isGeneratedCanvasKey(canvasName)) {
+    // A generated key that resolves to nothing means the canvas was deleted.
+    // Creating a record named after the key would resurrect a phantom canvas.
+    return errorResult('NOT_FOUND', 'That canvas is no longer available.');
+  }
+  const canvasRecord = resolvedCanvas
+    ? { record: resolvedCanvas, created: false }
+    : await ensureCanvasRecord({ name: canvasName });
   const canvasKey = canvasRecord && canvasRecord.record ? canvasRecord.record.key : null;
+  // `pin.canvas` is a label, `pin.canvasId` is the key: never write an id into
+  // the name field, which is what made grouping ambiguous.
+  const canvasLabel = (canvasRecord && canvasRecord.record && canvasRecord.record.name) || canvasName;
 
   // Canvas card preview (D43): captured locally by the reviewer's browser and
   // stored on the canvas record, so it can never drift from the canvas key.
@@ -343,7 +356,7 @@ export async function createIssue(payload, claims) {
   // failure must not fail the ticket.
   if (isGuest && bindingId) {
     try {
-      await recordPinForBinding(bindingId, { canvasName });
+      await recordPinForBinding(bindingId, { canvasName: canvasLabel });
     } catch (e) {
       console.error('[JiraTack] Binding pin write failed:', e && e.message ? e.message : e);
     }
@@ -354,7 +367,7 @@ export async function createIssue(payload, claims) {
     pairingId: isGuest && claims ? claims.pairingId : undefined,
     guest: guest || undefined,
     pin: {
-      canvas: canvasName,
+      canvas: canvasLabel,
       canvasId: canvasKey || undefined,
       url: canonical,
       position: pinPosition,

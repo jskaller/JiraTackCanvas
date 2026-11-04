@@ -148,3 +148,31 @@ test('a pre-5.72 preview key is adopted onto the record and then removed', async
   assert.equal(readKvs(`canvasThumb:${record.key}`), undefined);
   assert.equal((await readCanvasRecord(record.key)).thumbnail, THUMBNAIL);
 });
+
+test('a stale canvas key on a ticket does not split the canvas', async () => {
+  const { record } = await ensureCanvasRecord({ name: 'Shopify + Example.com' });
+  stubSearch([
+    jiraIssue({
+      key: 'TEST-11',
+      metadata: pinMetadata({
+        canvas: 'Shopify + Example.com',
+        canvasId: 'c-00000000',
+        url: 'https://shopify.example/',
+      }),
+    }),
+    jiraIssue({
+      key: 'TEST-12',
+      metadata: pinMetadata({
+        canvas: 'Shopify + Example.com',
+        canvasId: record.key,
+        url: 'https://shopify.example/',
+      }),
+    }),
+  ]);
+
+  const result = await dashboardAggregate(ADMIN_CONTEXT, {});
+
+  assert.equal(result.data.canvases.length, 1);
+  assert.equal(result.data.canvases[0].canvasKey, record.key);
+  assert.equal(result.data.canvases[0].ticketCount, 2);
+});

@@ -307,12 +307,3 @@ export async function loadCanvasNameIndex({ max = 5000 } = {}) {
   }
   return map;
 }
-
-export function resolveCanvasKey(metadata, nameIndex) {
-  if (!metadata || !metadata.pin) return null;
-  const explicit = metadata.pin.canvasId;
-  if (typeof explicit === 'string' && explicit) return explicit;
-  const name = metadata.pin.canvas;
-  if (!name) return null;
-  return (nameIndex && nameIndex.get(normaliseCanvasName(name))) || null;
-}

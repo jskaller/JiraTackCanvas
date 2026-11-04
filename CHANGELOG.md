@@ -7,7 +7,7 @@ All notable changes to JiraTack.
 > the description marker, recovery). They are kept for history and are **not**
 > a description of current behaviour — see `SPEC.md` v3.0 for that. The
 > `0.9.0`-style headings track `package.json`, not the Forge app version
-> (currently 5.81.0 in development).
+> (currently 5.82.0 in development).
 
 ## [Unreleased]
 
@@ -27,6 +27,15 @@ All notable changes to JiraTack.
   the admin page as an installation-level setting.
 
 ### Install, guests and organisation
+
+- **One canvas identity resolver, and a registry health report.** Every surface now asks
+  the same function which canvas an id refers to (key, name index, deterministic key, then
+  an optional scan), so a missing index row no longer makes the admin page answer
+  `NOT_FOUND` while the overlay works, and a key-shaped id can never create a phantom
+  canvas. Tickets always record the label in `pin.canvas` and the key in `pin.canvasId`; the
+  token response and `getPins` now return `canvasKey`. The admin page gains a read-only
+  **Canvas registry** report: orphaned index rows, unindexed canvases, duplicate labels,
+  previews, legacy preview keys, and tickets without a canvas — with samples.
 
 - **Card previews have one storage generation.** Builds before 5.72 kept the
   preview in its own key as well as on the canvas record. Reading a canvas now

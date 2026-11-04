@@ -12,7 +12,7 @@ import {
   loadCanvasRecords,
   normaliseCanvasName,
 } from '../../lib/canvasRegistry.js';
-import { findRecordByName } from '../../lib/canvasNames.js';
+import { findCanvasKeyInMaps } from '../../lib/canvasIdentity.js';
 import { kvsGet, kvsSet, kvsDelete } from '../../lib/kvs.js';
 
 const PAGE_SIZE = 100;
@@ -84,19 +84,18 @@ async function computeAggregate(context) {
   const nameIndex = await loadCanvasNameIndex();
 
   async function canvasKeyFor(metadata) {
-    const direct = metadata && metadata.pin && metadata.pin.canvasId;
-    const name = metadata && metadata.pin && metadata.pin.canvas;
-    const byName = name ? findRecordByName(records, name) : null;
-    const indexed = (name ? nameIndex.get(normaliseCanvasName(name)) : null)
-      || (byName ? byName.key : null);
+    const pin = (metadata && metadata.pin) || {};
+    const known = findCanvasKeyInMaps(
+      { canvasKey: pin.canvasId, canvasName: pin.canvas },
+      records,
+      nameIndex,
+    );
+    if (known) return known;
+    if (!pin.canvas) return null;
 
-    // The record (and its preview) is written under the name-index key. If a
-    // ticket's canvasId disagrees with the index, prefer the indexed record so
-    // the card and the preview can never group under different keys.
-    if (indexed && (records.has(indexed) || !direct)) return indexed;
-    if (typeof direct === 'string' && direct) return direct;
-    if (!name) return null;
-    const ensured = await ensureCanvasRecord({ name });
+    // A canvas that predates the registry still needs a record so it can gain
+    // a folder and a preview (D42).
+    const ensured = await ensureCanvasRecord({ name: pin.canvas });
     if (!ensured || !ensured.record) return null;
     records.set(ensured.record.key, ensured.record);
     ensured.record.names.forEach((entry) => nameIndex.set(normaliseCanvasName(entry), ensured.record.key));

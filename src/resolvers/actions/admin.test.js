@@ -1,9 +1,10 @@
 import { beforeEach, test } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { resetKvs, seedKvs, readKvs } from '../../../scripts/test-support/stubs/forge-kvs.mjs';
+import { kvs, resetKvs, seedKvs, readKvs } from '../../../scripts/test-support/stubs/forge-kvs.mjs';
 import { resetApi, onPath, jsonResponse, unmatchedRequests } from '../../../scripts/test-support/stubs/forge-api.mjs';
 import {
+  canvasNameIndexKey,
   ensureCanvasRecord,
   findCanvasKeyForName,
   readCanvasRecord,
@@ -17,6 +18,7 @@ import {
   clearCanvasPreview,
   deleteCanvas,
   getCanvasConfig,
+  registryHealth,
   renameCanvas,
 } from './admin.js';
 import {
@@ -191,4 +193,81 @@ test('getCanvasConfig adopts a pre-5.72 preview key onto the record', async () =
   assert.equal(result.data.thumbnailCaptured, true);
   assert.equal((await readCanvasRecord(record.key)).thumbnail, THUMBNAIL);
   assert.equal(readKvs(`canvasThumb:${record.key}`), undefined);
+});
+
+/**
+ * The index row can be missing (interrupted write, pre-D42 canvas). The
+ * dashboard used to answer NOT_FOUND while the overlay resolved the same canvas
+ * happily; every action now goes through the same resolver.
+ */
+test('the canvas page resolves a name with no name-index row', async () => {
+  const record = await seedCanvas();
+  await kvs.delete(canvasNameIndexKey('Shopify + Example.com'));
+
+  const config = await getCanvasConfig(ADMIN_CONTEXT, { canvasName: 'Shopify + Example.com' });
+  assert.equal(config.ok, true);
+  assert.equal(config.data.canvasKey, record.key);
+
+  await setCanvasThumbnail(record.key, THUMBNAIL);
+  const cleared = await clearCanvasPreview(ADMIN_CONTEXT, { canvasName: 'Shopify + Example.com' });
+  assert.equal(cleared.ok, true);
+  assert.equal((await readCanvasRecord(record.key)).thumbnail, undefined);
+});
+
+test('registryHealth reports the legacy data that keeps the fallbacks alive', async () => {
+  const healthy = await seedCanvas({ name: 'Health' });
+  await setCanvasThumbnail(healthy.key, THUMBNAIL);
+  const unindexed = await seedCanvas({ name: 'Unindexed', seedKey: 'KAN-77' });
+  await kvs.delete(canvasNameIndexKey('Unindexed'));
+  seedKvs({
+    'canvasName:ghost': 'c-deadbeef',
+    'canvasThumb:ghost': { v: 2, dataUrl: THUMBNAIL },
+  });
+  onPath('/rest/api/3/search/jql', () => jsonResponse(200, searchPage([
+    jiraIssue({
+      key: 'TEST-20',
+      metadata: pinMetadata({
+        canvas: 'Health',
+        canvasId: healthy.key,
+        url: 'https://example.com/',
+      }),
+    }),
+    jiraIssue({
+      key: 'TEST-21',
+      metadata: pinMetadata({ canvas: 'Health', url: 'https://example.com/old' }),
+    }),
+    jiraIssue({
+      key: 'TEST-22',
+      metadata: pinMetadata({
+        canvas: 'Deleted canvas',
+        canvasId: 'c-00000000',
+        url: 'https://example.com/dead',
+      }),
+    }),
+  ])));
+
+  const result = await registryHealth(ADMIN_CONTEXT, {});
+
+  assert.equal(result.ok, true);
+  const data = result.data;
+  assert.equal(data.canvases, 2);
+  assert.equal(data.orphanIndexRows, 1);
+  assert.equal(data.samples.orphanIndexRows[0].canvasKey, 'c-deadbeef');
+  assert.equal(data.unindexedCanvases, 1);
+  assert.equal(data.legacyPreviewKeys, 1);
+  assert.deepEqual(data.previews, { captured: 1, missing: 1 });
+  assert.equal(data.tickets.scanned, 3);
+  assert.equal(data.tickets.withoutCanvasId, 1);
+  assert.equal(data.tickets.unresolved, 1);
+  assert.equal(data.samples.withoutCanvasId[0].key, 'TEST-21');
+  assert.equal(data.samples.unresolved[0].key, 'TEST-22');
+  assert.equal(unindexed.key, 'KAN-77');
+  assert.deepEqual(unmatchedRequests(), []);
+});
+
+test('registryHealth is admin-only', async () => {
+  const result = await registryHealth(USER_CONTEXT, {});
+
+  assert.equal(result.ok, false);
+  assert.equal(result.error.code, 'INSUFFICIENT_SCOPE');
 });

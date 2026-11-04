@@ -613,7 +613,9 @@ Admin-only actions are hidden for non-admins **and** every privileged resolver r
   - **Access** — open the canvas in Jira, invite a guest.
 - Archive and delete are confirmed in a modal; delete is refused while any ticket is not Done. Deleted and archived canvases are tracked in `installationConfig` and reflected on the registry record.
 
-**Canvas keys (D42).** A canvas is identified by its seed ticket key (`KAN-123`, or `c-xxxxxxxx` when no seed exists); the name is an editable label. Every historical name stays indexed, so tickets written before a rename still resolve to the canvas. A canvas id that is already a record key resolves to that record, so a key-shaped id never creates a duplicate. When the name index row is missing (older data), a ticket without `pin.canvasId` is matched against the canvas records by name, and the launcher shows one entry per canvas label.
+**Canvas keys (D42).** A canvas is identified by its seed ticket key (`KAN-123`, or `c-xxxxxxxx` when no seed exists); the name is an editable label. Every historical name stays indexed, so tickets written before a rename still resolve to the canvas. One resolver decides which canvas an id refers to, whether the id is a key or a label: record key, then the name index, then the deterministic key derived from the name, then (only if needed) a scan of the records. A ticket records the **label** in `pin.canvas` and the **key** in `pin.canvasId`; a generated key that resolves to nothing is refused rather than recreated. The launcher shows one entry per canvas label.
+
+**Registry health (admin).** The admin page can report what is actually stored — canvases, name-index rows, orphaned rows, unindexed records, duplicate labels, previews, legacy preview keys, and tickets missing a canvas key or resolving to nothing — with samples. Read-only; it exists so compatibility fallbacks are retired on evidence.
 
 **Card preview (D43).** The card image is a screenshot of the **top of the page** at the full viewport width, captured locally by the reviewer's browser at the first ticket; the card fills its width and clips the bottom of a tall shot rather than cropping the sides; no third-party image service is used and JiraTack's own pins and overlay are excluded. It is stored on the canvas record (`thumbnail`, `thumbnailVersion: 2`) so **Clear preview** removes exactly what the card reads. A preview captured by a build older than 5.72 (in its own key) is adopted onto the record on first read and the old key deleted, so there is one generation only. If the page capture yields nothing, the ticket's own screenshot is downscaled and used instead; encoding steps down in size and quality until the data URL fits the storage cap. The canvas page shows the preview state (stored / not captured) under the title and at the top of **Fields**, with the reason recorded when an attempt produced no image.
 
@@ -638,6 +640,7 @@ Admin-only actions are hidden for non-admins **and** every privileged resolver r
 ### 8.4 Admin page (`jira:adminPage`)
 
 - License status, `viewPermissionMode` (`per_user_projects` | `open`), **guest invitations** (reviewer, email, sponsor, status, pairings, pin count, link expiry, with Deactivate/Activate, New link, Revoke), archived/deleted canvas lists.
+- **Canvas registry health** on demand: counts and samples for orphaned name-index rows, unindexed canvases, duplicate labels, previews stored/missing, legacy preview keys, and tickets without a canvas key or without a canvas.
 
 - Admin-only via `requireAdmin`.
 

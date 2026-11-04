@@ -1,7 +1,7 @@
 import Resolver from '@forge/resolver';
 import { getInstallationConfig, mutateInstallationConfig } from '../lib/config.js';
 import { requireAdmin } from '../lib/access.js';
-import { generateCanvasToken, generateGuestToken, generateUserToken, listCanvasTokens, revokeCanvasToken, createCanvas, deleteCanvas, archiveCanvas, listTextFields, getCanvasConfig, setCanvasConfig, renameCanvas, listAvailableTextFields, assignCanvasFolder, clearCanvasPreview } from './actions/admin.js';
+import { generateCanvasToken, generateGuestToken, generateUserToken, listCanvasTokens, revokeCanvasToken, createCanvas, deleteCanvas, archiveCanvas, listTextFields, getCanvasConfig, setCanvasConfig, renameCanvas, listAvailableTextFields, assignCanvasFolder, clearCanvasPreview, registryHealth } from './actions/admin.js';
 import { getProjectConfig, setProjectConfig, getProjectStatuses } from './actions/config.js';
 import { listGuestInvites, setGuestInviteActive, revokeGuestInvite, regenerateGuestInvite } from './actions/invites.js';
 import { dashboardAggregate } from './actions/dashboard.js';
@@ -254,6 +254,14 @@ resolver.define('revokeGuestInvite', async (req) => {
 resolver.define('regenerateGuestInvite', async (req) => {
   try {
     return await regenerateGuestInvite(req.context, req.payload);
+  } catch (e) {
+    return { ok: false, error: { code: 'INTERNAL', message: e && e.message ? e.message : String(e) } };
+  }
+});
+
+resolver.define('registryHealth', async (req) => {
+  try {
+    return await registryHealth(req.context, req.payload);
   } catch (e) {
     return { ok: false, error: { code: 'INTERNAL', message: e && e.message ? e.message : String(e) } };
   }

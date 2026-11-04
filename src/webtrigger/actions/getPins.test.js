@@ -133,3 +133,53 @@ test('removed tickets never reach the client', async () => {
 
   assert.deepEqual(result.data.pins, []);
 });
+
+/**
+ * Clients may identify the canvas by key. Matching on the raw id alone then
+ * returned no pins at all, because tickets store the label in `pin.canvas`.
+ */
+test('a canvas identified by key returns its pins and the current label', async () => {
+  const { record } = await ensureCanvasRecord({ name: 'Shopify + Example.com', seedKey: 'KAN-90' });
+  stubSearch([
+    jiraIssue({
+      key: 'TEST-9',
+      metadata: pinMetadata({
+        canvas: 'Shopify + Example.com',
+        canvasId: record.key,
+        url: 'https://example.com/',
+      }),
+    }),
+  ]);
+
+  const result = await getPinsForCanvasAndUrl(
+    { canvasId: record.key, url: 'https://example.com/', all: true },
+    CREATE_CLAIMS,
+  );
+
+  assert.equal(result.ok, true);
+  assert.equal(result.data.pins.length, 1);
+  assert.equal(result.data.canvasName, 'Shopify + Example.com');
+  assert.equal(result.data.canvasKey, record.key);
+});
+
+test('a ticket carrying a stale canvas key still matches by name', async () => {
+  const { record } = await ensureCanvasRecord({ name: 'Renamed canvas' });
+  stubSearch([
+    jiraIssue({
+      key: 'TEST-10',
+      metadata: pinMetadata({
+        canvas: 'Renamed canvas',
+        canvasId: 'c-00000000',
+        url: 'https://example.com/',
+      }),
+    }),
+  ]);
+
+  const result = await getPinsForCanvasAndUrl(
+    { canvasId: 'Renamed canvas', url: 'https://example.com/', all: true },
+    CREATE_CLAIMS,
+  );
+
+  assert.deepEqual(result.data.pins.map((pin) => pin.key), ['TEST-10']);
+  assert.equal(result.data.canvasKey, record.key);
+});
