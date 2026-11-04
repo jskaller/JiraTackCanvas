@@ -6,6 +6,7 @@ import { trackLicensedUser } from '../../lib/license.js';
 import { SDK_VERSION } from '../../lib/version.js';
 import { METADATA_PROPERTY_KEY, metadataFromIssue } from '../../lib/metadata.js';
 import {
+  adoptLegacyThumbnail,
   ensureCanvasRecord,
   loadCanvasNameIndex,
   loadCanvasRecords,
@@ -70,6 +71,16 @@ async function computeAggregate(context) {
   // ticket written before keys existed resolves through the name index, and a
   // canvas that predates the registry gets a record lazily.
   const records = await loadCanvasRecords();
+
+  // One-time migration (D43): a preview still sitting in the pre-5.72
+  // `canvasThumb:` key is adopted onto its record and the old key removed, so
+  // the dead generation disappears instead of being carried forever.
+  for (const [recordKey, record] of records) {
+    if (record.thumbnailVersion === 2 && record.thumbnail) continue;
+    const adopted = await adoptLegacyThumbnail(recordKey);
+    if (adopted) records.set(recordKey, adopted);
+  }
+
   const nameIndex = await loadCanvasNameIndex();
 
   async function canvasKeyFor(metadata) {

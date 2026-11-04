@@ -11,6 +11,7 @@ import { createSeedTicket } from '../../lib/canvas.js';
 import { invalidateCanvasSummary } from './dashboard.js';
 import { prefillConfigKey, normalizePrefillFields, readCanvasPrefill } from '../../lib/fieldPrefill.js';
 import {
+  adoptLegacyThumbnail,
   clearCanvasThumbnail,
   deleteCanvasRecord,
   findCanvasKeyForName,
@@ -93,7 +94,8 @@ export async function getCanvasConfig(context, payload) {
   if (!canvasKey) return errorResult('NOT_FOUND', 'That canvas is not known yet.');
 
   try {
-    const record = await readCanvasRecord(canvasKey);
+    // Adopts a preview still held by a pre-5.72 key before reporting on it.
+    const record = await adoptLegacyThumbnail(canvasKey);
     const stored = await kvsGet(prefillConfigKey(canvasKey));
     return {
       ok: true,

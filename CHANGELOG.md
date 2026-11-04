@@ -7,7 +7,7 @@ All notable changes to JiraTack.
 > the description marker, recovery). They are kept for history and are **not**
 > a description of current behaviour — see `SPEC.md` v3.0 for that. The
 > `0.9.0`-style headings track `package.json`, not the Forge app version
-> (currently 5.80.0 in development).
+> (currently 5.81.0 in development).
 
 ## [Unreleased]
 
@@ -27,6 +27,12 @@ All notable changes to JiraTack.
   the admin page as an installation-level setting.
 
 ### Install, guests and organisation
+
+- **Card previews have one storage generation.** Builds before 5.72 kept the
+  preview in its own key as well as on the canvas record. Reading a canvas now
+  adopts any image still held by the old key onto its record and deletes the
+  old key, so there is one place to read, write and clear — and the previous
+  generation stops being carried forward.
 
 - **Card previews show the full page width.** The card was cropping the image
   with `object-fit: cover` inside a 16:10 box, so a viewport shot lost its left

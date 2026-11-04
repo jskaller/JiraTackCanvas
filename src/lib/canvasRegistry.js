@@ -190,6 +190,52 @@ export async function setCanvasThumbnail(key, dataUrl) {
   return writeCanvasRecord(next);
 }
 
+/**
+ * Pre-5.72 builds kept the card preview in its own KVS key. The record is the
+ * only home now, so adopt whatever is still there and delete the old key: one
+ * generation, nothing lost, and no read of the old key ever again.
+ */
+export async function adoptLegacyThumbnail(key) {
+  if (!key) return null;
+  const record = await readCanvasRecord(key);
+  if (!record) return record;
+  if (record.thumbnailVersion === 2 && record.thumbnail) {
+    await kvsDelete(`canvasThumb:${key}`).catch(() => {});
+    return record;
+  }
+
+  let legacy = null;
+  try {
+    legacy = await kvsGet(`canvasThumb:${key}`);
+  } catch (e) {
+    return record;
+  }
+  if (!legacy) return record;
+
+  // The old record shape is not worth depending on: take whichever string
+  // value is the image.
+  const dataUrl = typeof legacy === 'string'
+    ? legacy
+    : Object.values(legacy).find((value) => typeof value === 'string' && value.indexOf('data:image/') === 0);
+
+  if (typeof dataUrl === 'string' && dataUrl.indexOf('data:image/') === 0) {
+    try {
+      const adopted = await setCanvasThumbnail(key, dataUrl);
+      if (adopted) {
+        await kvsDelete(`canvasThumb:${key}`).catch(() => {});
+        return adopted;
+      }
+    } catch (e) {
+      // Keep the old key: the next pass tries again rather than losing the image.
+      return record;
+    }
+  }
+
+  // Nothing usable: the key is dead weight either way.
+  await kvsDelete(`canvasThumb:${key}`).catch(() => {});
+  return record;
+}
+
 /** Why a canvas has no preview, so the dashboard can say rather than guess. */
 export async function setCanvasThumbnailNote(key, note) {
   const record = await readCanvasRecord(key);
