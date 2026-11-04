@@ -47,14 +47,7 @@ export async function kvsGetSecret(key) {
   return kvs.getSecret(key);
 }
 
-export async function kvsSetSecret(key, value, options) {
-  return kvs.setSecret(key, value, options);
-}
-
 export async function kvsSetSecretIfAbsent(key, value) {
   return kvs.setSecret(key, value, { keyPolicy: 'FAIL_IF_EXISTS' });
 }
 
-export async function kvsDeleteSecret(key) {
-  return kvs.deleteSecret(key);
-}

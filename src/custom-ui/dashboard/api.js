@@ -7,10 +7,6 @@ export function aggregate() {
   return invoke('dashboardAggregate');
 }
 
-export function generateToken(canvasName, scope) {
-  return invoke('generateCanvasToken', { canvasName, scope });
-}
-
 export function generateUserToken(permittedCanvases) {
   return invoke('generateUserToken', permittedCanvases ? { permittedCanvases } : {});
 }

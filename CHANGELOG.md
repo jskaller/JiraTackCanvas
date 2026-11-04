@@ -7,7 +7,7 @@ All notable changes to JiraTack.
 > the description marker, recovery). They are kept for history and are **not**
 > a description of current behaviour — see `SPEC.md` v3.0 for that. The
 > `0.9.0`-style headings track `package.json`, not the Forge app version
-> (currently 5.84.0 in development).
+> (currently 5.85.0 in development).
 
 ## [Unreleased]
 
@@ -198,6 +198,11 @@ All notable changes to JiraTack.
   refused size reports a toast instead of failing silently.
 
 ### Delivery and platform
+
+- **Session exchange is covered by tests.** The path that turns a canvas, user or guest
+  token into a signed session — scope, permitted projects/canvases, admin claim, revocation,
+  expiry, malformed tokens — now has eight tests, so a change there fails loudly instead of
+  at a customer's first click. Four exports that nothing referenced were removed.
 
 - **Extension self-enrollment (D39).** The extension no longer depends on
   pasting a bookmarklet link. While any JiraTack overlay is open, clicking the

@@ -9,7 +9,3 @@ export function canAccessCanvas(claims, canvasId) {
   if (!Array.isArray(claims.permittedCanvases)) return false;
   return claims.permittedCanvases.includes(canvasId);
 }
-
-export function scopeAllowed(claims, allowedScopes) {
-  return Array.isArray(allowedScopes) && allowedScopes.includes(claims.scope);
-}

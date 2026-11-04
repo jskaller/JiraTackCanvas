@@ -218,11 +218,13 @@ same shape as the existing `admin`/`getPins` tests.
 | **9** | `index.js` state object (2,071 lines) | Extract composer, pins/status, navigation into modules with own state | High | L | Fewer subtle overlay bugs — **defer** |
 | 10 | One dead identity resolver | Delete `resolveCanvasKey` after item 1 | Low | S | Stops reuse by mistake |
 
-**Status (5.84.0):** items **1**, **2**, **3**, **4** and **6** are done. `resolveCanvas`
-is the only identity resolver and repairs a lost name-index row on use; the registry report
-ships on the admin page; previews are cached under a stamp; and the launcher serves its
-canvas list from a stamped registry snapshot. Items 5, 7, 8 and 10 remain open (5 is
-optional, per D42).
+**Status (5.85.0):** items **1**, **2**, **3**, **4**, **6** and **10** are done. Item **8**
+is partly done: `exchangeToken` (session minting for canvas, user and guest tokens) now has
+eight tests; the upload and pin-move paths remain uncovered. Item **5** is optional per D42;
+item **7** (the documentation tax) needs a decision rather than code; item **9** stays
+deferred. `resolveCanvas` is the only identity resolver and repairs a lost name-index row on
+use; the registry report ships on the admin page; previews are cached under a stamp; and the
+launcher serves its canvas list from a stamped registry snapshot.
 
 **Sequence:** 1 → 3 → 2 → 4 → 6, then reassess 5, 7, 8. Item 1 removes the bug class;
 item 3 makes the data visible before any more fallbacks are deleted; 2/4/6 are cheap and
