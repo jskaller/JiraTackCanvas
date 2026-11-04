@@ -44,6 +44,17 @@ defined by SPEC.md v3.0 and ARCHITECTURE.md v2.0.
 - If an assertion fails, stop and report it rather than proceeding.
 - Docs must not drift from code: when behaviour changes, update SPEC.md,
   CONTRACTS.md, and DECISIONS.md in the same body of work.
+- **Instrument before fixing.** A reported regression gets a recorded reason
+  (a field the UI shows, or an assertion the harness reports) before any logic
+  changes. Plausible-patch chains cost a day on the card preview; the diagnostic
+  that ended it took minutes. If a fix cannot be observed, add the observation
+  first.
+- **State exactly what was verified.** "Tests pass" means the tests that
+  exercise the changed path. A green harness that never runs the failing layer
+  is not verification, and saying so is worse than saying nothing.
+- **Never verify a doc or ledger edit by eye.** Use `npm run baseline:check`
+  (and `node scripts/baseline.mjs record …` after a deploy), which fails when a
+  row is missing rather than silently writing nothing.
 
 ## Build commands
 
