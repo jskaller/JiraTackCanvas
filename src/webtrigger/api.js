@@ -5,6 +5,7 @@ import { getPinsForCanvasAndUrl } from './actions/getPins.js';
 import { createIssue } from './actions/createIssue.js';
 import { getTransitions } from './actions/transitions.js';
 import { updateIssue } from './actions/updateIssue.js';
+import { updatePinPosition } from './actions/updatePinPosition.js';
 import { searchUsers } from './actions/searchUsers.js';
 import { getPriorities } from './actions/priorities.js';
 import { getIssueTypes } from './actions/getIssueTypes.js';
@@ -106,6 +107,12 @@ export const handler = async (req, context) => {
       const auth = await authenticate(req, context, ['create', 'universal', 'guest_create']);
       if (!auth.ok) return envelope(auth);
       return envelope(await updateIssue(payload, auth.claims));
+    }
+
+    if (action === 'updatePinPosition') {
+      const auth = await authenticate(req, context, ['create', 'universal', 'guest_create']);
+      if (!auth.ok) return envelope(auth);
+      return envelope(await updatePinPosition(payload, auth.claims));
     }
 
     if (action === 'searchUsers') {

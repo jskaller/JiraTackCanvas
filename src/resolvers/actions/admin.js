@@ -2,12 +2,23 @@ import crypto from 'crypto';
 import api, { route, getAppContext } from '@forge/api';
 import { WhereConditions } from '@forge/kvs';
 import { getInstallationConfig, mutateInstallationConfig } from '../../lib/config.js';
-import { kvs, kvsGet, kvsSet, kvsQueryAll } from '../../lib/kvs.js';
+import { kvs, kvsGet, kvsSet, kvsQueryAll, kvsDelete } from '../../lib/kvs.js';
 import { trackLicensedUser } from '../../lib/license.js';
 import { generateSessionJwt } from '../../lib/tokens.js';
 import { errorResponse, errorResult } from '../../lib/errors.js';
 import { resolveWebtriggerUrls } from '../../lib/webtriggerUrls.js';
 import { createSeedTicket } from '../../lib/canvas.js';
+import { invalidateCanvasSummary } from './dashboard.js';
+import { prefillConfigKey, normalizePrefillFields, readCanvasPrefill } from '../../lib/fieldPrefill.js';
+import {
+  clearCanvasThumbnail,
+  deleteCanvasRecord,
+  findCanvasKeyForName,
+  readCanvasRecord,
+  renameCanvasRecord,
+  setCanvasArchived,
+  setCanvasFolder,
+} from '../../lib/canvasRegistry.js';
 import { createInvite } from '../../lib/invites.js';
 import { tokenReference } from '../../lib/tokenRef.js';
 import { isJiraAdmin, requireAdmin } from '../../lib/access.js';
@@ -16,6 +27,226 @@ import { SDK_VERSION } from '../../lib/version.js';
 
 const CANVAS_TOKEN_TTL_SECONDS = 2592000;
 const SESSION_TTL_SECONDS = 8 * 60 * 60;
+
+// Fields the app writes itself; mapping an auxiliary value onto them would
+// clobber the ticket's own data (D41).
+const MANAGED_FIELD_IDS = new Set([
+  'summary', 'description', 'labels', 'issuetype', 'project', 'reporter',
+  'assignee', 'priority', 'parent', 'status', 'attachment', 'comment',
+  'created', 'updated', 'resolution', 'resolutiondate', 'timetracking',
+  'worklog', 'workratio', 'environment', 'security', 'issuelinks',
+]);
+
+/**
+ * Text-compatible Jira fields for the canvas mapping dropdown (D41).
+ *
+ * Only single-line/multi-line text and URL fields qualify (`schema.type` of
+ * `string` with no `items`), so a pre-filled value can always be written as a
+ * plain string. This is the catalogue an admin picks from when configuring a
+ * project; canvases only ever use that project's chosen subset.
+ */
+export async function listTextFields(context) {
+  const denied = await requireAdmin(context, 'Only Jira admins can configure canvases.');
+  if (denied) return denied;
+
+  try {
+    const res = await api.asUser().requestJira(route`/rest/api/3/field`);
+    if (!res.ok) {
+      return errorResult('INTERNAL', `Jira rejected the field list with HTTP ${res.status}.`);
+    }
+    const fields = await res.json();
+    const list = (Array.isArray(fields) ? fields : [])
+      .filter((field) => field && typeof field.id === 'string' && typeof field.name === 'string')
+      .filter((field) => field.schema && field.schema.type === 'string' && !field.schema.items)
+      .filter((field) => !MANAGED_FIELD_IDS.has(field.id))
+      .map((field) => ({
+        id: field.id,
+        name: field.name,
+        custom: Boolean(field.custom),
+      }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+
+    return { ok: true, data: { fields: list } };
+  } catch (e) {
+    return errorResult('INTERNAL', e && e.message ? e.message : String(e));
+  }
+}
+
+/** Resolve a canvas key from the payload (key preferred, name accepted). */
+async function canvasKeyFromPayload(payload) {
+  const key = payload && typeof payload.canvasKey === 'string' ? payload.canvasKey.trim() : '';
+  if (key) return key;
+  const name = payload && typeof payload.canvasName === 'string' ? payload.canvasName.trim() : '';
+  if (!name) return null;
+  return findCanvasKeyForName(name);
+}
+
+/**
+ * The canvas's stored pre-fills, plus its label and whether it can be renamed.
+ * Reads by key (D42); a pre-key canvas resolves through the name index.
+ */
+export async function getCanvasConfig(context, payload) {
+  const denied = await requireAdmin(context, 'Only Jira admins can configure canvases.');
+  if (denied) return denied;
+
+  const canvasKey = await canvasKeyFromPayload(payload);
+  if (!canvasKey) return errorResult('NOT_FOUND', 'That canvas is not known yet.');
+
+  try {
+    const record = await readCanvasRecord(canvasKey);
+    const stored = await kvsGet(prefillConfigKey(canvasKey));
+    return {
+      ok: true,
+      data: {
+        canvasKey,
+        canvasName: record ? record.name : (payload && payload.canvasName) || canvasKey,
+        thumbnailCaptured: Boolean(record && record.thumbnailVersion === 2 && record.thumbnail),
+        thumbnailNote: (record && record.thumbnailNote) || null,
+        prefillFields: readCanvasPrefill(stored),
+      },
+    };
+  } catch (e) {
+    return errorResult('INTERNAL', e && e.message ? e.message : String(e));
+  }
+}
+
+/**
+ * Replace a canvas's pre-fills (D41). Called from the canvas page, so a
+ * creator can change the values without recreating the canvas.
+ */
+export async function setCanvasConfig(context, payload) {
+  const denied = await requireAdmin(context, 'Only Jira admins can configure canvases.');
+  if (denied) return denied;
+
+  const canvasKey = await canvasKeyFromPayload(payload);
+  if (!canvasKey) return errorResult('NOT_FOUND', 'That canvas is not known yet.');
+
+  const normalised = normalizePrefillFields(payload && payload.prefillFields);
+  if (!normalised.ok) {
+    return errorResult('BAD_REQUEST', normalised.message);
+  }
+
+  try {
+    await kvsSet(prefillConfigKey(canvasKey), {
+      version: 2,
+      prefillFields: normalised.fields,
+    });
+    return {
+      ok: true,
+      data: { canvasKey, prefillFields: normalised.fields },
+    };
+  } catch (e) {
+    return errorResult('INTERNAL', e && e.message ? e.message : String(e));
+  }
+}
+
+/**
+ * Rename a canvas label (D42). The key never changes, and every previous name
+ * stays indexed, so tickets written before the rename still resolve.
+ */
+export async function renameCanvas(context, payload) {
+  const denied = await requireAdmin(context, 'Only Jira admins can rename canvases.');
+  if (denied) return denied;
+
+  const canvasKey = payload && typeof payload.canvasKey === 'string' ? payload.canvasKey.trim() : '';
+  const canvasName = payload && typeof payload.canvasName === 'string' ? payload.canvasName.trim() : '';
+  if (!canvasKey) return errorResult('BAD_REQUEST', 'canvasKey is required.');
+  if (!canvasName) return errorResult('BAD_REQUEST', 'canvasName is required.');
+
+  try {
+    const existing = await readCanvasRecord(canvasKey);
+    if (!existing) return errorResult('NOT_FOUND', 'That canvas is not known.');
+
+    const renamed = await renameCanvasRecord(canvasKey, canvasName);
+    if (!renamed.ok) {
+      if (renamed.reason === 'NAME_TAKEN') {
+        return errorResult('VALIDATION_ERROR', 'Another canvas already uses that name.');
+      }
+      return errorResult('BAD_REQUEST', 'That name cannot be used.');
+    }
+
+    // Keep the name-based archive/delete lists pointing at the same canvas.
+    await mutateInstallationConfig((draft) => {
+      draft.archivedCanvases = draft.archivedCanvases.map((name) => (name === existing.name ? canvasName : name));
+      draft.deletedCanvases = draft.deletedCanvases.map((name) => (name === existing.name ? canvasName : name));
+      return draft;
+    });
+
+    await invalidateCanvasSummary(context && context.accountId);
+    return { ok: true, data: { canvasKey, canvasName } };
+  } catch (e) {
+    return errorResult('INTERNAL', e && e.message ? e.message : String(e));
+  }
+}
+
+/** Move a canvas into a folder (D43). Folders are labels on the canvas record. */
+export async function assignCanvasFolder(context, payload) {
+  const denied = await requireAdmin(context, 'Only Jira admins can organise canvases.');
+  if (denied) return denied;
+
+  const canvasKey = payload && typeof payload.canvasKey === 'string' ? payload.canvasKey.trim() : '';
+  if (!canvasKey) return errorResult('BAD_REQUEST', 'canvasKey is required.');
+
+  const rawFolder = payload && typeof payload.folder === 'string' ? payload.folder.trim() : '';
+  const folder = rawFolder ? rawFolder.slice(0, 60) : null;
+
+  try {
+    const updated = await setCanvasFolder(canvasKey, folder);
+    if (!updated) return errorResult('NOT_FOUND', 'That canvas is not known.');
+    await invalidateCanvasSummary(context && context.accountId);
+    return { ok: true, data: { canvasKey, folder: updated.folder || null } };
+  } catch (e) {
+    return errorResult('INTERNAL', e && e.message ? e.message : String(e));
+  }
+}
+
+/** Drop a canvas's stored preview so the next ticket recaptures it (D43). */
+export async function clearCanvasPreview(context, payload) {
+  const denied = await requireAdmin(context, 'Only Jira admins can configure canvases.');
+  if (denied) return denied;
+
+  const canvasKey = await canvasKeyFromPayload(payload);
+  if (!canvasKey) return errorResult('NOT_FOUND', 'That canvas is not known yet.');
+  try {
+    await clearCanvasThumbnail(canvasKey);
+    // Older builds stored the preview under a separate key; clear it too.
+    await kvsDelete(`canvasThumb:${canvasKey}`);
+    await invalidateCanvasSummary(context && context.accountId);
+    return { ok: true, data: { canvasKey } };
+  } catch (e) {
+    return errorResult('INTERNAL', e && e.message ? e.message : String(e));
+  }
+}
+
+/** The installation-level text-field catalogue a canvas can pre-fill (D41). */
+export async function listAvailableTextFields(context) {
+  const denied = await requireAdmin(context, 'Only Jira admins can configure canvases.');
+  if (denied) return denied;
+
+  try {
+    const config = await getInstallationConfig();
+    let fields = Array.isArray(config.textFields) ? config.textFields : [];
+
+    // Migration: the first cut stored the catalogue per project. Use the union
+    // until the admin saves the global list.
+    if (fields.length === 0) {
+      const seen = new Map();
+      Object.values(config.projects || {}).forEach((project) => {
+        if (!project || !Array.isArray(project.textFields)) return;
+        project.textFields.forEach((field) => {
+          if (field && field.id && field.name && !seen.has(field.id)) {
+            seen.set(field.id, { id: field.id, name: field.name });
+          }
+        });
+      });
+      fields = Array.from(seen.values());
+    }
+
+    return { ok: true, data: { fields } };
+  } catch (e) {
+    return errorResult('INTERNAL', e && e.message ? e.message : String(e));
+  }
+}
 
 function resolveInstallationId(context) {
   try {
@@ -118,6 +349,22 @@ export async function generateCanvasToken(context, payload) {
   if (!permitted.ok) return permitted;
 
   const permittedProjects = permitted.permittedProjects;
+
+  // Scope the bookmarklet to a selection of canvases (D43). 'all' keeps the
+  // link current as canvases are added; a list freezes it and must be
+  // regenerated to include new canvases.
+  let permittedCanvases = 'all';
+  if (payload && Array.isArray(payload.permittedCanvases)) {
+    const names = payload.permittedCanvases
+      .map((name) => (typeof name === 'string' ? name.trim() : ''))
+      .filter(Boolean)
+      .slice(0, 200);
+    if (names.length === 0) {
+      return errorResult('VALIDATION_ERROR', 'Choose at least one canvas, or allow all canvases.');
+    }
+    permittedCanvases = Array.from(new Set(names));
+  }
+
   const userId = (context && (context.accountId || context.userId)) || '';
   const installationId = resolveInstallationId(context);
 
@@ -135,6 +382,7 @@ export async function generateCanvasToken(context, payload) {
     expiresAt,
     revoked: false,
     permittedProjectsJson: JSON.stringify(permittedProjects),
+    permittedCanvasesJson: JSON.stringify(permittedCanvases),
   };
 
   try {
@@ -351,7 +599,7 @@ export async function revokeCanvasToken(context, payload) {
 
 const USER_TOKEN_TTL_DAYS = 90;
 
-export async function generateUserToken(context) {
+export async function generateUserToken(context, payload) {
   await trackLicensedUser(context);
 
   const scope = (context && context.userAccess && context.userAccess.hasAccess === false) ? 'view' : 'create';
@@ -367,6 +615,22 @@ export async function generateUserToken(context) {
   if (!permitted.ok) return permitted;
 
   const permittedProjects = permitted.permittedProjects;
+
+  // Scope the bookmarklet to a selection of canvases (D43). 'all' keeps the
+  // link current as canvases are added; a list freezes it and must be
+  // regenerated to include new canvases.
+  let permittedCanvases = 'all';
+  if (payload && Array.isArray(payload.permittedCanvases)) {
+    const names = payload.permittedCanvases
+      .map((name) => (typeof name === 'string' ? name.trim() : ''))
+      .filter(Boolean)
+      .slice(0, 200);
+    if (names.length === 0) {
+      return errorResult('VALIDATION_ERROR', 'Choose at least one canvas, or allow all canvases.');
+    }
+    permittedCanvases = Array.from(new Set(names));
+  }
+
   const userId = (context && (context.accountId || context.userId)) || '';
   const installationId = resolveInstallationId(context);
   const token = crypto.randomBytes(32).toString('hex');
@@ -382,6 +646,7 @@ export async function generateUserToken(context) {
     expiresAt,
     revoked: false,
     permittedProjectsJson: JSON.stringify(permittedProjects),
+    permittedCanvasesJson: JSON.stringify(permittedCanvases),
   };
 
   try {
@@ -414,14 +679,17 @@ export async function createCanvas(context, payload) {
   if (denied) return denied;
 
   try {
-    return await createSeedTicket({
+    const result = await createSeedTicket({
       requester: api.asUser(),
       reporterAccountId: context && context.accountId,
       canvasName: payload && payload.canvasName,
       targetUrl: payload && payload.targetUrl,
       projectKey: payload && payload.projectKey,
       issueTypeId: payload && payload.issueTypeId,
+      prefillFields: payload && payload.prefillFields,
     });
+    await invalidateCanvasSummary(context && context.accountId);
+    return result;
   } catch (e) {
     return errorResult('INTERNAL', e && e.message ? e.message : String(e));
   }
@@ -433,10 +701,18 @@ export async function deleteCanvas(context, payload) {
     return errorResult('INSUFFICIENT_SCOPE', 'Admin access is required.');
   }
 
-  const canvasName = payload && payload.canvasName;
-  if (typeof canvasName !== 'string' || canvasName.trim().length === 0) {
-    return errorResult('BAD_REQUEST', 'canvasName is required.');
+  const canvasKey = await canvasKeyFromPayload(payload);
+  const requestedName = payload && typeof payload.canvasName === 'string' ? payload.canvasName.trim() : '';
+  if (!canvasKey && !requestedName) {
+    return errorResult('BAD_REQUEST', 'canvasKey or canvasName is required.');
   }
+
+  const record = canvasKey ? await readCanvasRecord(canvasKey) : null;
+  const names = Array.from(new Set([
+    ...((record && record.names) || []),
+    requestedName,
+  ].filter(Boolean)));
+  const displayName = (record && record.name) || requestedName || canvasKey;
 
   const jql = `labels = "jiratack" ORDER BY created ASC`;
   const issues = [];
@@ -473,7 +749,9 @@ export async function deleteCanvas(context, payload) {
 
   const canvasIssues = issues.filter((issue) => {
     const metadata = metadataFromIssue(issue);
-    return Boolean(metadata && metadata.pin.canvas === canvasName);
+    if (!metadata) return false;
+    if (canvasKey && metadata.pin.canvasId === canvasKey) return true;
+    return names.includes(metadata.pin.canvas);
   });
 
   const openIssues = canvasIssues.filter((issue) => {
@@ -493,17 +771,25 @@ export async function deleteCanvas(context, payload) {
 
   try {
     await mutateInstallationConfig((draft) => {
-      draft.archivedCanvases = draft.archivedCanvases.filter((name) => name !== canvasName);
-      if (!draft.deletedCanvases.includes(canvasName)) {
-        draft.deletedCanvases.push(canvasName);
-      }
+      draft.archivedCanvases = draft.archivedCanvases.filter((name) => !names.includes(name));
+      names.forEach((name) => {
+        if (!draft.deletedCanvases.includes(name)) draft.deletedCanvases.push(name);
+      });
       return draft;
     });
+    if (canvasKey) {
+      await kvsDelete(prefillConfigKey(canvasKey));
+      await deleteCanvasRecord(canvasKey);
+    }
   } catch (e) {
     return errorResult('INTERNAL', e && e.message ? e.message : String(e));
   }
 
-  return { ok: true, data: { canvasName, deleted: true, ticketCount: canvasIssues.length } };
+  await invalidateCanvasSummary(context && context.accountId);
+  return {
+    ok: true,
+    data: { canvasKey: canvasKey || null, canvasName: displayName, deleted: true, ticketCount: canvasIssues.length },
+  };
 }
 
 
@@ -513,10 +799,14 @@ export async function archiveCanvas(context, payload) {
     return errorResult('INSUFFICIENT_SCOPE', 'Admin access is required.');
   }
 
-  const canvasName = payload && payload.canvasName;
-  if (typeof canvasName !== 'string' || canvasName.trim().length === 0) {
-    return errorResult('BAD_REQUEST', 'canvasName is required.');
+  const canvasKey = await canvasKeyFromPayload(payload);
+  const requestedName = payload && typeof payload.canvasName === 'string' ? payload.canvasName.trim() : '';
+  if (!canvasKey && !requestedName) {
+    return errorResult('BAD_REQUEST', 'canvasKey or canvasName is required.');
   }
+
+  const record = canvasKey ? await readCanvasRecord(canvasKey) : null;
+  const canvasName = (record && record.name) || requestedName || canvasKey;
 
   try {
     await mutateInstallationConfig((draft) => {
@@ -525,9 +815,11 @@ export async function archiveCanvas(context, payload) {
       }
       return draft;
     });
+    if (canvasKey) await setCanvasArchived(canvasKey, true);
   } catch (e) {
     return errorResult('INTERNAL', e && e.message ? e.message : String(e));
   }
 
-  return { ok: true, data: { canvasName, archived: true } };
+  await invalidateCanvasSummary(context && context.accountId);
+  return { ok: true, data: { canvasKey: canvasKey || null, canvasName, archived: true } };
 }

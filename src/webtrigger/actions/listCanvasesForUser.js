@@ -3,6 +3,8 @@ import { getInstallationConfig } from '../../lib/config.js';
 import { errorResult } from '../../lib/errors.js';
 import { normalizeUrl } from '../../shared/urlNormalize.js';
 import { METADATA_PROPERTY_KEY, metadataFromIssue } from '../../lib/metadata.js';
+import { loadCanvasNameIndex, loadCanvasRecords, normaliseCanvasName } from '../../lib/canvasRegistry.js';
+import { findRecordByName } from '../../lib/canvasNames.js';
 
 const PAGE_SIZE = 100;
 const MAX_TICKETS = 2000;
@@ -15,6 +17,10 @@ export async function listCanvasesForUser(payload, claims) {
   const jql = 'labels = "jiratack" ORDER BY created DESC';
   const fields = ['project'];
 
+  // Renaming only changes the registry record; tickets keep the name from
+  // capture time. Group by the stable key and show the CURRENT name (D43).
+  const records = await loadCanvasRecords();
+  const nameIndex = await loadCanvasNameIndex();
   const canvases = new Map();
   let nextPageToken = null;
   let fetched = 0;
@@ -45,13 +51,33 @@ export async function listCanvasesForUser(payload, claims) {
       for (const issue of issues) {
         const metadata = metadataFromIssue(issue);
         if (!metadata) continue;
-        const canvasName = metadata.pin.canvas;
-        if (!canvasName) continue;
+        const capturedName = metadata.pin.canvas;
+        if (!capturedName) continue;
 
-        let entry = canvases.get(canvasName);
+        // Index rows can be missing (interrupted write, pre-D42 build), so fall
+        // back to the records themselves before treating a ticket as keyless —
+        // a keyless group is what listed one canvas twice.
+        const byName = findRecordByName(records, capturedName);
+        const canvasKey = metadata.pin.canvasId
+          || nameIndex.get(normaliseCanvasName(capturedName))
+          || (byName ? byName.key : null)
+          || null;
+        const record = (canvasKey && records.get(canvasKey)) || byName || null;
+        const displayName = (record && record.name) || capturedName;
+        // Group by the stable key when one is known, otherwise by name so a
+        // mixed set of old and new tickets still lands in one entry.
+        const entryKey = canvasKey || `name:${normaliseCanvasName(displayName)}`;
+
+        let entry = canvases.get(entryKey);
         if (!entry) {
-          entry = { canvasName, urls: new Set(), projectKeys: new Set() };
-          canvases.set(canvasName, entry);
+          entry = {
+            canvasKey,
+            canvasName: displayName,
+            names: new Set((record && record.names) || [capturedName]),
+            urls: new Set(),
+            projectKeys: new Set(),
+          };
+          canvases.set(entryKey, entry);
         }
 
         const issueFields = issue.fields || {};
@@ -72,6 +98,18 @@ export async function listCanvasesForUser(payload, claims) {
     const permittedProjects = (claims && claims.permittedProjects !== undefined)
       ? claims.permittedProjects
       : '*';
+
+    // Selected-canvases bookmarks (D43): a list restricts the launcher to those
+    // names; 'all' (or a missing claim) keeps every accessible canvas.
+    const permittedCanvases = (claims && claims.permittedCanvases !== undefined)
+      ? claims.permittedCanvases
+      : 'all';
+    const canvasAllowed = (entry) => {
+      if (permittedCanvases === 'all' || !Array.isArray(permittedCanvases)) return true;
+      if (permittedCanvases.includes(entry.canvasName)) return true;
+      // A bookmark made before a rename still names the old label.
+      return Array.from(entry.names || []).some((name) => permittedCanvases.includes(name));
+    };
     const canAccess = (entry) => {
       if (permittedProjects === '*') return true;
       if (!Array.isArray(permittedProjects)) return false;
@@ -79,11 +117,32 @@ export async function listCanvasesForUser(payload, claims) {
       return Array.from(entry.projectKeys).some((key) => permittedProjects.includes(key));
     };
 
-    const result = Array.from(canvases.values())
+    // Last line of defence: one entry per canvas name. Entries are already
+    // grouped by key, so this only merges a keyless leftover into the keyed
+    // entry that owns the same label.
+    const byLabel = new Map();
+    for (const entry of canvases.values()) {
+      const label = normaliseCanvasName(entry.canvasName);
+      const existing = byLabel.get(label);
+      if (!existing) {
+        byLabel.set(label, entry);
+        continue;
+      }
+      const winner = existing.canvasKey ? existing : entry;
+      const loser = winner === existing ? entry : existing;
+      winner.names = new Set([...(winner.names || []), ...(loser.names || [])]);
+      (loser.urls || []).forEach((url) => winner.urls.add(url));
+      (loser.projectKeys || []).forEach((key) => winner.projectKeys.add(key));
+      byLabel.set(label, winner);
+    }
+
+    const result = Array.from(byLabel.values())
+      .filter((entry) => canvasAllowed(entry))
       .filter(canAccess)
-      .filter((entry) => !archived.has(entry.canvasName) && !deleted.has(entry.canvasName))
+      .filter((entry) => !Array.from(entry.names).some((name) => archived.has(name) || deleted.has(name)))
       .map((entry) => ({
         canvasName: entry.canvasName,
+        canvasKey: entry.canvasKey,
         urlCount: entry.urls.size,
         urls: Array.from(entry.urls),
       }))

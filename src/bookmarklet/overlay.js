@@ -12,6 +12,12 @@ export function createOverlay() {
 
   const overlay = make('div', 'jiratack-overlay');
   const pins = make('div', 'jiratack-pins');
+  // Dedicated host for page previews, before the sidebar so it paints below it
+  // and survives pin-layer re-renders (D35).
+  const textPreviewHost = make('div', 'jiratack-text-preview-host');
+  textPreviewHost.id = 'jiratack-text-preview-host';
+  const capturePopoverHost = make('div', 'jiratack-capture-popover-host');
+  capturePopoverHost.id = 'jiratack-capture-popover-host';
   const sidebar = make('aside', 'jiratack-sidebar');
 
   const header = make('div', null, 'jiratack-sidebar-header');
@@ -26,7 +32,9 @@ export function createOverlay() {
   sidebar.appendChild(form);
 
   overlay.appendChild(pins);
+  overlay.appendChild(textPreviewHost);
   overlay.appendChild(sidebar);
+  overlay.appendChild(capturePopoverHost);
   overlay.appendChild(toast);
 
   // Mount on <html> rather than <body> so the Fit-page transform:scale on
@@ -37,6 +45,8 @@ export function createOverlay() {
   return {
     overlayEl: overlay,
     pinsEl: pins,
+    textPreviewHostEl: textPreviewHost,
+    capturePopoverHostEl: capturePopoverHost,
     sidebarEl: sidebar,
     headerEl: header,
     canvasSelectorEl: canvasSelector,

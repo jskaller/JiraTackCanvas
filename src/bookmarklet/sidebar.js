@@ -113,6 +113,7 @@ function makeCloseButton() {
 
 export function renderSidebar(container, options) {
   const { canvasName, session, pins, config, onSelect, onToast, onDone, onEditStart, onHover } = options;
+  const activeTextChangeKey = options.activeTextChangeKey || null;
   const activeFilter = options.filter || 'all';
   const matchMode = options.matchMode === 'exact' || options.matchMode === 'path'
     ? options.matchMode
@@ -120,6 +121,24 @@ export function renderSidebar(container, options) {
   const pageUrl = options.pageUrl || '';
   const loadingLabel = options.loadingLabel || '';
   const loadError = options.loadError || '';
+  const composing = Boolean(options.composing);
+  const composeListOpen = Boolean(options.composeListOpen);
+
+  container.classList.toggle('jiratack-composing', composing);
+
+  // A visible build stamp: "am I on the new SDK?" must be answerable at a glance.
+  function appendVersion(host) {
+    // The RUNNING bundle version, not the version frozen in the enrollment
+    // config: the latter never changes after the first connect, which made a
+    // stale stamp look like a stale build.
+    // The build replaces RUNNING_SDK_VERSION with the bundle hash; never compare
+    // against the placeholder literal here — the substitution would rewrite it.
+    const running = options.runningSdkVersion || 'dev';
+    const channel = (options.config && options.config.channel) || 'bookmarklet';
+    const enrolled = (options.config && options.config.sdkVersion) || '';
+    const suffix = enrolled && enrolled !== running ? ` (enrolled ${enrolled})` : '';
+    host.appendChild(make('div', 'jiratack-version', `SDK ${running} · ${channel}${suffix}`));
+  }
 
   const header = container.querySelector('.jiratack-sidebar-header');
   const selectorContainer = container.querySelector('.jiratack-canvas-selector');
@@ -129,7 +148,9 @@ export function renderSidebar(container, options) {
   header.innerHTML = '';
   if (selectorContainer) selectorContainer.innerHTML = '';
   list.innerHTML = '';
-  form.innerHTML = '';
+  // In compose mode the form belongs to a live controller; rebuilding the
+  // sidebar (polling, pin re-render) must not destroy the draft.
+  if (!options.keepForm) form.innerHTML = '';
 
   const isUniversal = Boolean(options.canvasSelector);
   const isGuest = Boolean(options.guestSelector);
@@ -137,7 +158,7 @@ export function renderSidebar(container, options) {
   function makeLayoutRow() {
     const fit = options.layoutMode === 'fit';
     const row = make('div', 'jiratack-layout-row');
-    row.appendChild(make('span', 'jiratack-layout-label', 'Fit to sidebar'));
+    row.appendChild(make('span', 'jiratack-layout-label', 'Fit page'));
     const toggle = make(
       'button',
       `jiratack-layout-switch${fit ? ' jiratack-layout-switch-on' : ''}`,
@@ -168,6 +189,8 @@ export function renderSidebar(container, options) {
       select.appendChild(option);
     });
     if (canvasName) select.value = canvasName;
+    select.disabled = composing;
+    if (composing) select.title = 'Finish or cancel the ticket first';
     select.addEventListener('change', () => {
       if (options.guestSelector.onChange) options.guestSelector.onChange(select.value);
     });
@@ -181,8 +204,9 @@ export function renderSidebar(container, options) {
     }
     header.appendChild(badges);
     header.appendChild(makeCloseButton());
+    appendVersion(header);
 
-    if (selectorContainer) renderFilterToggle(selectorContainer);
+    if (selectorContainer) renderHeaderControls();
   } else if (isUniversal) {
     const hasSelectedCanvas = Boolean(canvasName && canvasName !== 'JiraTack Launcher');
     const title = make(
@@ -195,6 +219,8 @@ export function renderSidebar(container, options) {
     if (hasSelectedCanvas) {
       const switchButton = make('button', 'jiratack-switch-canvas', 'Switch Canvas');
       switchButton.type = 'button';
+      switchButton.disabled = composing;
+      if (composing) switchButton.title = 'Finish or cancel the ticket first';
       switchButton.addEventListener('click', () => {
         if (options.canvasSelector && options.canvasSelector.onSwitch) {
           options.canvasSelector.onSwitch();
@@ -209,6 +235,7 @@ export function renderSidebar(container, options) {
     }
     if (badges.childNodes.length > 0) header.appendChild(badges);
     header.appendChild(makeCloseButton());
+    appendVersion(header);
 
     if (!hasSelectedCanvas) {
       if (loadError) {
@@ -223,16 +250,49 @@ export function renderSidebar(container, options) {
           const error = make('div', 'jiratack-canvas-error', `No canvases found. API returned: ${canvases.length}`);
           selectorContainer.appendChild(error);
         } else {
+          // Hundreds of canvases need a filter, not one button per canvas (D43).
+          let searchBox = null;
+          if (canvases.length > 6) {
+            searchBox = document.createElement('input');
+            searchBox.type = 'search';
+            searchBox.className = 'jiratack-canvas-search';
+            searchBox.placeholder = `Filter ${canvases.length} canvases…`;
+            searchBox.setAttribute('aria-label', 'Filter canvases');
+            selectorContainer.appendChild(searchBox);
+          }
+
           const canvasList = make('div', 'jiratack-canvas-list');
-          canvases.forEach((canvas) => {
-            const button = make('button', 'jiratack-canvas-button', canvas.canvasName);
+          const rows = canvases.map((canvas) => {
+            const button = make('button', 'jiratack-canvas-button');
             button.type = 'button';
+            button.appendChild(make('span', 'jiratack-canvas-button-name', canvas.canvasName));
+            if (canvas.canvasKey) {
+              button.appendChild(make('span', 'jiratack-canvas-button-key', canvas.canvasKey));
+            }
+            button.dataset.name = String(canvas.canvasName || '').toLowerCase();
+            button.dataset.key = String(canvas.canvasKey || '').toLowerCase();
             button.addEventListener('click', () => {
               if (options.canvasSelector.onChange) options.canvasSelector.onChange(canvas.canvasName);
             });
             canvasList.appendChild(button);
+            return button;
           });
           selectorContainer.appendChild(canvasList);
+
+          if (searchBox) {
+            const applyFilter = () => {
+              const needle = searchBox.value.trim().toLowerCase();
+              rows.forEach((row) => {
+                const match = !needle
+                  || row.dataset.name.includes(needle)
+                  || row.dataset.key.includes(needle);
+                row.style.display = match ? '' : 'none';
+              });
+            };
+            searchBox.addEventListener('input', applyFilter);
+            searchBox.addEventListener('keydown', (event) => event.stopPropagation());
+            searchBox.addEventListener('keyup', (event) => event.stopPropagation());
+          }
         }
 
         const createButton = make('button', 'jiratack-create-canvas', '+ Create new canvas…');
@@ -249,8 +309,7 @@ export function renderSidebar(container, options) {
         }
       }
     } else {
-      selectorContainer.innerHTML = '';
-      renderFilterToggle(selectorContainer);
+      renderHeaderControls();
     }
   } else {
     header.appendChild(make('div', 'jiratack-sidebar-title', canvasName || 'JiraTack'));
@@ -266,7 +325,27 @@ export function renderSidebar(container, options) {
     }
     if (badges.childNodes.length > 0) header.appendChild(badges);
     header.appendChild(makeCloseButton());
-    if (selectorContainer) renderFilterToggle(selectorContainer);
+    appendVersion(header);
+    renderHeaderControls();
+  }
+
+  function renderHeaderControls() {
+    if (!selectorContainer) return;
+    if (composing) {
+      renderComposeContext(selectorContainer);
+    } else {
+      renderFilterToggle(selectorContainer);
+    }
+  }
+
+  function renderComposeContext(container) {
+    container.innerHTML = '';
+    const row = make('div', 'jiratack-compose-context');
+    row.appendChild(make('span', 'jiratack-compose-label', 'Page'));
+    const url = make('span', 'jiratack-compose-url', pageUrl || 'This page');
+    url.title = pageUrl || '';
+    row.appendChild(url);
+    container.appendChild(row);
   }
 
   function renderFilterToggle(container) {
@@ -291,6 +370,119 @@ export function renderSidebar(container, options) {
     wrap.appendChild(pageButton);
     container.appendChild(wrap);
     if (activeFilter === 'page') renderMatchRow(container);
+    renderStatusRow(container);
+  }
+
+  /**
+   * View All / Filter By Status (D38, amended). The project's status rule is
+   * only the DEFAULT: the reviewer can check exactly which statuses to show,
+   * per canvas, and View All is a temporary peek at everything. The count says
+   * how many tickets the current choice is holding back.
+   */
+  function renderStatusRow(container) {
+    if (!options.onStatusFilterChange && !options.onStatusToggle) return;
+    const status = options.statusState || {
+      showAll: false, hiddenCount: 0, groups: [], rule: [], ruleIsDefault: true,
+    };
+    const hidden = typeof status.hiddenCount === 'number' ? status.hiddenCount : 0;
+    const groups = Array.isArray(status.groups) ? status.groups : [];
+    const rule = Array.isArray(status.rule) ? status.rule : [];
+    const filtered = !status.showAll;
+    if (filtered && hidden === 0 && groups.length === 0) return;
+
+    const row = make('div', 'jiratack-match-row jiratack-statusrow');
+    const allButton = make(
+      'button',
+      `jiratack-match-btn${status.showAll ? ' jiratack-match-btn-active' : ''}`,
+      'View All',
+    );
+    allButton.type = 'button';
+    allButton.title = 'Show every ticket once, without changing the filter';
+    allButton.setAttribute('aria-pressed', status.showAll ? 'true' : 'false');
+    allButton.addEventListener('click', () => {
+      if (options.onStatusFilterChange) options.onStatusFilterChange('all');
+    });
+    const filterButton = make(
+      'button',
+      `jiratack-match-btn${filtered ? ' jiratack-match-btn-active' : ''}`,
+      status.showAll && hidden > 0 ? `Filter By Status (${hidden} hidden)` : 'Filter By Status',
+    );
+    filterButton.type = 'button';
+    filterButton.title = 'Show only the statuses ticked in the list';
+    filterButton.setAttribute('aria-pressed', filtered ? 'true' : 'false');
+    filterButton.addEventListener('click', () => {
+      if (options.onStatusFilterChange) options.onStatusFilterChange('filtered');
+    });
+    const caret = make(
+      'button',
+      `jiratack-match-btn jiratack-statuscaret${options.statusPanelOpen ? ' jiratack-match-btn-active' : ''}`,
+      '▾',
+    );
+    caret.type = 'button';
+    caret.title = 'Choose which statuses to show';
+    caret.setAttribute('aria-haspopup', 'true');
+    caret.setAttribute('aria-expanded', options.statusPanelOpen ? 'true' : 'false');
+    caret.addEventListener('click', () => {
+      if (options.onStatusPanelToggle) options.onStatusPanelToggle();
+    });
+    row.appendChild(allButton);
+    row.appendChild(filterButton);
+    row.appendChild(caret);
+    container.appendChild(row);
+
+    if (!options.statusPanelOpen || !options.onStatusToggle) return;
+
+    const panel = make('div', 'jiratack-statuspanel');
+    panel.setAttribute('role', 'group');
+    panel.setAttribute('aria-label', 'Statuses to show');
+
+    const head = make('div', 'jiratack-statuspanel-head');
+    const makeAction = (label, title, handler, active) => {
+      const button = make('button', `jiratack-statuspanel-action${active ? ' jiratack-match-btn-active' : ''}`, label);
+      button.type = 'button';
+      button.title = title;
+      button.addEventListener('click', handler);
+      return button;
+    };
+    head.appendChild(makeAction('All', 'Show every status', () => options.onStatusAll && options.onStatusAll(), hidden === 0));
+    head.appendChild(makeAction('None', 'Hide every status on this canvas', () => options.onStatusNone && options.onStatusNone(), false));
+    head.appendChild(makeAction(
+      'Reset',
+      'Return to the project default',
+      () => options.onStatusReset && options.onStatusReset(),
+      Boolean(status.ruleIsDefault),
+    ));
+    panel.appendChild(head);
+
+    if (groups.length === 0) {
+      panel.appendChild(make('div', 'jiratack-statuspanel-empty', 'No tickets carry a status here.'));
+    }
+    groups.forEach((group) => {
+      const shown = !rule.includes(group.name) && !status.showAll;
+      const option = make('label', 'jiratack-statusoption');
+      const box = document.createElement('input');
+      box.type = 'checkbox';
+      box.checked = shown;
+      box.addEventListener('change', () => {
+        if (options.onStatusToggle) options.onStatusToggle(group.name, box.checked);
+      });
+      option.appendChild(box);
+      option.appendChild(make('span', 'jiratack-statusoption-name', group.name));
+      option.appendChild(make('span', 'jiratack-statusoption-count', String(group.count)));
+      panel.appendChild(option);
+    });
+
+    if (status.ruleIsDefault) {
+      panel.appendChild(make('div', 'jiratack-statuspanel-hint', 'Using the project default. Tick to override for this canvas.'));
+    }
+
+    const done = make('button', 'jiratack-statuspanel-done', 'Done');
+    done.type = 'button';
+    done.addEventListener('click', () => {
+      if (options.onStatusPanelToggle) options.onStatusPanelToggle();
+    });
+    panel.appendChild(done);
+    container.appendChild(panel);
   }
 
   /**
@@ -334,6 +526,9 @@ export function renderSidebar(container, options) {
 
   const cards = new Map();
   const cardControllers = new Map();
+  // Accordion: at most one card is expanded at a time (D33 follow-up).
+  let openCardKey = null;
+  const textChangeControls = new Map();
   const controllers = [];
 
   function buildCard(pin) {
@@ -358,6 +553,38 @@ export function renderSidebar(container, options) {
     });
 
     const summaryEl = make('div', 'jiratack-ticket-summary', pin.summary || '');
+
+    // The stored pair is the label; the switch is the post-creation preview
+    // (D35). Only tickets created with a text change have it.
+    if (pin.textChange && pin.textChange.original && pin.textChange.suggested) {
+      const pairText = `${pin.textChange.original} → ${pin.textChange.suggested}`;
+      const row = make('div', 'jiratack-ticket-textchange');
+      const pair = make('span', 'jiratack-ticket-textchange-pair');
+      pair.title = pairText;
+      pair.appendChild(make('span', 'jiratack-ticket-textchange-original', pin.textChange.original));
+      pair.appendChild(make('span', 'jiratack-ticket-textchange-arrow', ' → '));
+      pair.appendChild(make('span', 'jiratack-ticket-textchange-suggested', pin.textChange.suggested));
+      const toggle = make('button', 'jiratack-switch jiratack-textchange-switch');
+      toggle.type = 'button';
+      toggle.setAttribute('role', 'switch');
+      toggle.setAttribute('aria-label', 'Preview text change on page');
+      toggle.title = 'Preview text change on page';
+      const on = activeTextChangeKey === pin.key;
+      toggle.setAttribute('aria-checked', on ? 'true' : 'false');
+      if (on) toggle.classList.add('jiratack-switch-on');
+      const track = make('span', 'jiratack-switch-track');
+      track.appendChild(make('span', 'jiratack-switch-knob'));
+      toggle.appendChild(track);
+      toggle.addEventListener('click', (event) => {
+        event.stopPropagation();
+        if (options.onTextChangeToggle) options.onTextChangeToggle(pin);
+      });
+      row.appendChild(pair);
+      row.appendChild(toggle);
+      card.appendChild(row);
+      textChangeControls.set(pin.key, toggle);
+    }
+
     const metaEl = make('div', 'jiratack-ticket-meta');
     const peopleEl = make('div', 'jiratack-ticket-people');
     const inlineEl = make('div', 'jiratack-inline-container');
@@ -416,6 +643,7 @@ export function renderSidebar(container, options) {
 
     function collapse() {
       expanded = false;
+      if (openCardKey === pin.key) openCardKey = null;
       if (inlineController) {
         controllers.push(inlineController);
         inlineController = null;
@@ -464,6 +692,11 @@ export function renderSidebar(container, options) {
         return;
       }
 
+      if (openCardKey && openCardKey !== pin.key) {
+        const previous = cardControllers.get(openCardKey);
+        if (previous && typeof previous.collapse === 'function') previous.collapse();
+      }
+      openCardKey = pin.key;
       expanded = true;
       inlineController = renderInlineEdit(inlineEl, {
         config,
@@ -493,7 +726,38 @@ export function renderSidebar(container, options) {
   }
 
   const universalHasCanvas = Boolean(canvasName && canvasName !== 'JiraTack Launcher');
-  if (loadError && (!isUniversal || universalHasCanvas)) {
+
+  function renderComposeList() {
+    const pagePins = pageUrl ? filterPinsByUrl(pins || [], pageUrl, matchMode) : (pins || []);
+    const count = pagePins.length;
+    const toggle = make('button', 'jiratack-compose-list-toggle');
+    toggle.type = 'button';
+    toggle.disabled = count === 0;
+    toggle.setAttribute('aria-expanded', composeListOpen && count > 0 ? 'true' : 'false');
+    toggle.appendChild(make(
+      'span',
+      null,
+      count === 0
+        ? 'No other tickets on this page'
+        : `${count} other ticket${count === 1 ? '' : 's'} on this page`,
+    ));
+    if (count > 0) {
+      toggle.appendChild(make('span', 'jiratack-compose-caret', composeListOpen ? '▾' : '▸'));
+      if (options.onToggleComposeList) {
+        toggle.addEventListener('click', options.onToggleComposeList);
+      }
+    }
+    list.appendChild(toggle);
+    if (composeListOpen && count > 0) {
+      const wrap = make('div', 'jiratack-compose-list');
+      pagePins.forEach((pin) => wrap.appendChild(buildCard(pin)));
+      list.appendChild(wrap);
+    }
+  }
+
+  if (composing) {
+    renderComposeList();
+  } else if (loadError && (!isUniversal || universalHasCanvas)) {
     list.appendChild(make('div', 'jiratack-canvas-error', loadError));
   } else if (options.loading && (!isUniversal || universalHasCanvas)) {
     list.appendChild(loadingNode(loadingLabel || 'Loading pins…'));
@@ -515,7 +779,17 @@ export function renderSidebar(container, options) {
         empty.appendChild(rescue);
         list.appendChild(empty);
       } else {
-        list.appendChild(make('div', 'jiratack-empty', options.emptyMessage || 'No pins on this page.'));
+        const empty = make('div', 'jiratack-empty', options.emptyMessage || 'No pins on this page.');
+        const statusStateNow = options.statusState || {};
+        const hiddenNow = typeof statusStateNow.hiddenCount === 'number' ? statusStateNow.hiddenCount : 0;
+        if (!statusStateNow.showAll && hiddenNow > 0 && options.onStatusFilterChange) {
+          empty.appendChild(document.createElement('br'));
+          const rescue = make('button', 'jiratack-match-rescue', `Show ${hiddenNow} filtered ticket${hiddenNow === 1 ? '' : 's'}`);
+          rescue.type = 'button';
+          rescue.addEventListener('click', () => options.onStatusFilterChange('all'));
+          empty.appendChild(rescue);
+        }
+        list.appendChild(empty);
       }
     } else if (activeFilter === 'all') {
       const groups = new Map();
@@ -572,6 +846,14 @@ export function renderSidebar(container, options) {
     });
   }
 
+  function setTextChangeActive(key) {
+    textChangeControls.forEach((toggle, pinKey) => {
+      const on = pinKey === key;
+      toggle.classList.toggle('jiratack-switch-on', on);
+      toggle.setAttribute('aria-checked', on ? 'true' : 'false');
+    });
+  }
+
   function getKeys() {
     return Array.from(container.querySelectorAll('.jiratack-ticket-card'))
       .map((el) => el.dataset.key)
@@ -588,7 +870,8 @@ export function renderSidebar(container, options) {
     });
     cards.clear();
     cardControllers.clear();
+    textChangeControls.clear();
   }
 
-  return { select, updatePin, setHover, getKeys, destroy };
+  return { select, updatePin, setHover, getKeys, setTextChangeActive, destroy };
 }

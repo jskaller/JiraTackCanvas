@@ -230,6 +230,11 @@ body {
   max-width: 420px;
 }
 
+/* Create/Fields modals: room for the field + value rows without wrapping. */
+.jt-modal-medium {
+  max-width: 540px;
+}
+
 .jt-modal h2 {
   margin: 0 0 4px;
   font-size: 18px;
@@ -509,4 +514,560 @@ body {
 .jt-external-icon {
   color: #5e6c84;
   font-size: 12px;
+}
+
+/* Canvas field pre-fills (D41): an accordion so the create form stays compact
+   and the modal does not scroll until the creator asks for the extra rows. */
+.jt-accordion {
+  margin: 12px 0;
+  border: 1px solid #dfe1e6;
+  border-radius: 6px;
+  padding: 8px 12px;
+  background: #fafbfc;
+}
+
+.jt-accordion > summary {
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 700;
+  color: #5e6c84;
+  padding: 2px 0;
+  list-style: none;
+}
+
+.jt-accordion > summary::-webkit-details-marker {
+  display: none;
+}
+
+.jt-accordion > summary::before {
+  content: '▸';
+  display: inline-block;
+  width: 12px;
+  color: #6b778c;
+}
+
+.jt-accordion[open] > summary::before {
+  content: '▾';
+}
+
+.jt-accordion > summary:hover {
+  color: #172b4d;
+}
+
+.jt-prefill {
+  padding-top: 8px;
+}
+
+.jt-prefill-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr) auto;
+  gap: 6px;
+  align-items: center;
+  margin-bottom: 6px;
+}
+
+.jt-prefill-row .jt-input {
+  font-size: 12px;
+  padding: 6px 8px;
+}
+
+.jt-prefill-remove {
+  padding: 4px 8px;
+  font-size: 11px;
+}
+
+.jt-prefill-add {
+  margin-top: 2px;
+  padding: 4px 10px;
+  font-size: 12px;
+}
+
+.jt-prefill-empty {
+  margin: 6px 0;
+  font-size: 11px;
+  font-weight: 400;
+  line-height: 1.45;
+  color: #6b778c;
+}
+
+.jt-prefill-hint {
+  margin: 8px 0 2px;
+  font-size: 11px;
+  font-weight: 400;
+  line-height: 1.45;
+  color: #6b778c;
+}
+
+/* Dashboard information architecture (D42): anchors, install cards, inline
+   create, card/list toggle, canvas detail page. */
+.jt-anchors {
+  display: flex;
+  gap: 6px;
+  align-self: flex-start;
+}
+
+.jt-anchors a {
+  padding: 4px 10px;
+  border: 1px solid #dfe1e6;
+  border-radius: 999px;
+  background: #ffffff;
+  color: #42526e;
+  font-size: 12px;
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.jt-anchors a:hover {
+  border-color: #4c9aff;
+  color: #0c66e4;
+}
+
+.jt-section {
+  scroll-margin-top: 16px;
+}
+
+.jt-section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+
+.jt-section-head h2 {
+  margin: 0;
+}
+
+.jt-view-toggle {
+  display: flex;
+  gap: 4px;
+}
+
+.jt-install-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 12px;
+}
+
+.jt-install-card {
+  border: 1px solid #dfe1e6;
+  border-radius: 8px;
+  padding: 14px 16px;
+  background: #ffffff;
+}
+
+.jt-install-card h3 {
+  margin: 0 0 4px;
+  font-size: 15px;
+}
+
+.jt-install-card p {
+  margin: 0 0 10px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: #5e6c84;
+}
+
+.jt-create-panel {
+  border: 1px solid #dfe1e6;
+  border-radius: 8px;
+  background: #fafbfc;
+  padding: 14px 16px 16px;
+  margin-bottom: 12px;
+}
+
+.jt-create-panel h3 {
+  margin: 0 0 8px;
+  font-size: 15px;
+}
+
+.jt-create-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 12px;
+}
+
+.jt-create-panel .jt-form-field {
+  margin: 6px 0;
+}
+
+.jt-subhead {
+  margin: 14px 0 4px;
+  font-size: 13px;
+  color: #42526e;
+}
+
+.jt-card-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: 18px;
+}
+
+.jt-canvas-card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.jt-card-title {
+  font-size: 16px;
+  font-weight: 600;
+  color: #172b4d;
+  text-decoration: none;
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.jt-card-title:hover {
+  color: #0c66e4;
+  text-decoration: underline;
+}
+
+.jt-card-shot {
+  position: relative;
+  border-radius: 8px;
+  overflow: hidden;
+  background: #f4f5f7;
+  aspect-ratio: 16 / 10;
+  border: 1px solid #dfe1e6;
+}
+
+.jt-card-shot-img {
+  /* Full page width: a viewport shot is taller than the card, so clip the
+     bottom — never the sides (D43). */
+  width: 100%;
+  height: auto;
+  display: block;
+}
+
+.jt-card-shot-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  color: #7a869a;
+  font-size: 13px;
+}
+
+.jt-card-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 14px;
+  background: rgba(9, 30, 66, 0.72);
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 160ms ease, visibility 0s linear 160ms;
+}
+
+.jt-card-shot:hover .jt-card-overlay,
+.jt-card-shot:focus-within .jt-card-overlay {
+  opacity: 1;
+  visibility: visible;
+  transition: opacity 160ms ease;
+}
+
+.jt-card-open {
+  padding: 10px 18px;
+  border: 0;
+  border-radius: 8px;
+  background: #ffffff;
+  color: #172b4d;
+  font: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.jt-card-open:hover {
+  background: #e9f2ff;
+}
+
+.jt-card-overlay-meta {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 4px 10px;
+  color: #dfe1e6;
+  font-size: 11px;
+}
+
+.jt-card-key {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+.jt-card-overlay-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 6px;
+}
+
+.jt-card-overlay-actions button {
+  padding: 4px 10px;
+  border: 1px solid rgba(255, 255, 255, 0.35);
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.12);
+  color: #ffffff;
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.jt-card-overlay-actions button:hover {
+  background: rgba(255, 255, 255, 0.22);
+}
+
+.jt-card-overlay-actions .jt-danger {
+  border-color: rgba(255, 145, 145, 0.6);
+  color: #ffd5d2;
+}
+
+.jt-canvas-page .jt-back {
+  margin-bottom: 12px;
+}
+
+.jt-canvas-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.jt-canvas-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.jt-canvas-title h2 {
+  margin: 0;
+}
+
+.jt-canvas-meta {
+  font-size: 12px;
+  color: #5e6c84;
+}
+
+.jt-tabs {
+  display: flex;
+  gap: 2px;
+  border-bottom: 1px solid #dfe1e6;
+  margin-bottom: 12px;
+}
+
+.jt-tab {
+  padding: 8px 12px;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  background: transparent;
+  color: #5e6c84;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.jt-tab:hover {
+  color: #172b4d;
+}
+
+.jt-tab-active {
+  color: #0c66e4;
+  border-bottom-color: #0c66e4;
+}
+
+.jt-tab-body {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.jt-rename-row {
+  display: flex;
+  gap: 6px;
+}
+
+.jt-rename-row .jt-input {
+  flex: 1;
+}
+
+.jt-access-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.jt-banner-success {
+  background: #e3fcef;
+  border: 1px solid #abf5d1;
+  color: #006644;
+  border-radius: 4px;
+  padding: 8px 10px;
+  font-size: 12px;
+}
+
+.jt-link-button {
+  border: 0;
+  background: transparent;
+  padding: 0;
+  color: #0c66e4;
+  font: inherit;
+  cursor: pointer;
+  text-decoration: underline;
+}
+
+/* Guest link drawer (D43): a right-side panel instead of a centred modal, so a
+   long canvas list has room and the page stays visible. */
+.jt-drawer-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: flex;
+  justify-content: flex-end;
+  background: rgba(9, 30, 66, 0.42);
+}
+
+.jt-drawer {
+  width: min(460px, 100vw);
+  height: 100%;
+  overflow-y: auto;
+  background: #ffffff;
+  padding: 20px 22px;
+  box-shadow: -8px 0 24px rgba(9, 30, 66, 0.25);
+}
+
+.jt-drawer h2 {
+  margin: 0 0 10px;
+  font-size: 18px;
+}
+
+.jt-key-inline {
+  color: #6b778c;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+}
+
+.jt-install-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+/* Folders (D43): an implicit label on each canvas, surfaced as a rail. */
+.jt-folder-rail {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+
+.jt-folder {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border: 1px solid #dfe1e6;
+  border-radius: 999px;
+  background: #ffffff;
+  color: #42526e;
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.jt-folder:hover {
+  border-color: #4c9aff;
+}
+
+.jt-folder-active {
+  background: #e9f2ff;
+  border-color: #0c66e4;
+  color: #0c66e4;
+  font-weight: 600;
+}
+
+.jt-folder-count {
+  color: #6b778c;
+  font-variant-numeric: tabular-nums;
+}
+
+.jt-folder-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 4px 0 12px;
+}
+
+.jt-folder-row .jt-input {
+  max-width: 220px;
+}
+
+.jt-radio-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 8px 0;
+  font-size: 13px;
+  color: #172b4d;
+  cursor: pointer;
+}
+
+.jt-card-thumb {
+  display: block;
+  width: 100%;
+  height: 110px;
+  object-fit: cover;
+  border-bottom: 1px solid #f4f5f7;
+  background: #f4f5f7;
+}
+
+.jt-card-shot-empty {
+  flex-direction: column;
+  gap: 4px;
+}
+
+.jt-card-host {
+  font-size: 15px;
+  font-weight: 600;
+  color: #44546f;
+}
+
+.jt-card-hint {
+  font-size: 11px;
+  color: #7a869a;
+}
+
+.jt-version {
+  margin-top: 24px;
+  padding-top: 8px;
+  border-top: 1px solid #f4f5f7;
+  font-size: 11px;
+  color: #7a869a;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+.jt-preview-status {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 10px;
+  border: 1px solid #dfe1e6;
+  border-radius: 6px;
+  background: #fafbfc;
+  font-size: 12px;
+  color: #42526e;
+}
+
+.jt-preview-status .jt-link-button {
+  margin-left: auto;
+  font-size: 11px;
 }

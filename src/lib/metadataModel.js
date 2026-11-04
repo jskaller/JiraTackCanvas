@@ -7,6 +7,9 @@ export const METADATA_VERSION = 1;
  *   bindingId?: string,            // HMAC(email) — reviewer binding, guest tickets only (D27)
  *   guest?: { name: string, email: string },
  *   pin: { canvas: string, url: string, position: string, selector: string | null },
+ *   capture?: object,              // element/viewport/environment at capture time
+ *   textChange?: { original: string, suggested: string }, // D35, machine-readable copy
+ *   screenshotVersion?: number,    // increments per superseding screenshot (D33)
  *   version: number
  * }
  *
@@ -36,6 +39,12 @@ export function normalizeMetadata(input) {
     version: typeof input.version === 'number' ? input.version : METADATA_VERSION,
   };
 
+  // Stable canvas identity (D42). Absent on tickets written before keys existed;
+  // those resolve by name through the registry.
+  if (typeof pin.canvasId === 'string' && pin.canvasId.length > 0) {
+    metadata.pin.canvasId = pin.canvasId;
+  }
+
   if (typeof input.bindingId === 'string' && BINDING_ID_RE.test(input.bindingId)) {
     metadata.bindingId = input.bindingId;
   }
@@ -57,7 +66,64 @@ export function normalizeMetadata(input) {
   const capture = normaliseCapture(input.capture);
   if (capture) metadata.capture = capture;
 
+  const textChange = normaliseTextChange(input.textChange);
+  if (textChange) metadata.textChange = textChange;
+
+  // Superseded screenshots (D33). Absent on tickets created before the field
+  // existed, so a missing value is valid and simply means zero.
+  if (Number.isInteger(input.screenshotVersion) && input.screenshotVersion > 0) {
+    metadata.screenshotVersion = input.screenshotVersion;
+  }
+
   return metadata;
+}
+
+const MAX_TEXT_CHANGE = 2000;
+
+/**
+ * The text-change suggestion is stored twice: as human-readable description
+ * copy and here for the post-creation preview (D35). Both fields are required;
+ * an empty pair is not a suggestion.
+ */
+function normaliseAnchorPath(value) {
+  if (!Array.isArray(value) || value.length === 0 || value.length > 256) return null;
+  const clean = value.filter((entry) => Number.isInteger(entry) && entry >= 0);
+  return clean.length === value.length ? clean : null;
+}
+
+/**
+ * The precise node path is what makes the on-page preview work after creation.
+ * Without it the preview can only search for the phrase, which fails whenever
+ * the text appears more than once (D35 follow-up).
+ */
+function normaliseTextAnchor(input) {
+  if (!input || typeof input !== 'object') return null;
+  const startPath = normaliseAnchorPath(input.start && input.start.path);
+  const endPath = normaliseAnchorPath(input.end && input.end.path);
+  const startOffset = input.start && input.start.offset;
+  const endOffset = input.end && input.end.offset;
+  if (!startPath || !endPath) return null;
+  if (!Number.isInteger(startOffset) || !Number.isInteger(endOffset)) return null;
+  return {
+    start: { path: startPath, offset: startOffset },
+    end: { path: endPath, offset: endOffset },
+    ancestorSelector: typeof input.ancestorSelector === 'string' && input.ancestorSelector.length <= 200
+      ? input.ancestorSelector
+      : null,
+  };
+}
+
+export function normaliseTextChange(input) {
+  if (!input || typeof input !== 'object') return null;
+  const original = typeof input.original === 'string' ? input.original.trim() : '';
+  const suggested = typeof input.suggested === 'string' ? input.suggested.trim() : '';
+  if (!original || !suggested) return null;
+  const anchor = normaliseTextAnchor(input.anchor);
+  return {
+    original: original.slice(0, MAX_TEXT_CHANGE),
+    suggested: suggested.slice(0, MAX_TEXT_CHANGE),
+    ...(anchor ? { anchor } : {}),
+  };
 }
 
 const CAP_HTML = 2000;

@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { formatDate } from '../api';
 import { toSafeHttpUrl } from '@shared/safeUrl';
+import { openExternal } from '../external';
 
 function SafeLink({ url, children, className, title }) {
   const safe = toSafeHttpUrl(url);
@@ -8,13 +9,22 @@ function SafeLink({ url, children, className, title }) {
     return <span className={className} title={title}>{children}</span>;
   }
   return (
-    <a className={className} href={safe} target="_blank" rel="noopener noreferrer" title={title}>
+    <a
+      className={className}
+      href={safe}
+      title={title}
+      onClick={(event) => {
+        event.preventDefault();
+        openExternal(safe);
+      }}
+    >
       {children}
     </a>
   );
 }
 
-function ProjectSpan({ projectKeys }) {  if (!projectKeys || projectKeys.length === 0) return <span className="jt-muted">—</span>;
+function ProjectSpan({ projectKeys }) {
+  if (!projectKeys || projectKeys.length === 0) return <span className="jt-muted">—</span>;
   if (projectKeys.length === 1) return <span className="jt-chip">{projectKeys[0]}</span>;
   return (
     <span className="jt-chip" title={projectKeys.join(', ')}>
@@ -50,41 +60,20 @@ function Participants({ participants }) {
   );
 }
 
-export default function CanvasTable({ canvases, onOpenJira, onDelete, onArchive, archivedView }) {
+export default function CanvasTable({ canvases, onOpenCanvas, onOpenFields, onOpenJira, onDelete, onArchive, archivedView }) {
   const [expanded, setExpanded] = useState(() => new Set());
-  const [copiedUrl, setCopiedUrl] = useState(null);
 
-  function toggle(canvasName) {
+  function toggle(key) {
     setExpanded((previous) => {
       const next = new Set(previous);
-      if (next.has(canvasName)) {
-        next.delete(canvasName);
-      } else {
-        next.add(canvasName);
-      }
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
       return next;
     });
   }
 
-  async function copyUrl(url) {
-    try {
-      await navigator.clipboard.writeText(url);
-      setCopiedUrl(url);
-      window.setTimeout(() => {
-        setCopiedUrl((current) => (current === url ? null : current));
-      }, 1500);
-    } catch (e) {
-      setCopiedUrl(null);
-    }
-  }
-
   if (!canvases || canvases.length === 0) {
-    return (
-      <div className="jt-empty">
-        No canvases yet. Create a ticket with a new canvas name in the JiraTack Canvas field and it will appear
-        here automatically.
-      </div>
-    );
+    return <div className="jt-empty">No canvases match.</div>;
   }
 
   return (
@@ -92,6 +81,7 @@ export default function CanvasTable({ canvases, onOpenJira, onDelete, onArchive,
       <thead>
         <tr>
           <th>Canvas</th>
+          <th>Key</th>
           <th>Projects</th>
           <th>Open / total</th>
           <th>URLs</th>
@@ -102,11 +92,11 @@ export default function CanvasTable({ canvases, onOpenJira, onDelete, onArchive,
       </thead>
       <tbody>
         {canvases.map((canvas) => {
-          const isExpanded = expanded.has(canvas.canvasName);
+          const isExpanded = expanded.has(canvas.canvasKey);
           const urls = canvas.urls || [];
 
           return (
-            <React.Fragment key={canvas.canvasName}>
+            <React.Fragment key={canvas.canvasKey}>
               <tr>
                 <td className="jt-canvas-name">
                   <button
@@ -114,22 +104,20 @@ export default function CanvasTable({ canvases, onOpenJira, onDelete, onArchive,
                     className="jt-expand"
                     aria-expanded={isExpanded}
                     title={isExpanded ? 'Hide pages' : 'Show pages'}
-                    onClick={() => toggle(canvas.canvasName)}
+                    onClick={() => toggle(canvas.canvasKey)}
                   >
                     {isExpanded ? '▾' : '▸'}
                   </button>
-                  {urls.length > 0 ? (
-                    <SafeLink
-                      className="jt-canvas-link"
-                      url={urls[0].url}
-                      title="Open original page"
-                    >
-                      {canvas.canvasName} <span className="jt-external-icon">↗</span>
-                    </SafeLink>
-                  ) : (
-                    canvas.canvasName
-                  )}
+                  <button
+                    type="button"
+                    className="jt-link-button jt-canvas-link"
+                    onClick={() => onOpenCanvas(canvas)}
+                    title="Open canvas"
+                  >
+                    {canvas.canvasName}
+                  </button>
                 </td>
+                <td><span className="jt-chip">{canvas.canvasKey}</span></td>
                 <td>
                   <ProjectSpan projectKeys={canvas.projectKeys} />
                 </td>
@@ -142,6 +130,9 @@ export default function CanvasTable({ canvases, onOpenJira, onDelete, onArchive,
                   <Participants participants={canvas.participants} />
                 </td>
                 <td className="jt-actions">
+                  <button type="button" className="jt-button" onClick={() => onOpenFields(canvas)}>
+                    Fields
+                  </button>
                   <button type="button" className="jt-button" onClick={() => onOpenJira(canvas)}>
                     Review All Tickets
                   </button>
@@ -149,25 +140,34 @@ export default function CanvasTable({ canvases, onOpenJira, onDelete, onArchive,
                     <button
                       type="button"
                       className="jt-button jt-button-danger"
-                      onClick={() => onDelete(canvas.canvasName)}
+                      onClick={() => onDelete(canvas)}
                     >
                       Permanently Delete
                     </button>
                   ) : (
-                    <button
-                      type="button"
-                      className="jt-button"
-                      onClick={() => onArchive(canvas.canvasName)}
-                    >
-                      Archive Canvas
-                    </button>
+                    <>
+                      <button
+                        type="button"
+                        className="jt-button"
+                        onClick={() => onArchive(canvas)}
+                      >
+                        Archive
+                      </button>
+                      <button
+                        type="button"
+                        className="jt-button jt-button-danger"
+                        onClick={() => onDelete(canvas)}
+                      >
+                        Delete
+                      </button>
+                    </>
                   )}
                 </td>
               </tr>
 
               {isExpanded && (
                 <tr className="jt-url-row">
-                  <td colSpan={7}>
+                  <td colSpan={8}>
                     <div className="jt-url-list">
                       <div className="jt-url-title">Pages ({urls.length})</div>
                       {urls.length === 0 ? (
@@ -179,14 +179,6 @@ export default function CanvasTable({ canvases, onOpenJira, onDelete, onArchive,
                             <span className="jt-url-count">
                               ({item.ticketCount} {item.ticketCount === 1 ? 'ticket' : 'tickets'})
                             </span>
-                            <button
-                              type="button"
-                              className="jt-copy"
-                              title="Copy URL"
-                              onClick={() => copyUrl(item.url)}
-                            >
-                              {copiedUrl === item.url ? '✓' : '⧉'}
-                            </button>
                           </div>
                         ))
                       )}

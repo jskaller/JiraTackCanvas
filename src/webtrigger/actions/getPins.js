@@ -2,9 +2,11 @@ import api, { route } from '@forge/api';
 import { getInstallationConfig } from '../../lib/config.js';
 import { errorResult } from '../../lib/errors.js';
 import { normalizeUrl } from '../../shared/urlNormalize.js';
-import { getEffectiveRetirementDays } from '../../lib/jql.js';
+import { isFilteredStatus, isRemovedStatus } from '../../lib/statusFilter.js';
 import { canAccessCanvas, canAccessProject } from '../middleware/scope.js';
 import { METADATA_PROPERTY_KEY, metadataFromIssue } from '../../lib/metadata.js';
+import { findCanvasKeyForName, loadCanvasRecords, readCanvasRecord } from '../../lib/canvasRegistry.js';
+import { findRecordByName } from '../../lib/canvasNames.js';
 
 const PAGE_SIZE = 100;
 const MAX_SCANNED = 2000;
@@ -18,14 +20,7 @@ function mapUser(user) {
   };
 }
 
-function statusChangedAt(fields) {
-  const raw = fields.statuscategorychangedate || fields.statusCategoryChangedDate || null;
-  if (!raw) return null;
-  const time = Date.parse(raw);
-  return Number.isNaN(time) ? null : time;
-}
-
-function mapPin(issue, metadata) {
+function mapPin(issue, metadata, projectConfig) {
   const fields = issue.fields || {};
   const status = fields.status || {};
   const category = status.statusCategory || {};
@@ -46,7 +41,10 @@ function mapPin(issue, metadata) {
     reporter: mapUser(fields.reporter),
     pinPosition: metadata.pin.position,
     selector: metadata.pin.selector,
+    textChange: metadata.textChange || null,
     issueType: fields.issuetype ? { name: fields.issuetype.name } : null,
+    parentKey: fields.parent && fields.parent.key ? fields.parent.key : null,
+    filtered: isFilteredStatus(status, projectConfig),
     createdAt: fields.created || null,
     url: metadata.pin.url,
     guest: metadata.guest || null,
@@ -71,8 +69,6 @@ export async function getPinsForCanvasAndUrl(payload, claims) {
 
   const normalizedUrl = normalizeUrl(url);
   const wantAll = Boolean(payload && payload.all);
-  const retirementDays = await getEffectiveRetirementDays(canvasName, config);
-  const retirementCutoff = retirementDays > 0 ? Date.now() - retirementDays * 24 * 60 * 60 * 1000 : null;
 
   const fieldsParam = [
     'summary',
@@ -81,9 +77,9 @@ export async function getPinsForCanvasAndUrl(payload, claims) {
     'assignee',
     'reporter',
     'issuetype',
+    'parent',
     'created',
     'project',
-    'statuscategorychangedate',
   ];
 
   const jql = `labels = "jiratack" ORDER BY created ASC`;
@@ -126,19 +122,15 @@ export async function getPinsForCanvasAndUrl(payload, claims) {
         }
 
         const issueFields = issue.fields || {};
-        const category = issueFields.status && issueFields.status.statusCategory
-          ? issueFields.status.statusCategory.key
-          : null;
-        if (category === 'done') {
-          if (!retirementCutoff) continue;
-          const changedAt = statusChangedAt(issueFields);
-          if (!changedAt || changedAt < retirementCutoff) continue;
-        }
+        // "Removed" is a permanent exclusion (D38): the client never sees it,
+        // whatever the status filter toggle says.
+        if (isRemovedStatus(issueFields.status)) continue;
 
         const projectKey = issueFields.project && issueFields.project.key;
         if (!canAccessProject(claims.permittedProjects, projectKey)) continue;
 
-        pins.push(mapPin(issue, metadata));
+        const projectConfig = (config.projects && config.projects[projectKey]) || null;
+        pins.push(mapPin(issue, metadata, projectConfig));
       }
 
       scanned += issues.length;
@@ -149,10 +141,23 @@ export async function getPinsForCanvasAndUrl(payload, claims) {
     return errorResult('INTERNAL', e && e.message ? e.message : String(e));
   }
 
+  // The name index can be missing for a pre-D42 canvas; the records know the
+  // name even when the index row does not.
+  const canvasKey = (await findCanvasKeyForName(canvasName))
+    || (findRecordByName(await loadCanvasRecords(), canvasName) || {}).key
+    || null;
+  let canvasHasThumbnail = false;
+  if (canvasKey) {
+    const record = await readCanvasRecord(canvasKey);
+    canvasHasThumbnail = Boolean(record && record.thumbnailVersion === 2 && record.thumbnail);
+  }
+
   return {
     ok: true,
     data: {
       pins,
+      canvasKey: canvasKey || null,
+      canvasHasThumbnail,
       canvasName: claims.canvasName || canvasName,
       configVersion: config.configVersion || '',
       // Scan caps can silently drop pins; tell the client the list may be partial.

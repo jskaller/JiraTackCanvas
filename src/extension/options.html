@@ -52,10 +52,20 @@
     <p>Click the toolbar icon on any page to drop pins. No bookmarklet, so it works on sites whose security policy blocks one.</p>
     <p>Supported: Chrome, Edge and Firefox. Safari is not supported in this release; use one of those three.</p>
 
-    <label for="input">Bookmarklet link</label>
+    <div id="pending" hidden style="margin:16px 0;padding:12px;border:1px solid #ffab00;border-radius:6px;background:#fff7e6;">
+      <strong>Another JiraTack installation is asking to connect.</strong>
+      <p style="margin:6px 0;">This page belongs to <span id="pending-detail"></span>, which is different from the installation this extension is connected to. Replace the connection?</p>
+      <div class="row" style="margin-top:0;">
+        <button id="replace">Replace connection</button>
+        <button id="keep">Keep current</button>
+      </div>
+    </div>
+
+    <label for="input">Canvas link (repair path)</label>
     <p>
-      In JiraTack, open a canvas and copy the bookmarklet link you would have dragged to your bookmarks bar.
-      Paste it here once. It carries your token and endpoints; nothing else is needed.
+      Usually you never need this: click the JiraTack toolbar button on a page
+      where the bookmarklet overlay is open — the extension connects itself and
+      repairs stale settings. Paste a canvas link here only as a fallback.
     </p>
     <textarea id="input" spellcheck="false" placeholder="javascript:(function(){var c={&quot;token&quot;:&quot;…&quot;,…};if(window.__jiratackActiveCanvas…"></textarea>
     <div class="row">

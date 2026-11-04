@@ -25,7 +25,7 @@
 | 6 | KVS **read failure** was indistinguishable from "no config yet": default config returned, then persisted by a later write → potential config wipe | High | `lib/config.js:17-26` |
 | 7 | Screenshot bytes transit the web trigger as base64 in the request body, with no size ceiling | Medium | `bookmarklet/screenshot.js`, `webtrigger/actions/createIssue.js` |
 | 8 | Up to 50 individual `kvs.get` calls per assignee search | Medium | `webtrigger/actions/searchUsers.js:36` |
-| 9 | Canvas reads scan up to 2000 issues (≈20 sequential Jira searches) on four independent paths | Medium | `getPins.js`, `listCanvasesForUser.js`, `dashboard.js`, `jql.js` |
+| 9 | Canvas reads scan up to 2000 issues (≈20 sequential Jira searches) on four independent paths | Medium | `getPins.js`, `listCanvasesForUser.js`, `dashboard.js` (`jql.js` was merged away after the retirement removal, D38) |
 | 10 | No HTML-injection sink found, but stored page URLs reached `href`/`location.href`, permitting `javascript:` execution | Medium (closed in §9.1) | §1.5, §9.1 |
 | 11 | Silent partial results: scan caps truncated output with no flag to the client | Medium | `getPins.js` |
 | 12 | SDK orchestration is a 1120-line singleton module mixing transport, DOM, layout and lifecycle | Medium (pivot) | `bookmarklet/index.js` |
@@ -131,7 +131,7 @@ No handler sets `Access-Control-Allow-Origin` (`api.js` sends `Content-Type` onl
 - **Complexity:** `index.js` as above; `applyLayoutMode` nests teardown → install → fallback → render and recurses via `onBelowFloor`. `runHydration` (budgeted, token-checked) and the `select`/`setHover`/`flash` triad are the good models to copy.
 - **Duplication:** `fetchJiraBaseUrl()` three times (`dashboard.js`, `issue.js`, `epic.js`); `mapUser()` twice; `escapeJql()` twice; `getSession()` reimplemented in `epic.js`.
 - **Dead code:** `readMetadata` (superseded by `readMetadataBySearch`), `successResponse` (`errors.js:37`), `config.webtriggerUrls` read of a never-written key.
-- **Error handling — mostly good:** typed `{ok,error}` envelope with correct HTTP mapping (`api.js:16-38`), fail-closed authorisation, optimistic-update-with-revert in `inlineEdit.js`. Two systemic flaws: **silent defaulting** (§3.2/finding 6 — a KVS blip becomes a config wipe, and `getEffectiveRetirementDays` returning `0` on error silently disables retirement) and **cause conflation** (`readMetadataBySearch` maps "lookup failed" and "no property" to the same `null`, surfacing as `INSUFFICIENT_SCOPE: "This issue is not managed by JiraTack"` — the misleading message that cost a debug cycle).
+- **Error handling — mostly good:** typed `{ok,error}` envelope with correct HTTP mapping (`api.js:16-38`), fail-closed authorisation, optimistic-update-with-revert in `inlineEdit.js`. Two systemic flaws: **silent defaulting** (§3.2/finding 6 — a KVS blip becomes a config wipe, (the retirement mechanism that motivated the silent-defaulting example was removed in D38)) and **cause conflation** (`readMetadataBySearch` maps "lookup failed" and "no property" to the same `null`, surfacing as `INSUFFICIENT_SCOPE: "This issue is not managed by JiraTack"` — the misleading message that cost a debug cycle).
 - **Privacy-by-design:** `consoleProxy.js` buffers arbitrary third-party page console output into a Jira ticket (see §6).
 
 ---
@@ -182,7 +182,7 @@ Execution order agreed with the app owner: P0 authorisation → P1 integrity/rev
 - `readMetadataBySearch` now returns `{ metadata, lookupFailed }`, so a Jira lookup failure no longer masquerades as `INSUFFICIENT_SCOPE: "This issue is not managed by JiraTack"`.
 - Orphan prevention: `createIssue` returns `warning: "metadata-not-stored"` when the property write fails, and the SDK shows a distinct message rather than silently producing an invisible ticket.
 
-**Findings 8 & 11 — closed.** `searchUsers` batches licensed-user lookups into one KVS read (N→1, with a per-key fallback); `getPins` returns `truncated` when the 2,000-issue scan cap is hit; the canvas→project lookup failure is logged instead of silently disabling retirement.
+**Findings 8 & 11 — closed.** `searchUsers` batches licensed-user lookups into one KVS read (N→1, with a per-key fallback); `getPins` returns `truncated` when the 2,000-issue scan cap is hit; the canvas→project lookup failure is logged instead of being persisted silently.
 
 **Hygiene:** dead code removed (`readMetadata`, `successResponse`); api.js now re-exchanges the session once on `TOKEN_EXPIRED`/`TOKEN_INVALID`, which bounds the *practical* revocation window (finding 3 mitigated, not solved — see below).
 
@@ -337,3 +337,24 @@ Gymshark and Webflow could not be reached from the test network (`ERR_TUNNEL_CON
 - Tokens are still embedded in bookmark URLs, so the §1.2 secret-in-history exposure is unchanged by this work.
 
 **Reproduction.** Point a tab at a page whose CSP allows inline but not the SDK origin, run the bootstrap body from `buildBookmarklet()`, and assert `#jiratack-bootstrap-loading` contains "JiraTack could not start here". On a live strict site, the same assertion holds after clicking a real bookmarklet. `TEST_PLAN §3.12` carries the manual cases.
+
+## D39 — extension self-enrollment (2026-11-03)
+
+The extension now enrolls itself from `window.__jiratackConfig` exposed by a live overlay, on a toolbar click, and only after the candidate config passes a real `exchangeToken` against its own `apiUrl`. When a config is already stored, a candidate from a **different origin** can never replace it.
+
+**Residual risk.** With nothing stored, a malicious page can present a fake `__jiratackConfig` whose `apiUrl` points at an attacker-controlled server that answers `ok: true`. The toolbar click (a user gesture on that page) would enroll it, and the extension would run the attacker's overlay on later pages. Exposure is bounded: pins and viewer content only flow after that user gesture, and any stored-config takeover requires a same-origin answer from the real JiraTack host. Accepted for now because the alternative is teaching users to paste links; revisit if the extension ships beyond the development environment.
+
+## D40 — host permissions for overlay continuity (2026-11-03)
+
+The extension now declares `host_permissions: ["<all_urls>"]`. Without it the overlay cannot be re-injected after a navigation, because Chrome revokes `activeTab` on any navigation — which is why a cross-URL card click used to lose the overlay.
+
+**What the permission is used for.** Only injection, and only two paths use it: the toolbar click (unchanged; a user gesture) and the background's re-injection after a navigation the reviewer started from the overlay's own sidebar (the one-shot carry flag in `carryOverlay`). Nothing reads page content, nothing injects on ordinary browsing, and the SDK it injects is the same bundled file it always was.
+
+**Residual risk.** A compromised or buggy service worker could inject into any page. The mitigation is the one-shot design: `tabs.onUpdated` re-injects only when `carryOverlay[tabId]` is set, and that flag is deleted before use, on toolbar-close, and on tab close. Reviewed and accepted for the development environment; revisit before a broader distribution channel, where a narrower per-site list should replace `<all_urls>`.
+
+
+## D43 — longer guest links and store distribution (2026-11-04)
+
+Guest invitation links now live for **90 days** instead of 72 hours. The link is a bearer credential: anyone who obtains it can use the invitation until it expires, is paused, or is revoked. Mitigations: per-invite revocation and pause take effect on the next request, pairings are capped at 10 devices, and guest sessions are confined to `permittedCanvases` with `isAdmin: false` (D19). Accepted because re-onboarding a reviewer every three days was driving reviewers back to unmanaged channels.
+
+Distribution note: Chrome cannot install an extension from a web page outside the Web Store (self-hosted CRX is blocked for normal users); Firefox requires an AMO-signed XPI. The dashboard therefore links to listings rather than installing directly, and the documented fallback is the bookmarklet.

@@ -3,11 +3,24 @@ import { getInstallationConfig } from '../../lib/config.js';
 import { errorResult } from '../../lib/errors.js';
 import { normalizeUrl, stripDeepLinkParams } from '../../shared/urlNormalize.js';
 import { trackLicensedUser } from '../../lib/license.js';
+import { SDK_VERSION } from '../../lib/version.js';
 import { METADATA_PROPERTY_KEY, metadataFromIssue } from '../../lib/metadata.js';
+import {
+  ensureCanvasRecord,
+  loadCanvasNameIndex,
+  loadCanvasRecords,
+  normaliseCanvasName,
+} from '../../lib/canvasRegistry.js';
+import { findRecordByName } from '../../lib/canvasNames.js';
+import { kvsGet, kvsSet, kvsDelete } from '../../lib/kvs.js';
 
 const PAGE_SIZE = 100;
 const MAX_TICKETS = 2000;
 const MAX_PARTICIPANTS = 5;
+// The scan is expensive; a short per-user cache keeps a dashboard refresh from
+// paying for it again (D43). It is per user because the scan runs as the user.
+const CACHE_TTL_MS = 120000;
+const CACHE_PREFIX = 'canvasSummary:';
 
 async function fetchJiraBaseUrl() {
   try {
@@ -48,12 +61,36 @@ function mapUser(user) {
   };
 }
 
-export async function dashboardAggregate(context) {
-  await trackLicensedUser(context);
-
+async function computeAggregate(context) {
   const config = await getInstallationConfig();
   const archived = new Set(Array.isArray(config.archivedCanvases) ? config.archivedCanvases : []);
   const deleted = new Set(Array.isArray(config.deletedCanvases) ? config.deletedCanvases : []);
+
+  // Canvas identity (D42): group by the stable key, not the display name. A
+  // ticket written before keys existed resolves through the name index, and a
+  // canvas that predates the registry gets a record lazily.
+  const records = await loadCanvasRecords();
+  const nameIndex = await loadCanvasNameIndex();
+
+  async function canvasKeyFor(metadata) {
+    const direct = metadata && metadata.pin && metadata.pin.canvasId;
+    const name = metadata && metadata.pin && metadata.pin.canvas;
+    const byName = name ? findRecordByName(records, name) : null;
+    const indexed = (name ? nameIndex.get(normaliseCanvasName(name)) : null)
+      || (byName ? byName.key : null);
+
+    // The record (and its preview) is written under the name-index key. If a
+    // ticket's canvasId disagrees with the index, prefer the indexed record so
+    // the card and the preview can never group under different keys.
+    if (indexed && (records.has(indexed) || !direct)) return indexed;
+    if (typeof direct === 'string' && direct) return direct;
+    if (!name) return null;
+    const ensured = await ensureCanvasRecord({ name });
+    if (!ensured || !ensured.record) return null;
+    records.set(ensured.record.key, ensured.record);
+    ensured.record.names.forEach((entry) => nameIndex.set(normaliseCanvasName(entry), ensured.record.key));
+    return ensured.record.key;
+  }
 
   const fields = ['status', 'updated', 'assignee', 'reporter', 'project'];
   const jql = 'labels = "jiratack" ORDER BY created DESC';
@@ -88,13 +125,20 @@ export async function dashboardAggregate(context) {
       for (const issue of issues) {
         const metadata = metadataFromIssue(issue);
         if (!metadata) continue;
+        const canvasKey = await canvasKeyFor(metadata);
+        if (!canvasKey) continue;
         const canvasName = metadata.pin.canvas;
         if (!canvasName) continue;
 
-        let entry = canvases.get(canvasName);
+        let entry = canvases.get(canvasKey);
         if (!entry) {
+          const record = records.get(canvasKey) || null;
           entry = {
-            canvasName,
+            canvasKey,
+            canvasName: (record && record.name) || canvasName,
+            names: (record && record.names) || [canvasName],
+            folder: (record && record.folder) || null,
+            registryArchived: Boolean(record && record.archived),
             ticketCount: 0,
             openCount: 0,
             urls: new Map(),
@@ -102,7 +146,7 @@ export async function dashboardAggregate(context) {
             projectKeys: new Set(),
             participants: new Map(),
           };
-          canvases.set(canvasName, entry);
+          canvases.set(canvasKey, entry);
         }
 
         entry.ticketCount += 1;
@@ -143,9 +187,12 @@ export async function dashboardAggregate(context) {
     } while (fetched < MAX_TICKETS);
 
     const summaries = Array.from(canvases.values())
-      .filter((entry) => !deleted.has(entry.canvasName))
+      .filter((entry) => !entry.names.some((name) => deleted.has(name)))
       .map((entry) => ({
+        canvasKey: entry.canvasKey,
         canvasName: entry.canvasName,
+        folder: entry.folder,
+        names: entry.names,
         ticketCount: entry.ticketCount,
         openCount: entry.openCount,
         urlCount: entry.urls.size,
@@ -154,11 +201,13 @@ export async function dashboardAggregate(context) {
           .sort((a, b) => {
             if (b.ticketCount !== a.ticketCount) return b.ticketCount - a.ticketCount;
             return a.url.localeCompare(b.url);
-          }),
+          })
+          .slice(0, 100),
         lastUpdated: entry.lastUpdated,
         projectKeys: Array.from(entry.projectKeys),
         participants: Array.from(entry.participants.values()),
-        archived: archived.has(entry.canvasName),
+        archived: entry.registryArchived
+          || entry.names.some((name) => archived.has(name)),
       }))
       .sort((a, b) => {
         if (a.lastUpdated === b.lastUpdated) return a.canvasName.localeCompare(b.canvasName);
@@ -184,4 +233,85 @@ export async function dashboardAggregate(context) {
   } catch (e) {
     return errorResult('INTERNAL', e && e.message ? e.message : String(e));
   }
+}
+
+/**
+ * Drop one user's cached summary after a write that changes the canvas list, so
+ * a new or renamed canvas appears immediately instead of after the TTL (D43).
+ */
+export async function invalidateCanvasSummary(accountId) {
+  if (!accountId) return;
+  try {
+    await kvsDelete(`${CACHE_PREFIX}${accountId}`);
+  } catch (e) {
+    // The TTL still bounds staleness.
+  }
+}
+
+export async function dashboardAggregate(context, payload) {
+  await trackLicensedUser(context);
+
+  const accountId = (context && (context.accountId || context.userId)) || 'unknown';
+  const cacheKey = `${CACHE_PREFIX}${accountId}`;
+
+  let cached = null;
+  try {
+    cached = await kvsGet(cacheKey);
+  } catch (e) {
+    cached = null;
+  }
+
+  let snapshot = cached && cached.at && (Date.now() - cached.at) < CACHE_TTL_MS ? cached : null;
+  if (!snapshot) {
+    const computed = await computeAggregate(context);
+    if (!computed.ok) return computed;
+    snapshot = { at: Date.now(), ...computed.data };
+    try {
+      await kvsSet(cacheKey, snapshot, { ttl: { value: 1, unit: 'HOURS' } });
+    } catch (e) {
+      // A cache write failure only costs the next caller a rescan.
+    }
+  }
+
+  const config = await getInstallationConfig();
+
+  const search = payload && typeof payload.search === 'string' ? payload.search.trim().toLowerCase() : '';
+  // Previews live on the canvas records; attach fresh so clearing shows at once.
+  const records = await loadCanvasRecords();
+  let list = snapshot.canvases.map((canvas) => {
+    const record = records.get(canvas.canvasKey) || null;
+    const thumbnail = record && record.thumbnailVersion === 2 ? record.thumbnail || null : null;
+    return { ...canvas, thumbnail };
+  });
+
+  if (search) {
+    list = list.filter((canvas) => String(canvas.canvasName || '').toLowerCase().includes(search)
+      || String(canvas.canvasKey || '').toLowerCase().includes(search));
+  }
+
+  const pageSize = Math.min(500, Math.max(1, Number(payload && payload.pageSize) || 500));
+  const page = Math.max(1, Number(payload && payload.page) || 1);
+  const total = list.length;
+  const start = (page - 1) * pageSize;
+
+  return {
+    ok: true,
+    data: {
+      canvases: list.slice(start, start + pageSize),
+      total,
+      page,
+      pageSize,
+      hasMore: start + pageSize < total,
+      cachedAt: snapshot.at,
+      configVersion: snapshot.configVersion,
+      hasAccess: snapshot.hasAccess,
+      isAdmin: snapshot.isAdmin,
+      jiraBaseUrl: snapshot.jiraBaseUrl,
+      sdkVersion: SDK_VERSION,
+      store: {
+        chrome: config.chromeStoreUrl || '',
+        firefox: config.firefoxXpiUrl || '',
+      },
+    },
+  };
 }

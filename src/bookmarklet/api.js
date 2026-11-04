@@ -1,5 +1,6 @@
 import { normalizeUrl } from '../shared/urlNormalize.js';
 import { exchangeSession as browserExchangeSession } from './auth.js';
+import { postJson } from './transport.js';
 
 /**
  * DOM-free API client. `exchangeSession` is injectable so an extension can
@@ -14,11 +15,9 @@ export function createApiClient(options = {}) {
       headers.Authorization = `Bearer ${session.jwt}`;
     }
 
-    const response = await fetch(config.apiUrl, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify({ action, payload }),
-    });
+    // The extension channel relays through the bridge (page CSP cannot block
+    // it); the bookmarklet posts directly.
+    const response = await postJson(config, { action, payload }, headers);
 
     let body;
     try {
@@ -73,6 +72,10 @@ export function createApiClient(options = {}) {
 
   async function updateIssue(config, session, issueKey, fields) {
     return postAction(config, session, 'updateIssue', { issueKey, fields }, true);
+  }
+
+  async function updatePinPosition(config, session, payload) {
+    return postAction(config, session, 'updatePinPosition', payload, true);
   }
 
   async function getPriorities(config, session) {
@@ -176,6 +179,7 @@ export function createApiClient(options = {}) {
     createIssue,
     getTransitions,
     updateIssue,
+    updatePinPosition,
     getPriorities,
     getIssueTypes,
     listCanvasesForUser,
@@ -194,6 +198,7 @@ export const getPins = browserClient.getPins;
 export const createIssue = browserClient.createIssue;
 export const getTransitions = browserClient.getTransitions;
 export const updateIssue = browserClient.updateIssue;
+export const updatePinPosition = browserClient.updatePinPosition;
 export const getPriorities = browserClient.getPriorities;
 export const getIssueTypes = browserClient.getIssueTypes;
 export const listCanvasesForUser = browserClient.listCanvasesForUser;

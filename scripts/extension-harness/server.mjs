@@ -17,6 +17,7 @@ const PAGE = (title, body) => `<!doctype html>
     <p id="copy">Original headline text for the text-edit fixture.</p>
   </div>
   <button id="action">Do the thing</button>
+  ${body || ''}
   <script nonce="abc" src="/page.js"></script>
 </body></html>`;
 
@@ -66,6 +67,29 @@ function pageServer() {
       return;
     }
 
+    if (url.pathname === '/form') {
+      // Same page, used to drive pin mode and the new-ticket form.
+      res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+      res.end(PAGE('Form fixture', ''));
+      return;
+    }
+
+    if (url.pathname === '/repeat') {
+      res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+      res.end(PAGE('Repeat fixture', `
+  <div id="news-heading"><h2>News</h2></div>
+  <p id="news-body">The News desk publishes News every day.</p>
+  <footer>News</footer>`));
+      return;
+    }
+
+    if (url.pathname === '/text') {
+      // Same page, used to drive the text-change selection and preview.
+      res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+      res.end(PAGE('Text fixture', ''));
+      return;
+    }
+
     res.writeHead(404, { 'Content-Type': 'text/plain' });
     res.end('not found');
   });
@@ -77,7 +101,6 @@ function apiServer(state) {
     'Access-Control-Allow-Methods': 'POST, OPTIONS',
     'Access-Control-Allow-Headers': 'Content-Type, Authorization',
   };
-
   return http.createServer((req, res) => {
     // The SDK fetches from a page origin, so Content-Type: application/json
     // triggers a preflight. Answer it or the exchange never leaves the browser.
@@ -114,9 +137,10 @@ function apiServer(state) {
             canvasId: 'universal',
             canvasName: 'Fixture canvas',
             scope: 'create',
-            permittedProjects: [],
+            permittedProjects: ['TEST'],
             isAdmin: true,
             displayName: 'Fixture user',
+            accountId: 'fixture-account-1',
             apiUrl: state.apiUrl,
             sdkUrl: state.sdkUrl,
             installUrl: null,
@@ -147,7 +171,69 @@ function apiServer(state) {
       }
 
       if (action === 'createIssue') {
-        send({ ok: true, data: { key: 'TEST-1', url: 'https://example.atlassian.net/browse/TEST-1' } });
+        const payload = body.payload || {};
+        state.lastCreate = payload;
+        state.pins = [
+          ...state.pins,
+          {
+            key: 'TEST-9',
+            summary: payload.summary || '[JiraTack] Created',
+            url: payload.url,
+            selector: payload.selector || null,
+            pinPosition: payload.pinPosition,
+            status: { name: 'To Do', category: 'new' },
+            projectKey: payload.projectKey || null,
+            issueTypeId: payload.issueTypeId || null,
+            priorityId: payload.priorityId || null,
+            parentKey: payload.parentKey || null,
+            assignee: payload.assigneeAccountId
+              ? { accountId: payload.assigneeAccountId, displayName: 'Assigned user' }
+              : null,
+            textChange: payload.textChange || null,
+            createdAt: new Date().toISOString(),
+          },
+        ];
+        send({ ok: true, data: { key: 'TEST-9', url: 'https://example.atlassian.net/browse/TEST-9' } });
+        return;
+      }
+
+      if (action === 'beginScreenshotUpload') {
+        state.uploadSeq += 1;
+        const uploadId = state.uploadSeq.toString(16).padStart(32, '0');
+        state.uploads.set(uploadId, { chunks: [], mimeType: body.payload && body.payload.mimeType });
+        send({ ok: true, data: { uploadId, chunkSize: 200 * 1024 } });
+        return;
+      }
+
+      if (action === 'uploadScreenshotChunk') {
+        const upload = state.uploads.get(body.payload && body.payload.uploadId);
+        if (upload) upload.chunks.push(body.payload.data);
+        send({ ok: true, data: { received: body.payload && body.payload.index } });
+        return;
+      }
+
+      // The move contract the SDK must honour (D33). The real action lives in
+      // Forge; here the stub only records what the client sent, so the harness
+      // can prove the drag produced a selector, a position, a screenshot id and
+      // a measured distance.
+      if (action === 'updatePinPosition') {
+        state.lastPinMove = body.payload || null;
+        const upload = state.uploads.get(body.payload && body.payload.screenshotUploadId);
+        state.lastPinMoveUploadBytes = upload ? upload.chunks.join('').length : 0;
+        send({
+          ok: true,
+          data: {
+            configVersion: 1,
+            pin: {
+              position: body.payload && body.payload.pinPosition,
+              selector: body.payload && body.payload.selector,
+            },
+            screenshotVersion: 1,
+            screenshotAttached: Boolean(upload),
+            commented: true,
+            warnings: [],
+          },
+        });
         return;
       }
 
@@ -166,7 +252,18 @@ function listen(server) {
 }
 
 export async function startServers({ sdkVersion, sdkUrl }) {
-  const state = { calls: [], pins: [], sdkVersion, sdkUrl: sdkUrl || null, apiUrl: null };
+  const state = {
+    calls: [],
+    pins: [],
+    sdkVersion,
+    sdkUrl: sdkUrl || null,
+    apiUrl: null,
+    uploadSeq: 0,
+    uploads: new Map(),
+    lastPinMove: null,
+    lastPinMoveUploadBytes: 0,
+    lastCreate: null,
+  };
 
   const api = apiServer(state);
   state.apiUrl = await listen(api);

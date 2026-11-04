@@ -6,60 +6,69 @@ import { canAccessCanvas, canAccessProject } from '../middleware/scope.js';
 import { isLicensedUser } from '../../lib/license.js';
 import { buildIssueDescription } from '../../lib/issueDescription.js';
 import { writeMetadata } from '../../lib/metadata.js';
+import { normaliseTextChange } from '../../lib/metadataModel.js';
 import { recordPinForBinding } from '../../lib/bindings.js';
 import { pairingService } from '../../lib/credentials.js';
-import { kvsGet } from '../../lib/kvs.js';
+import { kvsGet, kvsSet, kvsDelete } from '../../lib/kvs.js';
+import { ensureCanvasRecord, setCanvasThumbnail, setCanvasThumbnailNote } from '../../lib/canvasRegistry.js';
+import {
+  prefillConfigKey,
+  prefillDescriptionEntries,
+  readCanvasPrefill,
+  splitPrefillForCreate,
+} from '../../lib/fieldPrefill.js';
 import { readScreenshotUpload, deleteScreenshotUpload } from './screenshotUpload.js';
+import { attachScreenshot } from './attachments.js';
 
-function buildMultipartBody(fileBuffer, filename, mimeType) {
-  const boundary = `----JiraTack${Date.now().toString(16)}${Math.random().toString(16).slice(2)}`;
-  const preamble = Buffer.from(
-    `--${boundary}\r\n`
-      + `Content-Disposition: form-data; name="file"; filename="${filename}"\r\n`
-      + `Content-Type: ${mimeType}\r\n\r\n`,
-    'utf8',
-  );
-  const epilogue = Buffer.from(`\r\n--${boundary}--\r\n`, 'utf8');
-  return {
-    body: Buffer.concat([preamble, fileBuffer, epilogue]),
-    boundary,
-  };
+/**
+ * Field IDs on the Create screen for this project + issue type, or null when
+ * Jira will not say. D41 uses this to decide whether a mapped auxiliary value
+ * can be written or must fall back to the description.
+ */
+async function readCreateScreenFields(projectKey, issueTypeId) {
+  const ids = new Set();
+  let startAt = 0;
+
+  try {
+    for (let page = 0; page < 5; page += 1) {
+      const res = await api.asApp().requestJira(
+        route`/rest/api/3/issue/createmeta/${projectKey}/issuetypes/${issueTypeId}?startAt=${startAt}`,
+      );
+      if (!res.ok) return null;
+      const data = await res.json();
+
+      // The endpoint answers `fields: [{ fieldId, … }]`; older shapes answer a
+      // `fields` object keyed by field id. Accept both rather than guessing.
+      if (Array.isArray(data && data.fields)) {
+        data.fields.forEach((field) => {
+          if (field && field.fieldId) ids.add(String(field.fieldId));
+        });
+      } else if (data && data.fields && typeof data.fields === 'object') {
+        Object.keys(data.fields).forEach((id) => ids.add(id));
+      }
+
+      const isLast = data && data.isLast !== undefined
+        ? data.isLast
+        : !data || !data.total || (startAt + (data.maxResults || 0)) >= data.total;
+      if (isLast || !Array.isArray(data && data.fields)) break;
+      startAt += data.maxResults || data.fields.length;
+      if (!data.maxResults && !data.fields.length) break;
+    }
+  } catch (e) {
+    return null;
+  }
+
+  return ids.size > 0 ? ids : null;
 }
 
-async function attachScreenshot(issueKey, dataUrl, filenameOverride) {
-  // Any file type: screenshots, documents and WebM recordings share this path.
-  // Restricting it to image/* silently dropped every non-image attachment.
-  const match = /^data:([a-z0-9.+-]+\/[a-z0-9.+-]+);base64,(.+)$/i.exec(dataUrl);
-  if (!match) {
-    throw new Error('Unsupported attachment data URL.');
+async function readPrefillConfig(canvasKey) {
+  if (!canvasKey) return [];
+  try {
+    const raw = await kvsGet(prefillConfigKey(canvasKey));
+    return readCanvasPrefill(raw);
+  } catch (e) {
+    return [];
   }
-
-  const mime = match[1];
-  const buffer = Buffer.from(match[2], 'base64');
-  const ext = (mime.split('/')[1] || 'bin').split('+')[0];
-  const filename = filenameOverride || `jiratack-${issueKey}.${ext}`;
-  const { body, boundary } = buildMultipartBody(buffer, filename, mime);
-
-  const res = await api.asApp().requestJira(route`/rest/api/3/issue/${issueKey}/attachments`, {
-    method: 'POST',
-    headers: {
-      'X-Atlassian-Token': 'no-check',
-      'Content-Type': `multipart/form-data; boundary=${boundary}`,
-    },
-    body,
-  });
-
-  if (!res.ok) {
-    let detail = '';
-    try {
-      detail = await res.text();
-    } catch (e) {
-      detail = '';
-    }
-    throw new Error(`Attachment upload failed with HTTP ${res.status}${detail ? `: ${detail.slice(0, 300)}` : ''}`);
-  }
-
-  console.log('[JiraTack] Screenshot attached to issue:', issueKey);
 }
 
 async function requestCreateIssue(fields) {
@@ -110,6 +119,7 @@ export async function createIssue(payload, claims) {
   const rawSummary = payload && payload.summary;
   const issueTypeId = payload && payload.issueTypeId;
   const projectKey = payload && payload.projectKey;
+  const rawTextChange = payload && payload.textChange;
 
   if (typeof canvasName !== 'string' || canvasName.length === 0) {
     return errorResult('BAD_REQUEST', 'canvasId is required.');
@@ -128,6 +138,29 @@ export async function createIssue(payload, claims) {
   }
   if (typeof projectKey !== 'string' || projectKey.length === 0) {
     return errorResult('BAD_REQUEST', 'projectKey is required.');
+  }
+
+  // The suggestion is stored for the post-creation preview (D35) as well as in
+  // the human-readable description. Reject a malformed pair rather than
+  // storing half of it.
+  let textChange = null;
+  if (rawTextChange !== undefined && rawTextChange !== null) {
+    const original = rawTextChange && rawTextChange.original;
+    const suggested = rawTextChange && rawTextChange.suggested;
+    if (
+      typeof original !== 'string'
+      || typeof suggested !== 'string'
+      || original.trim().length === 0
+      || suggested.trim().length === 0
+      || original.length > 2000
+      || suggested.length > 2000
+    ) {
+      return errorResult(
+        'VALIDATION_ERROR',
+        'textChange requires original and suggested strings up to 2000 characters.',
+      );
+    }
+    textChange = normaliseTextChange(rawTextChange);
   }
 
   const isGuest = Boolean(claims && claims.scope === 'guest_create');
@@ -184,11 +217,64 @@ export async function createIssue(payload, claims) {
     return errorResult('VALIDATION_ERROR', 'url must be an absolute http(s) URL.');
   }
   const summary = rawSummary.startsWith('[JiraTack]') ? rawSummary : `[JiraTack] ${rawSummary}`;
+
+  // Canvas identity (D42): the key is stable across renames; the name is the
+  // label at capture time. A canvas can exist before its seed ticket (manual
+  // ticket creation), so the record is ensured lazily.
+  const canvasRecord = await ensureCanvasRecord({ name: canvasName });
+  const canvasKey = canvasRecord && canvasRecord.record ? canvasRecord.record.key : null;
+
+  // Canvas card preview (D43): captured locally by the reviewer's browser and
+  // stored on the canvas record, so it can never drift from the canvas key.
+  const thumbnail = payload && payload.canvasThumbnail;
+  const thumbnailNote = payload && typeof payload.canvasThumbnailNote === 'string'
+    ? payload.canvasThumbnailNote.slice(0, 200)
+    : '';
+  const alreadyCaptured = Boolean(canvasRecord.record
+    && canvasRecord.record.thumbnailVersion === 2
+    && canvasRecord.record.thumbnail);
+  const usableThumbnail = typeof thumbnail === 'string'
+    && thumbnail.indexOf('data:image/') === 0
+    && thumbnail.length <= 150000;
+  if (canvasKey && canvasRecord.record && !alreadyCaptured) {
+    try {
+      if (usableThumbnail) {
+        await setCanvasThumbnail(canvasKey, thumbnail);
+      } else {
+        // Record the reason, so "not captured" is diagnosable instead of a
+        // blind end state (D43).
+        await setCanvasThumbnailNote(
+          canvasKey,
+          thumbnailNote || (thumbnail ? 'The captured image was too large to store.' : 'The browser sent no image.'),
+        );
+      }
+    } catch (e) {
+      console.error('[JiraTack] Canvas preview write failed:', e && e.message ? e.message : e);
+    }
+  }
+
+  // Canvas field pre-fills (D41): a value is written only when the target field
+  // is on this ticket's Create screen; everything else lands in the
+  // description, so a canvas note is never silently dropped.
+  const prefill = await readPrefillConfig(canvasKey);
+  let prefillValues = {};
+  let prefillFallback = [];
+  let prefillVerified = true;
+  if (prefill.length > 0) {
+    const needsScreen = prefill.some((field) => field.fieldId);
+    const available = needsScreen ? await readCreateScreenFields(projectKey, issueTypeId) : null;
+    if (needsScreen && available === null) prefillVerified = false;
+    const split = splitPrefillForCreate(prefill, available);
+    prefillValues = split.writable;
+    prefillFallback = split.fallback;
+  }
+
   const description = buildIssueDescription({
     guest,
     bodyAdf: payload.descriptionAdf,
     pageUrl: canonical,
     consoleLog: payload.consoleLog,
+    extras: prefillDescriptionEntries(prefillFallback),
   });
 
   const labels = ['jiratack'];
@@ -201,6 +287,9 @@ export async function createIssue(payload, claims) {
     project: { key: projectKey },
     labels,
   };
+  Object.keys(prefillValues).forEach((fieldId) => {
+    fields[fieldId] = prefillValues[fieldId];
+  });
   if (!isGuest) {
     fields.reporter = { accountId: claims.sub };
   } else {
@@ -266,11 +355,13 @@ export async function createIssue(payload, claims) {
     guest: guest || undefined,
     pin: {
       canvas: canvasName,
+      canvasId: canvasKey || undefined,
       url: canonical,
       position: pinPosition,
       selector,
     },
     capture: payload && payload.captureContext ? payload.captureContext : undefined,
+    textChange: textChange || undefined,
     version: 1,
   });
   if (!metadataResult.ok) {
@@ -321,10 +412,22 @@ export async function createIssue(payload, claims) {
     }
   }
 
+  // A new pin changes counts and may create a canvas; drop the creator's cached
+  // dashboard summary so it refreshes on their next visit (D43).
+  if (claims && claims.sub) {
+    try {
+      await kvsDelete(`canvasSummary:${claims.sub}`);
+    } catch (e) {
+      // TTL still bounds staleness.
+    }
+  }
+
   const warnings = [];
   if (!metadataResult.ok) warnings.push('metadata-not-stored');
   if (failedAttachments > 0) warnings.push('attachment-failed');
   if (reporterDropped) warnings.push('reporter-not-set');
+  if (!prefillVerified) warnings.push('prefill-unverified');
+  if (prefillFallback.some((field) => field.fieldId)) warnings.push('prefill-field-fallback');
 
   return {
     ok: true,

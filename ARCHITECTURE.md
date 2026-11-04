@@ -26,7 +26,7 @@ Decisions referenced here are authoritative in `DECISIONS.md`. Wire-level shapes
 │                                                                        │
 │  Functions                                                             │
 │    resolver                   → 15 in-Jira resolvers                   │
-│    webtrigger-api             → POST /api, 12 client actions           │
+│    webtrigger-api             → POST /api, 14 client actions           │
 │    webtrigger-sdk             → GET  /, minified SDK bundle            │
 │    webtrigger-install         → GET  /?token=…, guest installer (HTML)  │
 │                                                                        │
@@ -63,7 +63,7 @@ Decisions referenced here are authoritative in `DECISIONS.md`. Wire-level shapes
 
 Two artefacts carry the data:
 
-- **`com.jiratack.metadata`** (issue property) — canvas, URL, position, selector, and guest identity. Machine-readable truth (D18).
+- **`com.jiratack.metadata`** (issue property) — canvas, URL, position, selector, guest identity, and the screenshot supersession counter. Machine-readable truth (D18, D33).
 
 - **`jiratack` label** (plus `jiratack-guest`) — the query index. Every read is `labels = "jiratack"` followed by an in-memory property match.
 
@@ -113,7 +113,7 @@ User clicks the bookmarklet on a target page
   → JWT carries scope, permittedProjects, isAdmin
   → getPinsForCanvasAndUrl({ canvasId, url, all: true })
       server: labels="jiratack", properties=[com.jiratack.metadata]
-      filter: canvas, permittedProjects, retirement window
+      filter: canvas, permittedProjects, status rule (D38)
   → client filters by URL with the selected match mode (smart | exact | path)
   → render overlay
 User activates pin mode and clicks an element
@@ -310,7 +310,7 @@ Any change to the delivery mechanism must preserve the property that the SDK tal
 
 - No `asUser()` in web triggers.
 
-- No pin retirement scheduler (retirement is a filter).
+- No pin scheduler of any kind; visibility is the per-project status rule applied in `getPins` (D38).
 
 - No `doneAt` field (`statusCategoryChangedDate` is authoritative).
 

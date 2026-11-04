@@ -78,7 +78,7 @@ Residual risk: an unnamed parameter with a short meaningful value can still merg
 - Data migration or backfill of pre-property tickets (D18).
 - Custom fields, field provisioning, mapping audit, description marker, recovery (removed).
 - Runs-on-Atlassian eligibility — permanently ineligible because all three web triggers are dynamic (D16).
-- Pin retirement scheduler — retirement is a query filter.
+- Pin retirement scheduler — replaced by the per-project status rule in `getPins` (D38).
 
 ## 8. Known limitations
 

@@ -57,6 +57,44 @@ check('version defaults', normalizeMetadata({ pin: base.pin }).version, 1);
 check('missing pin', normalizeMetadata({ version: 1 }), null);
 check('empty canvas', normalizeMetadata({ pin: { ...base.pin, canvas: '' } }), null);
 
+// screenshotVersion (D33) survives write and read, and stays absent by default
+const versioned = normalizeMetadata({ ...base, screenshotVersion: 2 });
+check('screenshotVersion preserved', versioned.screenshotVersion, 2);
+check(
+  'screenshotVersion readable',
+  metadataFromIssue({ properties: { 'com.jiratack.metadata': { ...base, screenshotVersion: 2 } } }).screenshotVersion,
+  2,
+);
+check('legacy has no screenshotVersion', 'screenshotVersion' in normalizeMetadata(base), false);
+check('bad screenshotVersion dropped', 'screenshotVersion' in normalizeMetadata({ ...base, screenshotVersion: 1.5 }), false);
+check('zero screenshotVersion dropped', 'screenshotVersion' in normalizeMetadata({ ...base, screenshotVersion: 0 }), false);
+
+// textChange (D35) is the machine-readable copy for the post-creation preview
+const withTextChange = normalizeMetadata({
+  ...base,
+  textChange: { original: ' Original headline ', suggested: ' Updated headline ' },
+});
+check('textChange original trimmed', withTextChange.textChange.original, 'Original headline');
+check('textChange suggested trimmed', withTextChange.textChange.suggested, 'Updated headline');
+check(
+  'textChange readable',
+  metadataFromIssue({
+    properties: { 'com.jiratack.metadata': { ...base, textChange: { original: 'a', suggested: 'b' } } },
+  }).textChange.suggested,
+  'b',
+);
+check('legacy has no textChange', 'textChange' in normalizeMetadata(base), false);
+check(
+  'incomplete textChange dropped',
+  'textChange' in normalizeMetadata({ ...base, textChange: { original: 'a', suggested: '  ' } }),
+  false,
+);
+check(
+  'oversize textChange clipped',
+  normalizeMetadata({ ...base, textChange: { original: 'x'.repeat(2500), suggested: 'y' } }).textChange.original.length,
+  2000,
+);
+
 // The property is dropped when the issue carries none
 check('no property', metadataFromIssue({ properties: {} }), null);
 

@@ -18,22 +18,29 @@ Machine-readable pin data lives in the Jira issue property `com.jiratack.metadat
   "guest": { "name": "Ada Lovelace", "email": "ada@example.com" },
   "pin": {
     "canvas": "Q3 Marketing",
+    "canvasId": "KAN-123",
     "url": "https://example.com/pricing",
     "position": "45.2,32.8",
     "selector": "#hero-image"
   },
+  "textChange": { "original": "Original headline", "suggested": "Updated headline" },
+  "screenshotVersion": 2,
   "version": 1
 }
 ```
 
 | Field | Type | Rules |
 | --- | --- | --- |
-| `pin.canvas` | string | Required, non-empty. 1–255 chars at issuance. |
+| `pin.canvas` | string | Required, non-empty. 1–255 chars at issuance. The label at capture time (D42). |
+| `pin.canvasId` | string | Optional. The stable canvas key (seed ticket key or `c-xxxxxxxx`). Absent on tickets written before D42; those resolve by name through the registry. |
 | `pin.url` | string | Required, non-empty. The URL **as captured** (`canonicalUrl`): absolute `http(s)`, fragment and deep-link params removed, query preserved and sorted. Identity is derived at read time (D23). |
 | `pin.position` | string | Required, non-empty. `relX,relY` or `absX,absY` (SPEC §12.2). |
 | `pin.selector` | string \| null | `null` when no stable selector was found. Empty strings normalise to `null`. |
 | `bindingId` | string | Optional. 64-char lowercase hex HMAC of the normalised guest email (D27/D24). Guest tickets only; absent means legacy. |
 | `guest.name`, `guest.email` | string | Optional; present only on guest tickets. |
+| `textChange.original`, `textChange.suggested` | string | Optional pair; both non-empty, trimmed, max 2,000 chars each. Written on create when the composer captured a text change (D35, D36). Absent on legacy tickets. |
+| `textChange.anchor` | object | Optional. The precise selection anchor captured with the suggestion: `{ start: { path: int[], offset }, end: { path, offset }, ancestorSelector }`. Lets the on-page preview resolve by node path instead of a uniqueness search. Dropped when malformed. |
+| `screenshotVersion` | number | Optional positive integer. Counts superseding screenshots attached by pin moves (D33). Absent on tickets created before D33 or never moved, which reads as zero. |
 | `version` | number | `1`. Defaults to `1` when absent. |
 
 **Normalisation on write.** `normalizeMetadata()` returns `null` unless `pin.canvas`, `pin.url` and `pin.position` are all non-empty strings. `writeMetadata` rejects a `null` result with `VALIDATION_ERROR` and retries once on transport failure.
@@ -56,7 +63,7 @@ Machine-readable pin data lives in the Jira issue property `com.jiratack.metadat
       "defaultIssueTypeId": "10001",
       "defaultPriorityId": "3",
       "defaultAssigneeAccountId": null,
-      "retirementDays": 0,
+      "filteredStatusIds": null,
       "captureConsoleLogs": false,
       "consoleLogsDefaultChecked": false
     }
@@ -73,7 +80,11 @@ Machine-readable pin data lives in the Jira issue property `com.jiratack.metadat
 
 - `configVersion` = SHA-256 hex of canonical `JSON.stringify({ projects, viewPermissionMode })`. Recomputed on every write. **`fieldRegistry` is not part of it; the key no longer exists.**
 
-- Project entries merge over defaults on read (`PROJECT_DEFAULTS` in `src/resolvers/actions/config.js`), so an absent project has `enabled: true` and `retirementDays: 0`.
+- Project entries merge over defaults on read (`PROJECT_DEFAULTS` in `src/resolvers/actions/config.js`), so an absent project has `enabled: true` and `filteredStatusIds: null` (Done default, D38).
+
+- **`filteredStatusIds` semantics (D38, amended):** this is the project's **Default filter setting** — the starting point, not a lock. `null` = the Done status category is hidden by default; an array of status IDs = exactly those are hidden by default; `[]` = nothing is hidden by default. The client turns the per-pin `filtered` flag into the default set of hidden status *names*; a per-canvas override lives in the browser (`localStorage['jiratack:statusFilter:<canvas name>']`, an array of hidden status names). `setProjectConfig` rejects non-array/non-null values with `BAD_REQUEST` and silently drops unknown keys.
+
+- **`getProjectStatuses(context, { projectKey })` → `{ ok, data: { statuses: [{ id, name, statusCategory }] } }`** — the project's statuses flattened and de-duplicated, admin-only, for the settings rule editor.
 
 - **Read semantics:** a KVS read error throws (`"Installation config is unavailable."`). It never returns defaults, because a transient failure once got persisted back over real configuration.
 
@@ -206,8 +217,8 @@ Status codes: see Part 9.
 Request:  { action: "exchangeToken", payload: { canvasToken: string } }
 Auth:     none
 Success:  { sessionJwt, expiresAt, canvasId, canvasName, scope, permittedProjects,
-            isAdmin, displayName, apiUrl, sdkUrl, installUrl, currentSdkVersion,
-            jiraBaseUrl, configVersion }
+            isAdmin, displayName, accountId, apiUrl, sdkUrl, installUrl,
+            currentSdkVersion, jiraBaseUrl, configVersion }
 Guest:    … + { issuer, permittedCanvases, pairingId,
                 guestName, guestEmail, issuerName, issuerEmail }
 ```
@@ -223,7 +234,7 @@ Guest:    … + { issuer, permittedCanvases, pairingId,
 - Guest token → `scope: "guest_create"`, `isAdmin: false`, plus `issuer` and `permittedCanvases`.
 - Canvas token → its recorded `scope`, `canvasId`/`canvasName`.
 
-`expiresAt` is returned in milliseconds. `displayName` is the issuing user's display name, resolved with `asApp()` and cached in-process.
+`expiresAt` is returned in milliseconds. `displayName` is the issuing user's display name, resolved with `asApp()` and cached in-process. `accountId` is the authenticated or sponsoring user's account id; the client uses it to default the assignee to the current user when the previous ticket had none (D36). For a guest session it is the sponsor (`issuer`).
 
 Errors: `BAD_REQUEST` (no token), `TOKEN_INVALID`, `TOKEN_EXPIRED`.
 
@@ -245,11 +256,11 @@ Behaviour:
 
 3. Skip issues without metadata; skip canvas mismatch; unless `all` is true, skip URL mismatch after normalisation.
 
-4. Apply retirement (§7.2).
+4. Skip any issue whose status is literally named `Removed` (case-insensitive); those never reach the client, whatever the rule says (D38).
 
 5. Filter by `permittedProjects`; guests are additionally confined to `permittedCanvases` (`canAccessCanvas` returns `INSUFFICIENT_SCOPE` before the scan).
 
-6. Return. `truncated: true` means the scan cap was reached and the list may be incomplete.
+6. Stamp each pin with `filtered` per §7.2 and return. `truncated: true` means the scan cap was reached and the list may be incomplete.
 
 **URL matching is a client concern.** The SDK always requests the whole canvas (`all: true`) and filters by `pin.url` at render time, because the reviewer can switch between `smart`, `exact` and `path` without another request (D23, §6.4). The `url` parameter and `all: false` remain implemented for non-SDK callers; that path compares `normalizeUrl(url)` against `normalizeUrl(pin.url)`.
 
@@ -266,6 +277,7 @@ Hidden pins never reach the client. "No pins on this page" and "no pins you can 
   "priority": { "id": "3", "name": "Medium" },
   "priorityId": "3",
   "issueTypeId": "10037",
+  "parentKey": "MM-100",
   "assignee": { "accountId": "…", "displayName": "…", "avatarUrl": "…" },
   "reporter": { "accountId": "…", "displayName": "…", "avatarUrl": "…" },
   "pinPosition": "45.2,32.8",
@@ -273,11 +285,12 @@ Hidden pins never reach the client. "No pins on this page" and "no pins you can 
   "issueType": { "name": "Bug" },
   "createdAt": "2026-01-15T10:30:00.000Z",
   "url": "https://example.com/page",
-  "guest": { "name": "Ann", "email": "a@b.c" }
+  "guest": { "name": "Ann", "email": "a@b.c" },
+  "filtered": false
 }
 ```
 
-`priority`, `assignee`, `reporter`, `selector`, `guest` may be `null`. `status.category` is Jira's `statusCategory.key`.
+`priority`, `assignee`, `reporter`, `selector`, `parentKey`, `guest` may be `null`. `filtered` is `true` when the pin's own project's status rule hides it — the client hides it by default and **View All** reveals it (D38). `status.category` is Jira's `statusCategory.key`. `parentKey` is read from `fields.parent.key` and is used only to default the next ticket's parent (D36).
 
 ### 3.3 `createIssue`
 
@@ -287,7 +300,8 @@ Request: {
   payload: {
     canvasId, url, pinPosition, selector, summary, descriptionAdf,
     screenshotUploadId, attachmentUploadIds, consoleLog, issueTypeId, projectKey,
-    priorityId, assigneeAccountId, parentKey
+    priorityId, assigneeAccountId, parentKey,
+    textChange?               // { original, suggested } from a selection suggestion
   }
 }
 Auth:     Bearer, scope create | guest_create
@@ -306,6 +320,8 @@ Server behaviour:
 
 3. `canAccessProject(claims.permittedProjects, projectKey)` → else `INSUFFICIENT_SCOPE`.
 
+3b. When `textChange` is present it must be an object with non-empty `original` and `suggested` strings, each ≤ 2,000 chars → else `VALIDATION_ERROR`. It is normalised and stored in the property; the client also includes the pair in the description body (§8.4).
+
 4. Project config `enabled === false` → `PROJECT_DISABLED`.
 
 5. Normalise the URL; reject anything not `http(s)` after normalisation → `VALIDATION_ERROR`.
@@ -319,7 +335,10 @@ Server behaviour:
    - `labels` = `["jiratack"]`, plus `"jiratack-guest"` for guests.
    - `reporter` = `{ accountId: claims.sub }` — **non-guests only**, never from client.
    - `priority`, `assignee`, `parent` when supplied.
-   - **No custom-field entries.** Canvas, URL, position and selector go into the property, not into fields.
+   - **Canvas field pre-fills (D41)** when the canvas has any: a row with a `fieldId` is added as `fields[fieldId] = value` **only** when that field is on this ticket's Create screen (see step 6b); every other row is appended to the description as `Field: value` (bare URLs get a link mark). No pre-filled value is ever dropped silently.
+   - **No other custom-field entries.** Canvas, URL, position and selector go into the property, not into fields.
+
+6b. **Create-screen check (D41).** When the canvas has pre-fills, `GET /rest/api/3/issue/createmeta/{projectKey}/issuetypes/{issueTypeId}` (as the app; paginated with `startAt`) yields the field IDs on that Create screen. If the call fails, nothing is written and everything falls back to the description; the success envelope then carries `warnings: ["prefill-unverified"]`. A pre-filled field that could not be written adds `"prefill-field-fallback"`. Managed fields (`summary`, `description`, `labels`, `issuetype`, `project`, `reporter`, `assignee`, `priority`, `parent`, `status`, …) are never writable this way.
 
 7. `POST /rest/api/3/issue?overrideScreenSecurity=true&overrideEditableFlag=true`.
 
@@ -401,6 +420,48 @@ Behaviour:
   - `description` replaces **only the user body**. The server splits the existing ADF, keeps the header, console block, and page footer verbatim, and re-merges (`splitDescription` / `mergeDescription`). A description without the `[JiraTack…]` header → `VALIDATION_ERROR` ("This description is missing the JiraTack header. Edit it in Jira instead.").
 - Transition applies before the field PUT. Jira 400 → `VALIDATION_ERROR`.
 
+### 3.5b `updatePinPosition` (D33)
+
+```text
+Request: {
+  action: "updatePinPosition",
+  payload: {
+    issueKey,
+    pinPosition,                 // "relX,relY" or "absX,absY" (SPEC §12.2)
+    selector?,                   // string or null
+    captureContext?,             // element/viewport/environment as captured
+    movedPixels?,                // distance the pointer travelled, CSS px
+    screenshotUploadId?          // chunked upload from §3.3b
+  }
+}
+Auth:     Bearer, scope create | universal | guest_create
+Success:  {
+  configVersion,
+  pin: { position, selector },
+  screenshotVersion,
+  screenshotAttached: boolean,
+  commented: boolean,
+  warnings: string[]
+}
+```
+
+Authorization is identical to §3.5 (`loadJiraTackIssue`): the `jiratack` label, `permittedProjects`, and `canAccessCanvas` must all allow the issue. Guests may move pins on their permitted canvases.
+
+Behaviour:
+
+1. `pinPosition` must match `^-?\d+(\.\d+)?,-?\d+(\.\d+)?$`; anything else is `VALIDATION_ERROR`. A present `selector` must be a non-empty string ≤2,000 chars.
+2. When `screenshotUploadId` is present, the upload is assembled (§3.3b), attached as `jiratack-<key>-<epoch-ms>.png`, and deleted from KVS. Attachment failure never fails the move: the response reports `screenshotAttached: false` and warning `screenshot-not-attached`.
+3. The property is patched in place: `pin.position` and `pin.selector` are replaced (an absent selector becomes `null`), `capture` is replaced when `captureContext` is sent, and `screenshotVersion` increments only when a screenshot was actually attached. `bindingId`, `pairingId`, `guest` and `version` are preserved. Old attachments are **never** deleted.
+4. A comment is posted only when the screenshot was attached **and** `movedPixels > 4`. Web triggers have no user identity, so the app is the author and the mover is named in the text:
+   `Pin moved and screenshot updated by <displayName> on <2 Nov 2026, 17:42 GMT>`.
+   - Licensed reviewers: `/rest/api/3/user?accountId=<claims.sub>` supplies `displayName` and `timeZone`, formatted with the zone abbreviation (`GMT`, `EST`, `CET`, or an explicit offset such as `GMT+5:30`).
+   - A missing or invalid zone falls back to UTC, and the text says `UTC`.
+   - Guest sessions: `sub` is the sponsor, not the mover. The comment uses the invited guest name from `metadata.guest` and UTC, because the guest's zone is not knowable.
+   - Comment failure never fails the move: warning `comment-failed`.
+5. Metadata write failure is the only failure of the move (`INTERNAL`/`VALIDATION_ERROR` from `writeMetadata`); the client reverts the pin.
+
+6. The client calls this action **only after explicit confirmation**. Cancel, `Esc` or closing the overlay reverts locally and never reaches the trigger, so an unconfirmed move has no wire representation. There is no timeout.
+
 ### 3.6 `searchUsers`
 
 ```text
@@ -430,10 +491,10 @@ Success:  { issueTypes: [{ id, name, subtask }] }
 ```text
 Request:  { action: "listCanvasesForUser", payload: {} }
 Auth:     Bearer, scope create | view          // guests are NOT allowed
-Success:  { canvases: [{ canvasName, urlCount, urls: [string] }] }
+Success:  { canvases: [{ canvasName, canvasKey, urlCount, urls: [string] }] }
 ```
 
-Scans `labels = "jiratack"` with properties (pages of 100, up to 2,000), groups by `pin.canvas`, and returns canvases that:
+Scans `labels = "jiratack"` with properties (pages of 100, up to 2,000) and groups by the stable canvas key: `pin.canvasId`, else the `canvasName:` index, else a record matched by name, else the label. Entries whose label matches are merged (a keyed entry wins), so one canvas is never listed twice, and the CURRENT record name is returned. Returns canvases that:
 
 - overlap `permittedProjects` (a canvas with no project keys is allowed through),
 - and are neither archived nor deleted.
@@ -443,9 +504,12 @@ Used by the personal bookmarklet's launcher. Guests get their canvas list from t
 ### 3.9 `createCanvas` — admin only (D21)
 
 ```text
-Request:  { action: "createCanvas", payload: { canvasName, targetUrl?, projectKey?, issueTypeId? } }
+Request:  { action: "createCanvas", payload: {
+  canvasName, targetUrl?, projectKey?, issueTypeId?,
+  prefillFields?             // D41: [{ fieldId, fieldName?, value }]
+} }
 Auth:     Bearer, scope create, AND claims.isAdmin === true
-Success:  { canvasName, key, id }              // seed ticket
+Success:  { canvasName, canvasKey, key, id, projectKey }   // key = seed ticket key = canvas key (D42)
 ```
 
 - **Scope alone is insufficient.** `requireAdminClaims` runs before any business logic → 403 `INSUFFICIENT_SCOPE`.
@@ -454,6 +518,8 @@ Success:  { canvasName, key, id }              // seed ticket
 - `url` = canonical `targetUrl` if it is `http(s)`, else `https://example.com`.
 - Project is `payload.projectKey`, else the first enabled configured project the caller may use, else the first permitted project; none → `BAD_REQUEST`.
 - Issue type is `payload.issueTypeId`, else the project config default, else the first non-subtask type; none → `BAD_REQUEST`.
+- A canvas **registry record** is created from the seed ticket key (`canvas:<key>`, `canvasName:<normalised>`). The seed ticket key is the canvas key (D42).
+- **Field pre-fills (D41)** are validated with `normalizePrefillFields` (≤ 10 rows; value ≤ 2,000 chars; `fieldId` must not be a managed field; legacy `{ label, value, mode }` rows are accepted) → else `BAD_REQUEST`. They are stored in KVS under `canvasAux:<sha256(canvasKey).slice(0,32)>` as `{ version: 2, projectKey, prefillFields }`; an empty list deletes the key, so a recreated canvas never inherits stale values. Storage failure → `INTERNAL`.
 - Seed ticket created but metadata write failed → `INTERNAL` (the canvas would be invisible, so it is reported as a failure).
 
 ### 3.10 `getPriorities`
@@ -481,6 +547,7 @@ Resolvers are invoked from app UI that **any logged-in site user can open**, so 
 | `listCanvasTokens`, `revokeCanvasToken` | Jira site admin | `requireAdmin(context)` |
 | `createCanvas`, `deleteCanvas`, `archiveCanvas` | Jira site admin | `requireAdmin(context)` |
 | `generateCanvasToken`, `generateUserToken`, `generateGuestToken` | JiraTack seat | Seat check at issuance |
+| `createCanvas`, `listTextFields` | Jira site admin | `requireAdmin(context)` inside the action |
 | `dashboardAggregate` | Any Jira user | Jira permissions via `asUser()` |
 | `epicPanelData`, `issuePanelData` | Any Jira user | Jira permissions via `asUser()` |
 
@@ -545,15 +612,16 @@ EpicCanvasSummary: { canvasName, epicTicketCount, totalTicketCount, urlCount }
 
 ```text
 issuePanelData(context, payload) → { ok, data: {
-  isJiraTack, canvasName, url, guest, pin, screenshot, relatedTickets, deepLink, jiraBaseUrl
+  isJiraTack, canvasName, url, guest, pin, textChange, screenshot,
+  relatedTickets, deepLink, jiraBaseUrl
 } }
 Payload: { issueKey: string }
 ```
 
 - Reads the property via `readMetadataBySearch` (`key = "<key>"` with `properties`). Absent → `{ ok: true, data: { isJiraTack: false } }`.
 - A failed lookup returns `INTERNAL`, never `isJiraTack: false`, so "could not verify" is not reported as "not JiraTack".
-- `pin` is the full `{ canvas, url, position, selector }`; `guest` is `{ name, email }` or `null`.
-- `screenshot` is `{ filename, mimeType, dataUrl }` or `null`. It is fetched with `asApp()` from `/rest/api/3/attachment/content/{id}` and returned as a base64 `data:` URL, because UI Kit cannot authenticate a raw Jira attachment URL.
+- `pin` is the full `{ canvas, url, position, selector }`; `guest` is `{ name, email }` or `null`; `textChange` is `{ original, suggested }` or `null`.
+- `screenshot` is `{ filename, mimeType, dataUrl }` or `null`. It is fetched with `asApp()` from `/rest/api/3/attachment/content/{id}` and returned as a base64 `data:` URL, because UI Kit cannot authenticate a raw Jira attachment URL. The chosen file is the superseding screenshot with the highest filename timestamp (`jiratack-<key>-<epoch-ms>.<ext>`); if none exists, the newest image attachment by creation time (pre-D33 tickets have one `jiratack-<key>.<ext>`). Old attachments are never deleted, so list order is not relied on.
 - `relatedTickets` scans `labels = "jiratack"` (cap 2,000, result cap 20) matching `pin.canvas` and `pin.url` exactly, excluding self, via `asUser()`.
 - `deepLink` is the page URL with `jiratack_ticket=<key>` appended.
 - Jira 404 on the issue → `NOT_FOUND`.
@@ -598,29 +666,70 @@ Payload: { permittedCanvases: string[], guestName: string, guestEmail: string }
 Removed with the description marker. The issue property is the source of truth, and there is no description-based recovery path.
 
 ### 4.7 `generateUserToken`
-
 ```text
-generateUserToken(context) → { ok, data: { token, apiUrl, sdkUrl, sdkVersion } }
+generateUserToken(context, { permittedCanvases? }) → { ok, data: { token, apiUrl, sdkUrl, sdkVersion } }
+Payload: permittedCanvases?: string[]   // omit or [] = all canvases (D43)
 ```
 
 1. `trackLicensedUser(context)` records the seat when present (best-effort, never throws).
 2. `scope` = `view` when `userAccess.hasAccess === false`, else `create`. **A missing seat does not error.**
 3. `permittedProjects` via `computePermittedProjects(mode, null)`.
-4. Mint 64-hex token, record per §2.3, TTL 90 days.
-5. Return token plus `apiUrl`, `sdkUrl`, `sdkVersion`.
+4. Mint 64-hex token, record per §2.3, TTL 90 days, including `permittedCanvasesJson` (an array of names or `"all"`).
+5. Return token plus `apiUrl`, `sdkUrl`, `sdkVersion`. An empty selection → `VALIDATION_ERROR`.
+
+The session JWT carries `permittedCanvases`; `listCanvasesForUser` filters to it when it is an array.
 
 ### 4.8 `deleteCanvas` / `archiveCanvas`
 
 ```text
-deleteCanvas(context, payload)  → { ok, data: { canvasName, deleted: true, ticketCount } }
-archiveCanvas(context, payload) → { ok, data: { canvasName, archived: true } }
-Payload: { canvasName: string }
+deleteCanvas(context, payload)  → { ok, data: { canvasKey, canvasName, deleted: true, ticketCount } }
+archiveCanvas(context, payload) → { ok, data: { canvasKey, canvasName, archived: true } }
+Payload: { canvasKey?: string, canvasName?: string }   // key preferred (D42)
 ```
 
-- Admin only. Scans `labels = "jiratack"` (cap 2,000) filtered to the canvas.
+- Admin only. Resolves the key from `canvasKey` or the name index, then scans `labels = "jiratack"` (cap 2,000) matching `pin.canvasId` or any historical name.
 - Delete is refused while any ticket is not in status category `done` → `CANVAS_NOT_EMPTY` (409) with `{ openCount, total }`.
-- Delete appends the name to `deletedCanvases` and removes it from `archivedCanvases`.
-- Archive appends to `archivedCanvases`. Neither touches Jira issues.
+- Delete appends every name to `deletedCanvases`, removes them from `archivedCanvases`, and deletes the canvas record (`canvas:<key>`) plus its pre-fill config (`canvasAux:<hash>`, D41).
+- Archive appends to `archivedCanvases` and keeps the auxiliary config (unarchive restores the canvas with its fields). Neither touches Jira issues.
+
+### 4.8b `listTextFields` — admin only (D41)
+
+```text
+listTextFields(context) → { ok, data: { fields: [{ id, name, custom }] } }
+```
+
+- `GET /rest/api/3/field` as the user; keep only `schema.type === "string"` with no `schema.items` (single-line text, multi-line text, URL fields).
+- Managed fields the app writes itself (`summary`, `description`, `labels`, `issuetype`, `project`, `reporter`, `assignee`, `priority`, `parent`, `status`, …) are excluded so a pre-fill can never clobber the ticket.
+- Sorted by name. An empty list is valid (nothing to pre-fill); a Jira failure → `INTERNAL`.
+- This is the **catalogue**; a project stores the subset it allows in `projects[key].textFields`, and canvases pre-fill only from that subset.
+- Whether a field is on a project's Create screen is **not** checked here; that is per ticket at creation time (§3.3 step 6b).
+
+### 4.8d `assignCanvasFolder` — admin only (D43)
+
+```text
+assignCanvasFolder(context, { canvasKey, folder }) → { ok, data: { canvasKey, folder } }
+```
+
+- Admin only. `folder` is trimmed and capped at 60 characters; empty/absent clears the folder.
+- Updates `canvas:<key>.folder`; a canvas can only be in one folder, and folders exist while a canvas names them.
+
+### 4.8c Canvas pre-fill resolvers (D41)
+
+```text
+listConfiguredProjects(context) → { ok, data: { projects: ["TEST", …] } }
+getCanvasConfig(context, { canvasKey | canvasName }) → { ok, data: { canvasKey, canvasName, thumbnailCaptured, thumbnailNote, prefillFields } }
+setCanvasConfig(context, { canvasKey | canvasName, prefillFields }) → { ok, data: { canvasKey, prefillFields } }
+renameCanvas(context, { canvasKey, canvasName }) → { ok, data: { canvasKey, canvasName } }
+listAvailableTextFields(context) → { ok, data: { fields: [{ id, name }] } }
+```
+
+- All three require Jira admin.
+- `listConfiguredProjects` returns the enabled project keys from the installation config; the create-canvas modal picks one so the right text-field catalogue loads.
+- `getCanvasConfig` resolves a key or name, reads the record for the label, and reads `canvasAux:<hash>`; it normalises both the current and the legacy D41 shapes (the older record's `projectKey` is ignored). `thumbnailCaptured` reports whether the record holds a card preview (`thumbnailVersion: 2` plus image data) and `thumbnailNote` carries the last failure reason recorded by `createIssue`.
+- `createIssue` accepts `canvasThumbnail` (a `data:image/*` URL, ≤ 150 000 chars) and `canvasThumbnailNote` (≤ 200 chars). The preview is written to the canvas record as `thumbnail`/`thumbnailAt`/`thumbnailVersion: 2`; when no usable image arrives and the record has none, the note is stored as `thumbnailNote` so the dashboard can show why. A canvas id that is an existing record key (`c-…`) resolves to that record, not to a new record named after the key.
+- `setCanvasConfig` validates through `normalizePrefillFields` → `BAD_REQUEST` on a bad row, and replaces the stored pre-fills; the record is `{ version: 2, prefillFields }`.
+- `renameCanvas` changes only the label: the key and the ticket data are untouched, and every previous name stays indexed. A name already used by another canvas → `VALIDATION_ERROR`. Archive/delete name lists are rewritten to the new name.
+- `listAvailableTextFields` returns the installation-level catalogue (`installationConfig.textFields`); while it is empty it unions the per-project lists from the first D41 cut, so existing configs keep working.
 
 ### 4.9 Configuration resolvers
 
@@ -634,7 +743,9 @@ Payload (project): { projectKey, settings? }
 
 - All four require Jira admin.
 - `setInstallationConfig` merges `payload.projects` shallowly; the rest of the payload is assigned onto a draft, then `configVersion` and `updatedAt` are recomputed inside `mutateInstallationConfig`.
-- `getProjectConfig` returns `PROJECT_DEFAULTS` merged with the stored entry, so an unknown project reads as `{ enabled: true, retirementDays: 0, … }`.
+- `getProjectConfig` returns `PROJECT_DEFAULTS` merged with the stored entry, so an unknown project reads as `{ enabled: true, filteredStatusIds: null, textFields: [], … }`.
+- The text-field **catalogue** is installation-level: `setInstallationConfig` accepts `textFields: [{ id, name }]` (drops malformed/duplicate entries, caps names at 120 chars). The per-project `textFields` from the first D41 cut is only read for migration.
+- `getProjectStatuses(context, { projectKey })` is registered beside them for the project settings page.
 
 ---
 
@@ -648,6 +759,8 @@ window.__jiratackInit(config)
 ```
 
 Called by the bootstrap after the SDK script loads. If `window.__jiratackActiveCanvas === config.canvasId`, it calls `__jiratackClose()` and returns.
+
+While running, the SDK exposes the same values at `window.__jiratackConfig` — a plain object with exactly `token`, `apiUrl`, `sdkUrl`, `canvasId`, `canvasName`, `sdkVersion` — so the extension can enroll itself from a live overlay (D39; §5.1b enrollment contract).
 
 `canvasId === "universal"` selects launcher mode and must not be treated as a canvas name.
 
@@ -686,6 +799,25 @@ OPTIONS is answered by the handler with 204 (the platform may front it with 200)
 
 The body is the bundle with `__JIRATACK_SDK_VERSION__` already replaced (D13). CORS is required by the inline fallback (D31), not by the `<script src>` path, which is not a cross-origin `fetch`.
 
+**Enrollment contract (extension, D39).** The background reads `window.__jiratackConfig` (plus a truthy `window.__jiratackActiveCanvas`) from the tab's MAIN world on a toolbar click. A candidate is only stored when `pickEnrollConfig` accepts its shape (token non-empty, https `apiUrl`) **and** a real `exchangeToken` POST to the candidate's `apiUrl` returns `ok: true`. When a stored config exists, a candidate that differs (`apiUrl` or token) must win that exchange before it replaces anything; a failed exchange keeps the stored config. This is why the extension no longer depends on a pasted bookmark and why stale `apiUrl` values self-heal with one toolbar click.
+
+**Bridge message shapes (D37, D40).** The page world posts to the isolated-world `bridge.js`, which validates and relays:
+
+```text
+{ source: "jiratack", type: "resize", width: number|null, chromeWidth, sidebarWidth }
+  → runtime: jiratack-resize → chrome.windows.update (state normalised first)
+  ← runtime: jiratack-resize-result { ok, width, message } → page: resize-result
+{ source: "jiratack", type: "carry-overlay", url }
+  → runtime: jiratack-carry-overlay → one-shot re-injection after the next navigation
+{ source: "jiratack", type: "api-request", requestId, apiUrl, payload, headers }
+  → runtime: jiratack-api → background fetch (only the configured apiUrl)
+  ← runtime: jiratack-api-result { ok, status, body, text, contentType, error } → page: api-result
+{ source: "jiratack", type: "record-start"|"record-stop"|"capture-tab", requestId }
+  → runtime equivalents, answers via jiratack-record-* / jiratack-capture-tab-result
+```
+
+The extension manifest requires `host_permissions: ["<all_urls>"]` so the background can re-inject after a navigation (D40); `activeTab` alone is revoked by any navigation.
+
 ### 5.2 Overlay DOM contract
 
 ```text
@@ -693,6 +825,7 @@ The body is the bundle with `__JIRATACK_SDK_VERSION__` already replaced (D13). C
   #jiratack-pins             position: absolute; inset: 0; pointer-events: none
     .jiratack-pin[data-key]  position: absolute; pointer-events: auto
     .jiratack-detached-cluster
+  #jiratack-text-preview-host  position: fixed; inset: 0; pointer-events: none
   #jiratack-sidebar          position: fixed; right: 0; top: 0; width: 320px; height: 100vh
     .jiratack-sidebar-header
     .jiratack-filter-toggle    All / Current Page
@@ -700,10 +833,53 @@ The body is the bundle with `__JIRATACK_SDK_VERSION__` already replaced (D13). C
     .jiratack-ticket-list
       .jiratack-ticket-card[data-key]
     .jiratack-new-ticket-form
-  #jiratack-toast-container  position: fixed; bottom: 16px; right: 16px
+  #jiratack-capture-popover-host  position: fixed; inset: 0; pointer-events: none
+    .jiratack-capture-popover[data-kind="pin"|"text"]
+  .jiratack-suggest-pill     fixed, above the overlay, one per selection
+  #jiratack-toast-container  position: fixed; top: 16px; right: 336px; pointer-events: none
 ```
 
 All classes are prefixed `jiratack-`. All overlay elements are removed on `__jiratackClose()`.
+
+**Compose mode (D34).** While a ticket form is open, `#jiratack-sidebar` also carries `.jiratack-composing`:
+
+```text
+#jiratack-sidebar.jiratack-composing
+  .jiratack-compose-context          compact page-URL line (replaces filters)
+  .jiratack-ticket-list
+    .jiratack-compose-list-toggle    "N other tickets on this page" (expandable)
+  .jiratack-new-ticket-form
+    .jiratack-form
+      .jiratack-form-section         grouped card
+        .jiratack-section-title      "Assigned to" / "Ticket" / "Evidence"
+        .jiratack-section-hint
+      .jiratack-form-section.jiratack-assignee-card
+        #jiratack-assignee           typeahead, focused on open
+        .jiratack-form-meta          "Reporting as …"
+      .jiratack-form-grid            Project / Issue type
+      #jiratack-summary              carried from the composer, 0/215
+      .jiratack-textchange           standalone card, cond. on a captured text change (D35, D36)
+        .jiratack-textchange-title      "Text change"
+        .jiratack-textchange-toggle     role="switch", "View on page", 40x22 track
+        .jiratack-textchange-edit       reopens the composer with Save
+        .jiratack-textchange-original   read-only red quote
+        .jiratack-textchange-suggested  green suggested text; the pair wraps
+      #jiratack-description          carried from the composer
+      .jiratack-attach-row           Attach files / Record screen (two buttons)
+        .jiratack-attach-button
+        .jiratack-record-button     .jiratack-recording while armed
+      .jiratack-evidence-list        screenshot, files, video (below the row)
+      .jiratack-additional           priority, parent, console (collapsed)
+      .jiratack-form-actions         sticky footer
+```
+
+The hidden native file input is `.jiratack-attachment-input`; the visible button triggers it. Text previews add `.jiratack-text-preview-original` / `-replacement` inline, or `.jiratack-text-preview-layer` with `.jiratack-text-preview-box` / `-bubble` for the fallback. All preview DOM is removed or restored on hide/cancel/create.
+
+**Capture (D36).** There is no mode row. The single **New Pin** control is `.jiratack-pinmode-toggle` inside `.jiratack-pinmode`, with `.jiratack-pinmode-hint` under it and `aria-pressed` on the button. A selection outside JiraTack and form controls shows `.jiratack-suggest-pill`; clicking it opens `.jiratack-capture-popover[data-kind="text"]`. New Pin opens `.jiratack-capture-popover[data-kind="pin"]` with Summary/Description and an **Add to ticket** button. Both composers live in `#jiratack-capture-popover-host`. The screenshot is resolved before the composer opens in the extension (visible-tab capture) or before the sidebar opens in the bookmarklet (html2canvas on Add), so there is no pending form state. A ticket card with a text change adds `.jiratack-ticket-textchange` (the `Original → Suggested` pair plus a `.jiratack-textchange-switch`). The preview host `#jiratack-text-preview-host` is inserted before the sidebar so it is not cleared by pin re-renders.
+
+**Current-tab recording (D37).** In the extension, Record screen posts `{ source: "jiratack", type: "record-start", requestId }` to `bridge.js`; the bridge relays it to the background, which gets a stream id from `chrome.tabCapture.getMediaStreamId({ targetTabId })` and starts `offscreen.html`. The offscreen document records WebM and posts `jiratack-record-started`, `jiratack-record-result` (`dataUrl`) or `jiratack-record-error` back through the bridge. `record-stop` stops early; the recorder caps at 60 seconds. No picker is shown. The Chrome manifest adds `tabCapture` and `offscreen`; Firefox and the bookmarklet use `getDisplayMedia` as the fallback.
+
+The filter/match row is not rendered in compose mode, Pin mode is not installed, and the seed ticket is not listed. Rebuilding the sidebar while composing must preserve `.jiratack-new-ticket-form` (the draft belongs to a live controller).
 
 ### 5.3 `sessionStorage` keys
 
@@ -819,22 +995,21 @@ All pin queries are label-plus-property. **No JQL references a custom field**; `
 jql:        labels = "jiratack" ORDER BY created ASC
 properties: ["com.jiratack.metadata"]
 fields:     summary, status, priority, assignee, reporter, issuetype, created,
-            project, statuscategorychangedate
+            project
 maxResults: 100 (paginated, cap 2,000)
 ```
 
-Canvas and URL matching happen in memory against the property (`metadata.pin.canvas`, `metadata.pin.url`). `project` is fetched so `permittedProjects` filtering is possible before anything reaches the client.
+Canvas and URL matching happen in memory against the property (`metadata.pin.canvas`, `metadata.pin.url`). `project` is fetched so `permittedProjects` filtering and per-project status rules are possible before anything reaches the client.
 
-### 7.2 Retirement window
+### 7.2 Status rule (D38)
 
-**Effective `retirementDays` source (D14):** the project of the canvas's oldest ticket.
+The single visibility rule lives in project settings:
 
-1. Query `labels = "jiratack"` with properties, ordered by created ascending, and take the first issue whose `pin.canvas` matches.
-2. No ticket → `retirementDays = 0`.
-3. Else `projects[projectKey].retirementDays` from `installationConfig`.
-4. Cache at `canvasProjectCache:<canvasName>` → `{ projectKey, cachedAt }`, TTL 300 s.
+1. `isFilteredStatus(status, projectConfig)` (in `src/lib/statusFilter.js`; unit-tested there): when `projectConfig.filteredStatusIds` is set, membership in that list by status ID; otherwise `status.statusCategory.key === 'done'`.
+2. `getPins` stamps `pin.filtered` from that pin's own project's rule before returning.
+3. `isRemovedStatus(status)` — name trimmed/lowercased equals `removed` — is skipped in `getPins` regardless of the rule or the overlay toggle.
 
-When `> 0`, a Done ticket is included only if `statuscategorychangedate >= now − N days`. When `=== 0`, Done tickets are excluded entirely. There is no separate JQL variant; the filter is applied in memory during the overlay scan, so §7.1 is the only query.
+Retirement (`retirementDays`, `getEffectiveRetirementDays`, `canvasProjectCache`) was removed with this change (supersedes the D14 mechanism; see D38). The sidebar's **View All** / **Filter By Status** toggle is display-only and applies on the client without a refetch.
 
 ### 7.3 Dashboard / canvas list
 

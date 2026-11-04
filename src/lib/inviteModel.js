@@ -6,7 +6,10 @@
  * is deactivated or revoked, or the reviewer's pairings are revoked.
  */
 
-export const LINK_TTL_MS = 72 * 60 * 60 * 1000;
+// Guest links are long-lived bearer credentials (D19, revised 2026-11-04):
+// 90 days, revocable per invite, so a reviewer is not re-onboarded every three
+// days. Sessions still renew through exchangeToken independently.
+export const LINK_TTL_MS = 90 * 24 * 60 * 60 * 1000;
 
 export const INVITE_ACTIVE = 'active';
 export const INVITE_INACTIVE = 'inactive';

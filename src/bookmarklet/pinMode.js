@@ -91,8 +91,12 @@ export function computePinPosition(element, clientX, clientY) {
   // A click on the page background targets <body>, and a container spanning
   // most of the viewport is just as meaningless an anchor: a percentage inside
   // it moves whenever the page reflows. Both degrade to document pixels.
+  // The root check is explicit: on a short page <body> can cover well under
+  // 80% of the viewport and still be the page background.
   let selector = rawSelector;
-  if (element && element.getBoundingClientRect) {
+  if (element === document.body || element === document.documentElement) {
+    selector = null;
+  } else if (element && element.getBoundingClientRect) {
     const box = element.getBoundingClientRect();
     const viewport = Math.max(1, window.innerWidth * window.innerHeight);
     if (box.width * box.height > viewport * 0.8) selector = null;
@@ -116,11 +120,23 @@ export function installPinMode(options = {}) {
     && (session.scope === 'create' || session.scope === 'universal' || session.scope === 'guest_create');
   if (!header || !canCreate) return null;
 
+  const shell = document.createElement('div');
+  shell.className = 'jiratack-pinmode';
+
   const button = document.createElement('button');
   button.type = 'button';
   button.className = 'jiratack-pinmode-toggle';
-  button.textContent = 'Pin mode';
-  header.appendChild(button);
+  button.textContent = 'New Pin';
+  button.setAttribute('aria-pressed', 'false');
+  button.title = 'Click an element to pin it, or select text to suggest an edit';
+
+  const hint = document.createElement('div');
+  hint.className = 'jiratack-pinmode-hint';
+  hint.textContent = 'Click an element to pin it, or select text to suggest an edit.';
+
+  shell.appendChild(button);
+  shell.appendChild(hint);
+  header.appendChild(shell);
 
   const outline = document.createElement('div');
   outline.className = OUTLINE_CLASS;
@@ -142,14 +158,12 @@ export function installPinMode(options = {}) {
       hideOutline();
       return;
     }
-
     const rect = target.getBoundingClientRect();
     outline.style.display = 'block';
     outline.style.left = `${rect.left}px`;
     outline.style.top = `${rect.top}px`;
     outline.style.width = `${rect.width}px`;
     outline.style.height = `${rect.height}px`;
-
     const tag = target.tagName.toLowerCase();
     const id = target.id ? `#${target.id}` : '';
     const cls = target.classList && target.classList.length > 0
@@ -164,6 +178,18 @@ export function installPinMode(options = {}) {
     if (!target || target.nodeType !== 1) return;
     if (target.closest && target.closest('#jiratack-overlay, #jiratack-viewport-bar')) return;
 
+    // A drag that ends on a text selection is the selection pill's gesture,
+    // not a pin. Let it through so the reviewer can suggest an edit.
+    try {
+      const selection = window.getSelection();
+      if (selection && selection.rangeCount > 0 && !selection.isCollapsed) {
+        const text = String(selection).trim();
+        if (text) return;
+      }
+    } catch (e) {
+      // Fall through to the pin path.
+    }
+
     event.preventDefault();
     event.stopPropagation();
 
@@ -172,12 +198,12 @@ export function installPinMode(options = {}) {
     const elementTag = target.tagName.toLowerCase();
 
     deactivate();
-
     if (onCapture) {
       onCapture({
         ...result,
         consoleSnapshot,
         elementTag,
+        textSelection: null,
         clientX: event.clientX,
         clientY: event.clientY,
       });
@@ -185,15 +211,16 @@ export function installPinMode(options = {}) {
   }
 
   function onKey(event) {
-    if (active && event.key === 'Escape') {
-      deactivate();
-    }
+    if (active && event.key === 'Escape') deactivate();
   }
 
   function activate() {
     if (active) return;
     active = true;
     button.classList.add('jiratack-pinmode-toggle-active');
+    button.setAttribute('aria-pressed', 'true');
+    hint.textContent = 'Click any element to place the pin. Esc cancels.';
+    shell.classList.add('jiratack-pinmode-armed');
     document.body.classList.add('jiratack-pin-mode');
     try {
       const scope = (header.closest && header.closest('#jiratack-overlay')) || document.body;
@@ -210,6 +237,9 @@ export function installPinMode(options = {}) {
     if (!active) return;
     active = false;
     button.classList.remove('jiratack-pinmode-toggle-active');
+    button.setAttribute('aria-pressed', 'false');
+    hint.textContent = 'Click an element to pin it, or select text to suggest an edit.';
+    shell.classList.remove('jiratack-pinmode-armed');
     document.body.classList.remove('jiratack-pin-mode');
     hideOutline();
     outline.remove();
@@ -220,15 +250,12 @@ export function installPinMode(options = {}) {
 
   function destroy() {
     deactivate();
-    button.remove();
+    shell.remove();
   }
 
   button.addEventListener('click', () => {
-    if (active) {
-      deactivate();
-    } else {
-      activate();
-    }
+    if (active) deactivate();
+    else activate();
   });
 
   return {

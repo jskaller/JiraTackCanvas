@@ -8,7 +8,7 @@ JiraTack is a Jira Cloud app that lets QA teams drop pins on web pages and turn 
 
 **App configuration (Forge KVS, key `installationConfig`)**
 
-- `viewPermissionMode`, per-project settings (enabled flag, default issue type / priority / assignee, retirement window, console-capture settings), archived and deleted canvas names, and a configuration version hash.
+- `viewPermissionMode`, per-project settings (enabled flag, default issue type / priority / assignee, filtered-status rule, console-capture settings), archived and deleted canvas names, and a configuration version hash.
 - This intentionally contains no personally identifying information.
 
 **Access tokens (Forge KVS)**
@@ -27,7 +27,7 @@ JiraTack is a Jira Cloud app that lets QA teams drop pins on web pages and turn 
 
 **Canvas→project cache (Forge KVS)**
 
-- Canvas name → project key, 300-second TTL. Used to resolve the retirement window.
+
 
 **Temporary screenshot uploads (Forge KVS)**
 

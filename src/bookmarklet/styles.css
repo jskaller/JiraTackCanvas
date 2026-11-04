@@ -368,12 +368,13 @@
 
 #jiratack-toast-container {
   position: fixed;
-  bottom: 16px;
-  right: 16px;
+  top: 16px;
+  right: 336px;
   display: flex;
   flex-direction: column;
   gap: 8px;
-  pointer-events: auto;
+  max-width: min(360px, calc(100vw - 352px));
+  pointer-events: none;
 }
 
 .jiratack-toast {
@@ -382,6 +383,7 @@
   background: #172b4d;
   color: #ffffff;
   box-shadow: 0 2px 8px rgba(9, 30, 66, 0.4);
+  pointer-events: none;
 }
 
 .jiratack-page-notice {
@@ -414,11 +416,116 @@ body.jiratack-pin-mode * {
   cursor: crosshair !important;
 }
 
-.jiratack-pinmode-toggle {
+/* Move mode (D33). The ghost is visual only: it is taken out of hit testing so
+   the drop's elementFromPoint sees the page beneath it. */
+.jiratack-pin-ghost {
+  position: fixed;
+  width: 18px;
+  height: 18px;
+  margin-left: -9px;
+  margin-top: -9px;
+  border-radius: 50%;
+  background: var(--jiratack-pin-move);
+  border: 2px solid #ffffff;
+  box-shadow: 0 0 0 4px rgba(244, 197, 66, 0.35), 0 2px 10px rgba(9, 30, 66, 0.5);
+  pointer-events: none;
+  z-index: 2147483647;
+  opacity: 0.95;
+}
+
+/* The dragged pin is picked up, not erased. Fading it to 35% made an 18px dot
+   read as "the pin disappeared"; it now keeps its full presence and changes
+   colour, so the reviewer sees the pin leave from where it was. */
+.jiratack-pin.jiratack-pin-dragging {
+  opacity: 1;
+  background: var(--jiratack-pin-move);
+  border-color: #ffffff;
+  box-shadow: 0 0 0 4px rgba(244, 197, 66, 0.35), 0 2px 10px rgba(9, 30, 66, 0.5);
+  transform: scale(1.15);
+}
+
+body.jiratack-pin-drag-armed,
+body.jiratack-pin-drag-armed * {
+  cursor: grabbing !important;
+}
+
+/* Move confirmation (D33): anchored beside the pin, never over the sidebar. */
+.jiratack-move-confirm {
+  position: fixed;
+  z-index: 2147483647;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 8px;
+  border: 1px solid #dfe1e6;
+  border-radius: 6px;
+  background: #ffffff;
+  color: #172b4d;
+  box-shadow: 0 6px 18px rgba(9, 30, 66, 0.25);
+  font: 12px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  pointer-events: auto;
+  white-space: nowrap;
+}
+
+.jiratack-move-confirm::before {
+  content: "";
+  position: absolute;
+  left: var(--jiratack-caret-left, 50%);
+  width: 8px;
+  height: 8px;
+  margin-left: -4px;
+  background: #ffffff;
+  border-left: 1px solid #dfe1e6;
+  border-top: 1px solid #dfe1e6;
+  transform: rotate(45deg);
+}
+
+.jiratack-move-confirm[data-placement="below"]::before {
+  top: -5px;
+}
+
+.jiratack-move-confirm[data-placement="above"]::before {
+  bottom: -5px;
+  transform: rotate(225deg);
+}
+
+.jiratack-move-confirm-message {
+  font-weight: 600;
+}
+
+.jiratack-move-confirm button {
+  padding: 3px 9px;
+  border: 1px solid #dfe1e6;
+  border-radius: 3px;
+  background: #ffffff;
+  color: #172b4d;
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.jiratack-move-confirm button:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.jiratack-move-confirm button.jiratack-move-confirm-accept {
+  border-color: #0052cc;
+  background: #0052cc;
+  color: #ffffff;
+}
+
+.jiratack-capture-modes {
+  display: inline-flex;
   margin-top: 8px;
-  padding: 4px 10px;
   border: 1px solid #0052cc;
   border-radius: 3px;
+  overflow: hidden;
+}
+
+.jiratack-mode-btn {
+  padding: 4px 10px;
+  border: none;
   background: #ffffff;
   color: #0052cc;
   font-size: 12px;
@@ -426,7 +533,11 @@ body.jiratack-pin-mode * {
   cursor: pointer;
 }
 
-.jiratack-pinmode-toggle-active {
+.jiratack-mode-btn + .jiratack-mode-btn {
+  border-left: 1px solid #0052cc;
+}
+
+.jiratack-mode-btn-active {
   background: #0052cc;
   color: #ffffff;
 }
@@ -455,11 +566,61 @@ body.jiratack-pin-mode * {
 .jiratack-form {
   display: flex;
   flex-direction: column;
-  gap: 5px;
-  padding: 0 12px 10px;
+  gap: 8px;
+  padding: 0 10px 12px;
+  background: #f4f5f7;
   max-height: 72vh;
   overflow-y: auto;
   box-sizing: border-box;
+}
+
+/* Sections separate the questions; the tinted Assignee card leads. */
+.jiratack-form-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px;
+  border: 1px solid #dfe1e6;
+  border-radius: 6px;
+  background: #ffffff;
+}
+
+.jiratack-section-head {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
+}
+
+.jiratack-section-title {
+  font-size: 10px;
+  font-weight: 700;
+  color: #5e6c84;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.jiratack-section-hint {
+  margin-left: auto;
+  font-size: 10px;
+  color: #7a869a;
+  white-space: nowrap;
+}
+
+.jiratack-assignee-card {
+  border-color: #b3d4ff;
+  border-left: 3px solid #0052cc;
+  background: #f4f8ff;
+}
+
+.jiratack-assignee-card .jiratack-form-meta {
+  margin-top: -2px;
+}
+
+.jiratack-field-assignee .jiratack-input {
+  padding: 8px 10px;
+  font-size: 15px;
+  font-weight: 500;
 }
 
 .jiratack-form-top {
@@ -511,6 +672,61 @@ body.jiratack-pin-mode * {
   gap: 6px;
 }
 
+.jiratack-form-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 6px;
+}
+
+.jiratack-field-head {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
+}
+
+.jiratack-field-head .jiratack-field-label {
+  flex: 0 0 auto;
+}
+
+.jiratack-field-primary {
+  gap: 3px;
+}
+
+.jiratack-required {
+  flex: 0 0 auto;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1;
+  color: #bf2600;
+}
+
+.jiratack-optional {
+  margin-left: auto;
+  font-size: 10px;
+  color: #6b778c;
+}
+
+.jiratack-counter {
+  margin-left: auto;
+  font-size: 10px;
+  color: #6b778c;
+  font-variant-numeric: tabular-nums;
+}
+
+.jiratack-field-error {
+  display: none;
+  color: #bf2600;
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+.jiratack-form-meta {
+  font-size: 11px;
+  color: #6b778c;
+  line-height: 1.4;
+}
+
 .jiratack-field-label {
   font-size: 10px;
   font-weight: 600;
@@ -532,6 +748,18 @@ body.jiratack-pin-mode * {
   background: #ffffff;
 }
 
+.jiratack-input-primary {
+  padding: 8px 9px;
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.jiratack-textarea-primary {
+  min-height: 104px;
+  font-size: 13px;
+  line-height: 1.45;
+}
+
 .jiratack-input:focus,
 .jiratack-textarea:focus {
   outline: none;
@@ -551,19 +779,41 @@ body.jiratack-pin-mode * {
 
 .jiratack-screenshot {
   display: none;
+  align-items: center;
+  gap: 8px;
+  padding: 8px;
+  border: 1px solid #dfe1e6;
+  border-radius: 4px;
+  background: #fafbfc;
 }
 
 .jiratack-screenshot-preview {
   display: block;
-  width: 100%;
-  max-height: 84px;
+  flex: 0 0 auto;
+  width: 96px;
+  height: 64px;
   object-fit: cover;
   border: 1px solid #dfe1e6;
   border-radius: 3px;
 }
 
+.jiratack-screenshot-meta {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  min-width: 0;
+}
+
+.jiratack-screenshot-label {
+  font-size: 10px;
+  font-weight: 600;
+  color: #5e6c84;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+
 .jiratack-screenshot-remove {
-  margin-top: 4px;
   padding: 2px 8px;
   border: 1px solid #dfe1e6;
   border-radius: 3px;
@@ -582,8 +832,23 @@ body.jiratack-pin-mode * {
 }
 
 .jiratack-form-actions {
+  position: sticky;
+  bottom: 0;
+  z-index: 2;
   display: flex;
+  align-items: center;
   gap: 8px;
+  margin-top: 4px;
+  padding: 8px 0;
+  background: #ffffff;
+  border-top: 1px solid #dfe1e6;
+}
+
+.jiratack-form-shortcut {
+  margin-left: auto;
+  font-size: 10px;
+  color: #6b778c;
+  white-space: nowrap;
 }
 
 .jiratack-button {
@@ -737,42 +1002,30 @@ body.jiratack-pin-mode * {
   color: #6b778c;
 }
 
-.jiratack-pin-hover {
-  position: absolute;
-  left: 50%;
-  bottom: 24px;
-  transform: translateX(-50%);
-  max-width: 260px;
-  padding: 3px 6px;
-  border-radius: 3px;
-  background: #172b4d;
-  color: #ffffff;
-  font-size: 11px;
-  line-height: 1.3;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  pointer-events: none;
-  opacity: 0;
-  transition: opacity 120ms ease;
-  z-index: 3;
-}
-
-.jiratack-pin-hover-visible {
-  opacity: 1;
-}
 
 .jiratack-additional {
-  border-top: 1px dashed #dfe1e6;
-  padding-top: 8px;
-  margin-top: 4px;
+  padding: 8px 10px;
+  border: 1px solid #dfe1e6;
+  border-radius: 6px;
+  background: #ffffff;
 }
 
 .jiratack-additional-summary {
   cursor: pointer;
-  font-size: 12px;
-  font-weight: 600;
-  color: #5e6c84;
+  font-size: 11px;
+  font-weight: 700;
+  color: #42526e;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.jiratack-additional-summary:focus {
+  outline: none;
+}
+
+.jiratack-additional-summary:focus-visible {
+  outline: 2px solid #4c9aff;
+  outline-offset: 2px;
 }
 
 .jiratack-additional[open] .jiratack-additional-summary {
@@ -781,6 +1034,432 @@ body.jiratack-pin-mode * {
 
 .jiratack-additional .jiratack-field {
   margin-top: 8px;
+}
+
+/* Text change: its own card, with a big top-row preview switch. */
+.jiratack-textchange {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  padding: 10px;
+  border: 1px solid #b3d4ff;
+  border-left: 3px solid #0052cc;
+  border-radius: 6px;
+  background: #f7faff;
+}
+
+.jiratack-textchange-head {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+}
+
+.jiratack-textchange-title {
+  justify-self: start;
+  white-space: nowrap;
+  font-size: 10px;
+  font-weight: 700;
+  color: #5e6c84;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.jiratack-switch.jiratack-textchange-toggle {
+  justify-self: center;
+  gap: 6px;
+  padding: 3px 8px;
+  border: 1px solid #b3d4ff;
+  border-radius: 999px;
+  background: #ffffff;
+  color: #42526e;
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.jiratack-switch.jiratack-textchange-toggle:hover {
+  border-color: #0052cc;
+}
+
+.jiratack-textchange-toggle-label {
+  font-size: 11px;
+  line-height: 1.3;
+  white-space: nowrap;
+}
+
+.jiratack-switch.jiratack-textchange-toggle .jiratack-switch-track {
+  width: 36px;
+  height: 20px;
+}
+
+.jiratack-switch.jiratack-textchange-toggle .jiratack-switch-knob {
+  width: 14px;
+  height: 14px;
+}
+
+.jiratack-switch.jiratack-textchange-toggle.jiratack-switch-on .jiratack-switch-knob {
+  left: 20px;
+}
+
+.jiratack-textchange-pair {
+  display: block;
+  font-size: 13px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.jiratack-textchange-original {
+  color: #bf2600;
+  text-decoration: line-through;
+}
+
+.jiratack-textchange-arrow {
+  color: #6b778c;
+}
+
+.jiratack-textchange-suggested {
+  color: #006644;
+}
+
+.jiratack-textchange-edit {
+  justify-self: end;
+  white-space: nowrap;
+  padding: 3px 10px;
+  border: 1px solid #dfe1e6;
+  border-radius: 3px;
+  background: #ffffff;
+  color: #42526e;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.jiratack-textchange-edit:hover {
+  border-color: #0052cc;
+  color: #0052cc;
+}
+
+.jiratack-switch {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 1px 2px;
+  border: none;
+  background: transparent;
+  color: #42526e;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.jiratack-switch-track {
+  position: relative;
+  display: inline-block;
+  width: 28px;
+  height: 16px;
+  border: 1px solid #dfe1e6;
+  border-radius: 999px;
+  background: #f4f5f7;
+  transition: background 150ms ease;
+}
+
+.jiratack-switch-knob {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #ffffff;
+  box-shadow: 0 1px 2px rgba(9, 30, 66, 0.3);
+  transition: left 150ms ease;
+}
+
+.jiratack-switch-on .jiratack-switch-track {
+  border-color: #0052cc;
+  background: #0052cc;
+}
+
+.jiratack-switch-on .jiratack-switch-knob {
+  left: 14px;
+}
+
+.jiratack-ticket-textchange {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 4px 0 6px;
+  min-width: 0;
+}
+
+.jiratack-ticket-textchange-pair {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11px;
+  color: #6b778c;
+}
+
+.jiratack-ticket-textchange-original {
+  color: #bf2600;
+  text-decoration: line-through;
+}
+
+.jiratack-ticket-textchange-arrow {
+  color: #6b778c;
+}
+
+.jiratack-ticket-textchange-suggested {
+  color: #006644;
+}
+
+.jiratack-textchange-switch {
+  flex: 0 0 auto;
+}
+
+.jiratack-textchange-hint {
+  font-size: 11px;
+  line-height: 1.35;
+  color: #6b778c;
+}
+
+.jiratack-textchange-hint:empty {
+  display: none;
+}
+
+/* "View on page" — inline diff, with a bubble fallback. */
+.jiratack-text-preview-original {
+  color: #bf2600;
+  text-decoration: line-through;
+  background: rgba(191, 38, 0, 0.08);
+}
+
+.jiratack-text-preview-replacement {
+  color: #006644;
+  background: #e3fcef;
+}
+
+.jiratack-text-preview-layer {
+  position: fixed;
+  inset: 0;
+  z-index: 2147483646;
+  pointer-events: none;
+}
+
+.jiratack-text-preview-host {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+}
+
+.jiratack-text-preview-box {
+  position: absolute;
+  border-radius: 2px;
+  background: rgba(191, 38, 0, 0.12);
+  outline: 1px solid rgba(191, 38, 0, 0.5);
+}
+
+.jiratack-text-preview-bubble {
+  position: absolute;
+  max-width: 280px;
+  padding: 6px 8px;
+  border: 1px solid #dfe1e6;
+  border-radius: 4px;
+  background: #ffffff;
+  box-shadow: 0 4px 14px rgba(9, 30, 66, 0.25);
+  font-size: 12px;
+  line-height: 1.4;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.jiratack-text-preview-arrow {
+  padding: 0 4px;
+  color: #6b778c;
+}
+
+/* Attach and record are peers; the captured list sits below them. */
+.jiratack-attach-row {
+  display: flex;
+  gap: 8px;
+}
+
+.jiratack-attach-row .jiratack-button {
+  flex: 1 1 0;
+  min-width: 0;
+  padding: 9px 10px;
+  border-color: #b3bac5;
+  background: #ffffff;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.jiratack-attach-row .jiratack-button:hover {
+  border-color: #0052cc;
+  color: #0052cc;
+}
+
+.jiratack-attach-row .jiratack-button::before {
+  display: inline-block;
+  margin-right: 6px;
+  font-size: 13px;
+  line-height: 1;
+}
+
+.jiratack-attach-button::before {
+  content: '+';
+  font-weight: 700;
+  color: #0052cc;
+}
+
+.jiratack-record-button::before {
+  content: '\25CF';
+  color: #de350b;
+  font-size: 10px;
+}
+
+.jiratack-record-button.jiratack-recording {
+  border-color: #de350b;
+  background: #ffebe6;
+  color: #bf2600;
+}
+
+.jiratack-record-button.jiratack-recording::before {
+  animation: jiratack-record-pulse 1s ease-in-out infinite;
+}
+
+@keyframes jiratack-record-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.25; }
+}
+
+.jiratack-attachment-input {
+  display: none;
+}
+
+.jiratack-evidence-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.jiratack-attachment-list {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.jiratack-attachment-list:empty {
+  display: none;
+}
+
+.jiratack-attachment-item {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 3px 6px;
+  border-radius: 3px;
+  background: #f4f5f7;
+  font-size: 11px;
+}
+
+.jiratack-attachment-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: #172b4d;
+}
+
+.jiratack-attachment-size {
+  flex: 0 0 auto;
+  color: #6b778c;
+}
+
+/* Compose mode: the form owns the sidebar. */
+#jiratack-sidebar.jiratack-composing .jiratack-new-ticket-form {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-height: 0;
+}
+
+#jiratack-sidebar.jiratack-composing .jiratack-form {
+  flex: 1 1 auto;
+  max-height: none;
+  min-height: 0;
+}
+
+#jiratack-sidebar.jiratack-composing .jiratack-ticket-list {
+  flex: 0 0 auto;
+  max-height: 40vh;
+  overflow-y: auto;
+  padding: 0 8px 8px;
+}
+
+.jiratack-compose-context {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
+  padding: 0 16px 8px;
+  font-size: 11px;
+  color: #5e6c84;
+}
+
+.jiratack-compose-label {
+  flex: 0 0 auto;
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+
+.jiratack-compose-url {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.jiratack-compose-list-toggle {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  width: 100%;
+  padding: 6px 8px;
+  border: 1px solid #dfe1e6;
+  border-radius: 4px;
+  background: #ffffff;
+  color: #42526e;
+  font-size: 11px;
+  font-weight: 600;
+  text-align: left;
+  cursor: pointer;
+}
+
+.jiratack-compose-list-toggle:hover:not(:disabled) {
+  background: #f4f5f7;
+}
+
+.jiratack-compose-list-toggle:disabled {
+  color: #6b778c;
+  cursor: default;
+}
+
+.jiratack-compose-caret {
+  margin-left: auto;
+}
+
+.jiratack-compose-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding-top: 6px;
 }
 
 .jiratack-typeahead {
@@ -1189,6 +1868,109 @@ body.jiratack-pin-mode * {
   background: #deebff;
 }
 
+/* Status filter dropdown (D38 amendment): an Excel-style checklist. The caret is
+   a narrow split control; the panel lists every status on the canvas with the
+   number of tickets it holds, including the ones currently hidden. */
+.jiratack-statusrow .jiratack-statuscaret {
+  flex: 0 0 auto;
+  min-width: 18px;
+  padding: 3px 2px;
+  font-size: 10px;
+  line-height: 1.2;
+}
+
+.jiratack-statuspanel {
+  margin: 0 16px 8px;
+  padding: 6px;
+  border: 1px solid #dfe1e6;
+  border-radius: 4px;
+  background: #ffffff;
+  box-shadow: 0 4px 12px rgba(9, 30, 66, 0.18);
+  font-size: 11px;
+  color: #172b4d;
+}
+
+.jiratack-statuspanel-head {
+  display: flex;
+  gap: 4px;
+  padding-bottom: 6px;
+  margin-bottom: 4px;
+  border-bottom: 1px solid #f4f5f7;
+}
+
+.jiratack-statuspanel-action {
+  flex: 1 1 auto;
+  padding: 2px 4px;
+  border: 1px solid #dfe1e6;
+  border-radius: 3px;
+  background: #ffffff;
+  color: #42526e;
+  font-size: 10px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.jiratack-statuspanel-action:hover {
+  border-color: #4c9aff;
+}
+
+.jiratack-statusoption {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 2px;
+  cursor: pointer;
+  border-radius: 3px;
+}
+
+.jiratack-statusoption:hover {
+  background: #f4f5f7;
+}
+
+.jiratack-statusoption input {
+  margin: 0;
+  flex: 0 0 auto;
+}
+
+.jiratack-statusoption-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.jiratack-statusoption-count {
+  flex: 0 0 auto;
+  color: #6b778c;
+  font-variant-numeric: tabular-nums;
+}
+
+.jiratack-statuspanel-empty,
+.jiratack-statuspanel-hint {
+  padding: 3px 2px;
+  color: #6b778c;
+  font-size: 10px;
+}
+
+.jiratack-statuspanel-done {
+  display: block;
+  width: 100%;
+  margin-top: 6px;
+  padding: 3px 4px;
+  border: 1px solid #0052cc;
+  border-radius: 3px;
+  background: #0052cc;
+  color: #ffffff;
+  font-size: 10px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.jiratack-statuspanel-done:hover {
+  background: #0747a6;
+}
+
 .jiratack-ticket-key {
   display: inline-block;
   color: #5e6c84;
@@ -1245,4 +2027,218 @@ body.jiratack-pin-mode * {
 .jiratack-outdated a {
   color: #0052cc;
   text-decoration: underline;
+}
+
+/* Selection pill: an affordance, never a mode. */
+.jiratack-suggest-pill {
+  position: fixed;
+  z-index: 2147483646;
+  padding: 4px 10px;
+  border: none;
+  border-radius: 999px;
+  background: #0052cc;
+  color: #ffffff;
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.4;
+  box-shadow: 0 2px 8px rgba(9, 30, 66, 0.35);
+  pointer-events: auto;
+  cursor: pointer;
+}
+
+.jiratack-suggest-pill:hover {
+  background: #0747a6;
+}
+
+/* Capture composer: content only; the sidebar owns the Jira fields. */
+.jiratack-capture-popover-host {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 2147483646;
+}
+
+.jiratack-capture-popover {
+  position: fixed;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 320px;
+  max-width: calc(100vw - 16px);
+  box-sizing: border-box;
+  padding: 12px;
+  border: 1px solid #dfe1e6;
+  border-radius: 6px;
+  background: #ffffff;
+  box-shadow: 0 8px 24px rgba(9, 30, 66, 0.35);
+  pointer-events: auto;
+}
+
+.jiratack-capture-title {
+  font-size: 12px;
+  font-weight: 700;
+  color: #172b4d;
+}
+
+.jiratack-capture-field {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.jiratack-capture-replacement {
+  min-height: 58px;
+}
+
+.jiratack-capture-preview-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.jiratack-capture-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-top: 2px;
+}
+
+.jiratack-capture-error {
+  color: #bf2600;
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+.jiratack-capture-original {
+  padding: 6px 8px;
+  border-radius: 3px;
+  background: #ffffff;
+  border: 1px solid #dfe1e6;
+  color: #bf2600;
+  font-size: 11px;
+  line-height: 1.4;
+  max-height: 84px;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+@keyframes jiratack-status-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.25; }
+}
+
+/* New Pin: the single capture control, with visible idle and armed states. */
+.jiratack-pinmode {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 8px;
+}
+
+.jiratack-pinmode-toggle {
+  align-self: flex-start;
+  padding: 6px 12px;
+  border: 1px solid #0052cc;
+  border-radius: 4px;
+  background: #ffffff;
+  color: #0052cc;
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.jiratack-pinmode-toggle:hover {
+  background: #deebff;
+}
+
+.jiratack-pinmode-toggle-active,
+.jiratack-pinmode-toggle[aria-pressed="true"] {
+  background: #0052cc;
+  color: #ffffff;
+  box-shadow: 0 0 0 2px rgba(0, 82, 204, 0.25);
+}
+
+.jiratack-pinmode-toggle-active:hover,
+.jiratack-pinmode-toggle[aria-pressed="true"]:hover {
+  background: #0747a6;
+}
+
+.jiratack-pinmode-hint {
+  padding: 6px 8px;
+  border-radius: 4px;
+  background: #f4f5f7;
+  color: #42526e;
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1.45;
+}
+
+.jiratack-pinmode-armed .jiratack-pinmode-toggle::before {
+  content: '';
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  margin-right: 6px;
+  border-radius: 50%;
+  background: #ffffff;
+  animation: jiratack-status-pulse 1s ease-in-out infinite;
+}
+
+/* The page is in capture mode, but the control must still read as a button. */
+body.jiratack-pin-mode #jiratack-overlay .jiratack-pinmode,
+body.jiratack-pin-mode #jiratack-overlay .jiratack-pinmode * {
+  cursor: pointer !important;
+}
+
+/* Canvas discovery at scale (D43): a filter above the launcher list and the
+   stable key beside each name. */
+.jiratack-canvas-search {
+  width: 100%;
+  box-sizing: border-box;
+  margin: 0 0 8px;
+  padding: 7px 10px;
+  border: 1px solid #dfe1e6;
+  border-radius: 4px;
+  font: inherit;
+  font-size: 12px;
+  color: #172b4d;
+}
+
+.jiratack-canvas-search:focus {
+  outline: none;
+  border-color: #4c9aff;
+  box-shadow: 0 0 0 2px rgba(76, 154, 255, 0.2);
+}
+
+.jiratack-canvas-button {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.jiratack-canvas-button-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.jiratack-canvas-button-key {
+  flex: 0 0 auto;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 10px;
+  font-weight: 400;
+  color: #6b778c;
+}
+
+/* Build stamp so a stale SDK is obvious (D43). */
+.jiratack-version {
+  padding: 0 16px 8px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 10px;
+  color: #6b778c;
 }

@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import ForgeReconciler, {
   Button,
+  Checkbox,
   DynamicTable,
   Heading,
   Inline,
@@ -8,6 +9,7 @@ import ForgeReconciler, {
   SectionMessage,
   Stack,
   Text,
+  Textfield,
 } from '@forge/react';
 import { invoke, router } from '@forge/bridge';
 
@@ -48,6 +50,11 @@ const AdminApp = () => {
   const [busyRef, setBusyRef] = useState(null);
   const [confirmRef, setConfirmRef] = useState(null);
   const [showLegacy, setShowLegacy] = useState(false);
+  const [textFields, setTextFields] = useState(null);
+  const [fieldCatalogueError, setFieldCatalogueError] = useState(null);
+  const [fieldsSaved, setFieldsSaved] = useState(false);
+  const [storeUrls, setStoreUrls] = useState({ chromeStoreUrl: '', firefoxXpiUrl: '' });
+  const [storeSaved, setStoreSaved] = useState(false);
 
   const loadInvites = async () => {
     try {
@@ -70,9 +77,28 @@ const AdminApp = () => {
         const res = await invoke('getInstallationConfig', {});
         if (mounted && res && res.ok && res.data) {
           setConfig({ ...DEFAULT_CONFIG, ...res.data });
+          setStoreUrls({
+            chromeStoreUrl: res.data.chromeStoreUrl || '',
+            firefoxXpiUrl: res.data.firefoxXpiUrl || '',
+          });
         }
       } catch (e) {
         if (mounted) setError(e && e.message ? e.message : 'Unknown error');
+      }
+      try {
+        const res = await invoke('listTextFields', {});
+        if (mounted) {
+          if (res && res.ok && res.data) setTextFields(res.data.fields || []);
+          else {
+            setTextFields([]);
+            setFieldCatalogueError((res && res.error && res.error.message) || 'Text fields could not be loaded.');
+          }
+        }
+      } catch (e) {
+        if (mounted) {
+          setTextFields([]);
+          setFieldCatalogueError(e && e.message ? e.message : 'Text fields could not be loaded.');
+        }
       }
       if (mounted) await loadInvites();
     })();
@@ -88,6 +114,50 @@ const AdminApp = () => {
       }
     } catch (err) {
       setError(err && err.message ? err.message : 'Unknown error');
+    }
+  };
+
+  const selectedFieldIds = Array.isArray(config.textFields) ? config.textFields.map((field) => field.id) : [];
+
+  const saveTextFields = async (nextIds) => {
+    setFieldCatalogueError(null);
+    setFieldsSaved(false);
+    const catalogue = new Map((textFields || []).map((field) => [field.id, field.name]));
+    const textFieldsPayload = nextIds
+      .filter((id) => catalogue.has(id))
+      .map((id) => ({ id, name: catalogue.get(id) }));
+    setConfig((current) => ({ ...current, textFields: textFieldsPayload }));
+    try {
+      const res = await invoke('setInstallationConfig', { textFields: textFieldsPayload });
+      if (res && res.ok && res.data) {
+        setConfig({ ...DEFAULT_CONFIG, ...res.data });
+        setFieldsSaved(true);
+      } else {
+        setFieldCatalogueError((res && res.error && res.error.message) || 'Could not save fields.');
+      }
+    } catch (e) {
+      setFieldCatalogueError(e && e.message ? e.message : 'Could not save fields.');
+    }
+  };
+
+  const toggleTextField = (fieldId, checked) => {
+    const next = new Set(selectedFieldIds);
+    if (checked) next.add(fieldId);
+    else next.delete(fieldId);
+    saveTextFields(Array.from(next));
+  };
+
+  const saveStoreUrls = async () => {
+    setStoreSaved(false);
+    try {
+      const res = await invoke('setInstallationConfig', { ...storeUrls });
+      if (res && res.ok && res.data) {
+        setStoreSaved(true);
+      } else {
+        setError((res && res.error && res.error.message) || 'Could not save the extension links.');
+      }
+    } catch (e) {
+      setError(e && e.message ? e.message : 'Could not save the extension links.');
     }
   };
 
@@ -230,6 +300,60 @@ const AdminApp = () => {
             Open
           </Button>
         </Inline>
+      </Stack>
+
+      <Stack space="space.100">
+        <Heading level="h4">Browser extension links</Heading>
+        <Text>
+          Where the dashboard and guest invite pages send people to install the extension. Leave a
+          field empty until that listing exists.
+        </Text>
+        <Textfield
+          label="Chrome Web Store URL"
+          value={storeUrls.chromeStoreUrl}
+          onChange={(value) => setStoreUrls({ ...storeUrls, chromeStoreUrl: value && value.target ? value.target.value : value })}
+        />
+        <Textfield
+          label="Firefox add-on (.xpi) URL"
+          value={storeUrls.firefoxXpiUrl}
+          onChange={(value) => setStoreUrls({ ...storeUrls, firefoxXpiUrl: value && value.target ? value.target.value : value })}
+        />
+        <Inline space="space.100">
+          <Button onClick={saveStoreUrls}>Save links</Button>
+          {storeSaved && <Text>Saved.</Text>}
+        </Inline>
+      </Stack>
+
+      <Stack space="space.100">
+        <Heading level="h4">Available text fields</Heading>
+        <Text>
+          Fields a canvas can pre-fill on new tickets, across the whole installation. Only text
+          and URL fields are listed. A canvas picks from this list; values are written when the
+          field is on the Create screen for the ticket's type, otherwise they go into the
+          description.
+        </Text>
+        {fieldCatalogueError && (
+          <SectionMessage appearance="error" title="Text fields">
+            <Text>{fieldCatalogueError}</Text>
+          </SectionMessage>
+        )}
+        {textFields === null && <Text>Loading fields…</Text>}
+        {textFields && textFields.length === 0 && (
+          <Text>No text fields are available. Custom fields of type Text or URL appear here.</Text>
+        )}
+        {textFields && textFields.length > 0 && (
+          <Stack space="space.100">
+            {textFields.map((field) => (
+              <Checkbox
+                key={field.id}
+                label={field.name}
+                isChecked={selectedFieldIds.includes(field.id)}
+                onChange={(e) => toggleTextField(field.id, !!(e && e.target ? e.target.checked : e))}
+              />
+            ))}
+          </Stack>
+        )}
+        {fieldsSaved && <Text>Saved.</Text>}
       </Stack>
 
       <Stack space="space.100">

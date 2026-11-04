@@ -3,7 +3,7 @@
 **Audience:** OpenCode, human tester. Per-sprint verification commands and assertions.
 **Precedence:** If a test conflicts with CONTRACTS.md, CONTRACTS.md wins. This document tells you *how* to verify; CONTRACTS.md tells you *what* the correct behavior is.
 **Rule:** A sprint is not complete until every assertion in its section passes. Do not proceed to the next sprint on partial passes.
-**Verified against:** tag `baseline/pre-pivot-2026-10-30` (2026-10-30), app 5.0.0, SDK `b975e80725d7`. Parts 1 and 6 were pruned of the retired custom-field/provisioning/audit/recovery tests (D18); Parts 2, 3, 5, 7 and 8 carry the current assertions. §3.13 covers the D23 match modes.
+**Verified against:** tag `baseline/pre-pivot-2026-10-30` (2026-10-30), app 5.0.0, SDK `b975e80725d7`. Parts 1 and 6 were pruned of the retired custom-field/provisioning/audit/recovery tests (D18); Parts 2, 3, 5, 7 and 8 carry the current assertions. §3.13 covers the D23 match modes; §3.14 covers the D33 pin move.
 
 ---
 
@@ -196,7 +196,7 @@ Assert: **no `fieldRegistry` key.**
 
 ### 1.7 Project config round-trip
 
-1. Project Settings → JiraTack: set `enabled: true`, `defaultIssueTypeId: "10001"`, `retirementDays: 7`.
+1. Project Settings → JiraTack: set `enabled: true`, `defaultIssueTypeId: "10001"`, hidden statuses = custom (one explicit status picked instead of the Done default).
 
 2. Save. Reload the page.
 
@@ -590,6 +590,40 @@ curl ... updateIssue {"issueKey":"<KEY>","fields":{"descriptionText":"line one\n
 # - guest JWT + unlicensed assigneeAccountId → 422 VALIDATION_ERROR
 # - view JWT → 403 INSUFFICIENT_SCOPE
 
+### 2.16b `updatePinPosition` (D33)
+
+bash
+
+curl ... updatePinPosition {"issueKey":"<KEY>","pinPosition":"61.0,42.0","selector":"#hero","movedPixels":120}
+
+# Assert: .ok == true; .data.pin.selector == "#hero"; .data.screenshotAttached == false; .data.commented == false
+
+# Assert: com.jiratack.metadata pin.position and pin.selector changed; bindingId, guest and version unchanged
+
+# Assert: the property round-trips through readMetadataBySearch (screenshotVersion survives normalisation)
+
+# With screenshotUploadId (upload first via beginScreenshotUpload/uploadScreenshotChunk):
+
+# Assert: .data.screenshotVersion increments by 1; a new jiratack-<KEY>-<epoch-ms>.png exists
+
+# Assert: the original jiratack-<KEY>.<ext> attachment is still present (nothing is deleted)
+
+# Assert: a comment exists, text exactly "Pin moved and screenshot updated by <name> on <2 Nov 2026, 17:42 GMT>"
+
+# Assert: the name and zone match GET /rest/api/3/user?accountId=<sub> for the JWT subject
+
+# Assert: movedPixels <= 4 with a screenshot → pin moves, no comment
+
+# Assert: profile with no timeZone (or an invalid one) → the comment says UTC
+
+# Assert: guest JWT → the comment names the invited guest and says UTC
+
+# Assert: malformed pinPosition → 422 VALIDATION_ERROR
+
+# Assert: non-jiratack issueKey / project outside permittedProjects / canvas outside permittedCanvases → 403 INSUFFICIENT_SCOPE
+
+# Assert: view JWT → 403 INSUFFICIENT_SCOPE
+
 ### 2.17 `searchUsers`
 
 bash
@@ -842,9 +876,45 @@ Requires a canvas with pins across query variants: e.g. `?page=1`, `?page=2`, an
 
 9. Assert the mode resets to `Smart` after closing and reopening the bookmarklet.
 
+### 3.14 Pin move (D33)
+
+1. Long-press a pin for ~400 ms → assert a yellow ghost appears and the pin dims.
+
+2. Drag onto a different element and release → assert the pin renders at the drop point and a `Move <KEY> here?` bar appears beside it (above or below), with **Confirm** and **Cancel**. Assert no `beginScreenshotUpload` or `updatePinPosition` has been sent.
+
+3. Click **Confirm** → assert the screenshot uploads, the pin stays put, the issue gains `jiratack-<KEY>-<epoch-ms>.png`, the original screenshot remains, a comment names the reviewer and time, and the bar disappears.
+
+4. Drag again and click **Cancel** → assert the pin returns to its previous position, the bar disappears, and nothing is sent (no upload, no comment, no property change).
+
+5. Repeat with `Esc` while the bar is open → same result as Cancel.
+
+6. Repeat, then close the overlay (`__jiratackClose`) → reopen and assert the pin is at its old position and no new comment or attachment exists.
+
+7. While the bar is open, long-press any pin → assert no ghost appears and no drag starts.
+
+8. Move a pin less than 4 px and confirm → assert the pin moves but no new comment is posted.
+
+9. Press and release without moving over the pin → assert nothing is sent and the pin is not detached.
+
+10. Click without holding → assert the pin selects and no move is offered.
+
+11. Stop a drag over the sidebar or the viewport bar → assert no bar appears.
+
+12. Press a pin and move it more than ~6 px **without holding first** (a fast grab) → assert the drag arms immediately: ghost visible, pin dimmed; releasing opens the `Move <KEY> here?` bar (nothing sent until Confirm). This is the D33 amendment — a press that slides while grabbing is a drag, not a dead click.
+
+13. While dragging, assert the dragged pin is still fully visible (`opacity: 1`) and has changed colour to the move yellow — it must not fade out (a faded 18px dot read as "the pin disappeared").
+
+14. Drag into the right-hand 320 px (the sidebar zone) → assert the ghost stays exactly under the cursor and is parented to `#jiratack-overlay`, with no `translate` applied (the fixed-shift pass must never move a JiraTack element).
+
+12. Drop near the bottom/right of the page → assert the bar flips above the pin or is clamped, and never sits under the sidebar.
+
+13. Open the issue panel → assert the newest screenshot (highest filename timestamp) renders.
+
+14. Switch canvas while a bar is open → assert the move is discarded and no request is sent.
+
 ### Sprint 3 exit criteria
 
-All of 3.1–3.13 pass. Commit: `feat(s3): bookmarklet SDK scaffold`.
+All of 3.1–3.14 pass. Commit: `feat(s3): bookmarklet SDK scaffold`.
 
 ---
 
@@ -874,17 +944,87 @@ All of 3.1–3.13 pass. Commit: `feat(s3): bookmarklet SDK scaffold`.
   
   - Form fields: Project, Issue type, Summary (with `[JiraTack]:` prefix), Description, Priority, Assignee, Parent, Console checkbox, Screenshot thumbnail, Submit/Cancel.
 
+### 4.2b Popover capture, sidebar defaults and compose mode (D34/D36)
+
+1. Assert the header has one capture control, **New Pin**, with the helper **"Click an element to pin it, or select text to suggest an edit."**, and no **Text change** mode. Assert the button is outlined at rest.
+
+2. Click **New Pin**: assert the button fills blue, `aria-pressed="true"`, the helper changes to the click/Esc instruction, and the page cursor is a crosshair. Click an element. Assert an anchored composer opens promptly with **Summary** and **Description**, and the sidebar form has *not* opened. In the extension, assert the composer uses the visible-tab capture path; in the bookmarklet, assert it opens immediately and does not run html2canvas until Add. The pending pin marks the element.
+
+3. Fill Summary and Description and press **Add to ticket**. Assert the composer closes, the sidebar form opens, the content is carried into Summary and Description, and the screenshot thumbnail (or the no-screenshot warning) is already resolved. Assert focus lands in Assignee.
+
+3b. Assert the form is grouped into **Assigned to**, **Ticket** and **Evidence** cards; there is no CONTENT wrapper. The Assignee card is tinted with a blue accent and contains the reporter line. Description is its own card.
+
+4. Assert the order: **Assignee** (focused) → “Reporting as …” → Project / Issue type (same row) → Summary → conditional text-change pair → Description → Attach files / Record screen (two buttons) → captured evidence below them → Additional fields → sticky Create/Cancel.
+
+5. Assert metadata defaults come from the newest non-empty values across the canvas's non-seed pins: project, issue type, assignee, priority and parent. With no previous assignee, assert the current user; for a guest, the sponsor. With one permitted project, assert it is selected. Parent is visible, prefilled and editable.
+
+6. Assert compose mode: no filter/match row, a page-URL line is shown, and the ticket list is one line (`N other tickets on this page`). Expand it and assert the cards return without losing the draft.
+
+7. Assert New Pin is absent and Switch Canvas / the guest canvas dropdown is disabled while composing. Assert the seed ticket (`[JiraTack] Canvas created`) is not listed and has no pin at the document origin.
+
+7b. **Record screen (D37).** In the extension, click **Record screen** and assert no picker appears; the button becomes **Stop recording** and the status says the current tab is recording. Stop after a few seconds; assert the preview and size appear and the button returns. In the bookmarklet, assert the display picker opens with the current tab preselected.
+
+8. Drag-select a phrase with the mouse. Assert the pill is hidden during the drag and appears on release. Assert it stays clickable even if the page collapses the native selection on mouseup, and that clicking elsewhere or pressing `Esc` dismisses it. No form opens from the selection alone. Click the pill: assert the composer opens with the quote, the **Suggested text**, and **View on page** — and that the sidebar form still has not opened.
+
+9. With **New Pin armed**, drag-select a phrase: the selection owns the gesture — the pill shows and no pin composer opens (harness `text: arming New Pin does not swallow a text selection`).
+
+9. Type the suggested text and turn on **View on page**: assert the original is red with `line-through`, the replacement is green, and the rest of the page is unchanged. Turn it off and assert the page text is byte-identical. Turn it on/off twice more; assert it remains repeatable.
+
+10. Re-render the page (replace/re-wrap the paragraph), then preview again: assert the preview re-resolves and still works. If the phrase is no longer uniquely findable, assert the switch turns off with a hint instead of highlighting the wrong text.
+
+11. Press **Add to ticket**. Assert the sidebar opens with a standalone **TEXT CHANGE** card between Ticket and Description: a large centered **View on page** toggle, **Edit**, and a wrapping `Original → Suggested` line. Assert Summary is prefilled `Text change: <original>`, and the old large editor/Content wrapper are gone.
+
+12. Click **Edit**: assert the same composer reopens with **Save**, change the suggested text, and save. Assert the pair updates and no second suggested-text field remains in the sidebar.
+
+13. Toggle the form's **View on page** switch: assert it previews the pair and restores the page on hide, including after a page re-render. Then Cancel the draft: assert the page is restored, no request was sent, and the filters/list return.
+
+14. Type seven characters in Summary → counter reads `7/215` (or the carried count + 7 when a text change is present). Submit with a two-character summary → inline error under Summary and focus returns to it. Description empty still submits.
+
+15. Press `Cmd/Ctrl+Enter` with a valid summary → the ticket is created and the sidebar returns to the filters/list. Cancel a draft → no request is sent and the filters/list return.
+
+16. With no project resolved, reopen the form → Project is focused instead of Assignee.
+
+17. **After creation (D35).** Create a ticket with a text change. Assert the created card shows the `Original → Suggested` pair and a switch; toggling it previews the stored pair on the page and toggling off restores. Reopen the overlay and assert the switch is still there from metadata. Open the issue panel and assert one line: `Text change: Original → Suggested`. Assert a ticket created before `textChange` metadata existed has no card switch.
+
+### 4.2c Extension enrollment and stale-config repair (D39)
+
+- Remove the extension and reload a page where the bookmarklet overlay is open. Click the JiraTack toolbar button once: the overlay opens (enrollment) without ever visiting the options page. Assert `chrome.storage.local.jiratackConfig` now matches the page's `window.__jiratackConfig`, including `apiUrl`.
+
+- Simulate a stale config (edit `jiratackConfig.apiUrl` in `chrome.storage.local` to a wrong-but-same-origin URL) and click the toolbar button on a page with a working overlay: assert the stored config is repaired from the page automatically and the overlay opens and exchanges cleanly.
+
+- Assert a candidate whose `apiUrl` has a **different origin** than the stored config never replaces it, even when the candidate exchange succeeds (the cross-origin guard); the stored config keeps running.
+
+- Assert a non-JSON token-exchange answer surfaces the reached URL and content type in the sidebar error card, with the reconnect instruction — not "invalid response".
+
+- With nothing stored and no overlay on the page, the toolbar button opens the options page; pasting a canvas link there still enrols (repair path).
+
+### 4.2d Overlay continuity across a URL change and viewport presets (D40)
+
+- Open a canvas, click a ticket card whose pin is on another URL. Assert a short notice, the tab navigates, and the overlay reappears on the new page with that ticket selected — without touching the toolbar.
+
+- Navigate somewhere else from the reopened page (a plain link). Assert the overlay does **not** follow.
+
+- Close the overlay with the toolbar, then navigate: it stays closed.
+
+- Open the overlay, close the tab, open a new tab on the canvas URL: no overlay until the toolbar is clicked.
+
+- Viewport presets: with the window maximised, click 768 → the window leaves the maximised state and becomes 768 + chrome + 320 wide. Click **Fit** → the previous width **and** maximised state return.
+
+- If Chrome refuses a size (e.g. a full-screen window that cannot be normalised on that platform), assert the sidebar shows a toast naming the reason instead of doing nothing.
+
+- Assert the preset bar sits above page content and its buttons are hit-testable on a page with a high `z-index` overlay of its own.
+
 ### 4.3 Form validation
 
-- Summary empty → Submit disabled, inline "Summary required" error.
+- Submit with an empty or short Summary → inline "Summary must be at least 3 characters." under the field; focus returns to Summary.
 
-- Summary > 215 chars → input truncates at 215.
+- Summary > 215 chars → input truncates at 215; counter shows `215/215`.
 
-- Summary with line break → blocked (no line breaks allowed).
+- Parent invalid (`not-a-key`) → Additional fields opens, error appears above the actions, focus moves to Parent.
 
-- Parent invalid format (`not-a-key`) → inline error on blur.
+- Missing project or issue type → error above the actions, focus moves to the missing control.
 
-- Required fields not satisfied → toast "[N] required fields still outstanding."
+- Description empty → allowed (the field is present, not required).
 
 ### 4.4 Console checkbox visibility
 
@@ -1028,6 +1168,47 @@ All of 4.1–4.11 pass. Commit: `feat(s4): capture flow`.
 
 - Search case-insensitive.
 
+### 5.3b Project field catalogue and canvas pre-fills (D41)
+
+**Admin page → Available text fields**
+
+- Open the JiraTack admin page → assert **Available text fields** lists text/URL fields only (no Summary, Description, Labels, Assignee, Priority).
+- Tick two fields → reload → assert the selection is restored ("Saved." appears after a change).
+- Assert the **project settings** page no longer lists a field catalogue (it is installation-wide, D42).
+
+**Create canvas**
+
+- Open **Create New Canvas** → assert the **Project** selector shows configured projects and preselects the first.
+- Assert **Additional fields (optional)** is an accordion and is **closed** by default, so the modal fits without scrolling.
+- Open it → assert the field dropdown contains only the two configured fields, not every Jira field.
+- Set `Figma Link = https://figma.com/file/x` → create the canvas → create a pin whose type has Figma Link on its Create screen → assert the ticket's Figma Link holds the URL and the description does **not** repeat it.
+- Create a pin of an issue type where the field is **not** on the Create screen → assert the ticket is created, the field is empty, the description ends with `Figma Link: https://figma.com/file/x` (link mark), and the create response's `warnings` contains `prefill-field-fallback`.
+- Create a canvas with the accordion untouched → assert pins create normally and descriptions have no extra lines.
+
+**Edit existing canvas**
+
+- On an active canvas row, click **Fields** → assert the modal loads the stored project and values.
+- Change the value, save, create a new pin → assert the new value is applied and the old value is not.
+- Remove the row, save, create a pin → assert no pre-fill is written and nothing appears in the description.
+- Archive a canvas, unarchive it → assert its pre-fills still apply (archive keeps the record).
+- Delete a canvas → recreate one with the same name and no fields → assert no stale value is written.
+
+**Validation**
+
+- Save a row with a field but no value, and a row with a value but no field → both are rejected with a named message in the modal.
+- Call `setCanvasConfig` with `prefillFields: [{ fieldId: "summary", value: "x" }]` → `BAD_REQUEST` (managed field).
+
+### 5.3c Canvas keys and the new dashboard (D42)
+
+- Create a canvas → assert the row/card shows both the name and a key equal to the seed ticket key (`KAN-…`).
+- Create a pin on that canvas → open the ticket → assert `com.jiratack.metadata.pin.canvasId` equals the canvas key.
+- Rename the canvas from the canvas page → assert the key is unchanged, the new name shows in the dashboard, and the seed ticket is untouched.
+- Pin a page whose canvas was never created explicitly (new name on a ticket) → assert a canvas appears with a generated `c-xxxxxxxx` key and can be renamed.
+- Try renaming to a name already used by another canvas → `VALIDATION_ERROR` with a readable message.
+- Assert the anchor nav jumps to `#install` and `#canvases`, and that **New canvas** is an inline panel (no modal) containing name, URL and the field rows.
+- Assert the cards/list toggle persists across a reload.
+- Assert an archived canvas is only listed under **View archived**, and delete is refused while a ticket is not Done.
+
 ### 5.4 Multi-project canvas badge
 
 - Canvas spanning Project A + B → assert row shows `"2 projects"` badge.
@@ -1037,6 +1218,19 @@ All of 4.1–4.11 pass. Commit: `feat(s4): capture flow`.
 - In `per_user_projects` mode → tooltip also notes "Viewers only see pins from projects they can browse."
 
 - Single-project canvas → shows project key (e.g. `MM`).
+
+### 5.4b Install cards, guest extension and folders (D43)
+
+- Assert the Bookmarklet card has **Get bookmark** and **Create a guest bookmark**; the extension card has Chrome, Firefox and **Create a guest extension link**, and no "Invite a guest reviewer" button.
+- With no publication URL configured, the Chrome/Firefox buttons say the extension is not published and point at the bookmarklet (no dead link).
+- **Get bookmark** opens the scope drawer with **Selected canvases** default; generate with 2 canvases → open the bookmarklet → the launcher lists only those 2, each with name and key.
+- Generate with **All canvases** → create a new canvas → reopen the bookmarklet → the new canvas appears without regenerating.
+- A frozen selection does **not** show a canvas created later (regenerate to include it).
+- Create 7+ canvases → the launcher shows a filter box; typing a key or name filters the list.
+- Guest invite in **extension** mode → the installer page puts the extension card first, links only the configured stores, and shows 🟢 Connected once the bookmarklet starts JiraTack on that page.
+- Guest link expiry copy says 90 days; an invite older than 90 days is refused.
+- Create a folder by moving a canvas from its page → the rail shows it with a count; filter by it; move it back to Unfiled.
+- Rename a canvas → the folder rail and counts follow (key unchanged).
 
 ### 5.5 Write bookmarklet generation
 
@@ -1257,39 +1451,65 @@ All of 6.1–6.10 pass. Commit: `feat(s6): epic panel and issue panel`.
 
 - Assert: clicking card opens Jira issue in new tab.
 
-### 7.6 Retirement — `retirementDays: 0`
+### 7.6 Status rule — default (D38, amended)
 
-- Set project config `retirementDays: 0`.
+- Project config untouched (`filteredStatusIds` unset).
 
 - Create a Done ticket with a pin.
 
 - Reload bookmarklet.
 
-- Assert: Done pin NOT shown in overlay.
+- Assert: the sidebar shows **View All** / **Filter By Status ▾** with Filter By Status active, and the Done pin is absent from the pin layer and the list.
 
-### 7.7 Retirement — `retirementDays: 7`
+- Click **View All** → assert the Done pin appears at `#2ECC71` opacity 0.5 with "Filter By Status (1 hidden)" in the row, and lists in the sidebar.
 
-- Set `retirementDays: 7`.
+- Click **Filter By Status** → assert it is hidden again.
 
-- Create a Done ticket (`statusCategoryChangedDate` = now).
+- Click the **▾** caret → assert a panel opens with **All** / **None** / **Reset** and a row per status on the canvas with counts (`Done 1`, `To Do 2`), Done unticked because it is hidden.
 
-- Reload.
+- Tick **Done** → assert the Done pin appears immediately in both the pin layer and the list, and `localStorage['jiratack:statusFilter:<canvas name>']` now holds an array without `Done`.
 
-- Assert: Done pin shown at `#2ECC71` opacity 0.5, read-only (no inline edit on Done pins).
+- Reload the bookmarklet → assert the tick survived (the Done pin is still shown) and the panel still reflects it.
 
-- Manually set the ticket's `statusCategoryChangedDate` to 10 days ago (via Jira API if possible, or wait — not feasible in test; use a unit test on the JQL builder instead).
+- Open the panel and click **Reset** → assert the key is removed and the Done pin is hidden again (back to the project default).
 
-- Assert JQL builder produces `>= -7d` clause.
+- Click **None** → assert every statused pin is hidden and the panel's checkboxes are all empty; click **All** → assert everything is shown.
 
-### 7.8 Retirement — multi-project canvas (D14)
+- Switch to another canvas and back → assert each canvas keeps its own choice.
 
-- Canvas spans Project A + B. Oldest ticket in A has `retirementDays: 7`; Project B has `retirementDays: 30`.
+- In Jira, mark the ticket with a status literally named **Removed** → after a poll/reload the pin never appears, even under **View All**.
 
-- Assert: effective config = 7 (from oldest ticket's project A).
+### 7.6b Sidebar selection centres the pin (D38 follow-up)
 
-- Change oldest ticket's project to B (via Jira move) → wait for cache expiry (300s) or clear `canvasProjectCache:<canvas>`.
+- With a tall page, scroll so a pinned element is far off-screen (or far above/below the middle).
 
-- Reload → assert effective config = 30.
+- Click its ticket card in the sidebar → assert the page scrolls smoothly so the pin sits near the vertical middle of the viewport, and the card is scrolled into view in the list.
+
+- Press ↑/↓ in the sidebar → assert the page follows the selection the same way.
+
+- Hover a card without clicking → assert the page does **not** scroll (only the pin highlights).
+
+- Click a pin on the page itself → assert the page does not scroll.
+
+- Repeat for a detached pin (lost selector) → assert only the card scrolls and no page movement is attempted.
+
+### 7.7 Status rule — default project list (admin "Default filter setting")
+
+- Project settings → disable "Use default (hide Done statuses)", pick an explicit set of statuses → Save.
+
+- Assert: pins whose status matches the picked list are filtered by **default** (a canvas with no stored override); Done-category pins whose ID is not in the list are shown.
+
+- Assert: the canvas checklist starts with exactly those statuses unticked, the panel hint reads "Using the project default", and **Reset** returns to that state after any override.
+
+- Set the list to empty (`[]`) → assert nothing is filtered by default.
+
+- Reload the settings page → assert the saved selection is redisplayed (defaults merge, D38).
+
+### 7.8 Status rule — multi-project canvas (supersedes D14 mechanism)
+
+- Canvas spans Project A + B with different rules.
+
+- Assert: each pin is filtered by its own project's rule (pin A with A's rule, pin B with B's rule) — `filtered` is stamped per issue, not per canvas.
 
 ### 7.9 License — active (dev)
 
@@ -1329,7 +1549,7 @@ All of 6.1–6.10 pass. Commit: `feat(s6): epic panel and issue panel`.
 
 ### 7.13 Full flow
 
-- Install fresh → connect → drop pin → create ticket → see in list → inline edit → move to Done → see animation → reload → pin hidden (Done) or shown (retirement window).
+- Install fresh → connect → drop pin → create ticket → see in list → inline edit → move to Done → see animation → reload → pin hidden by the status rule (§7.6).
 
 - Assert: no console errors at any step.
 
@@ -1390,7 +1610,7 @@ All of 6.1–6.10 pass. Commit: `feat(s6): epic panel and issue panel`.
 
 ### Sprint 7 exit criteria
 
-All of 7.1–7.13 pass. Commit: `feat(s7): inline edit, done animation, retirement, license, marketplace`.
+All of 7.1–7.13 pass. Commit: `feat(s7): inline edit, done animation, status rule, license`.
 
 ---
 

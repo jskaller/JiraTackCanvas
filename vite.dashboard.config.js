@@ -7,6 +7,10 @@ const dirname = path.dirname(fileURLToPath(import.meta.url));
 
 export default defineConfig({
   base: './',
+  define: {
+    // Stamped at build time so the running UI can be identified at a glance.
+    __JIRATACK_UI_BUILD__: JSON.stringify(new Date().toISOString().slice(0, 16).replace('T', ' ')),
+  },
   plugins: [react()],
   root: 'src/custom-ui/dashboard',
   resolve: {

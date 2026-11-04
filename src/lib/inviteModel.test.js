@@ -26,7 +26,7 @@ const now = Date.UTC(2026, 10, 2, 12, 0);
 const live = { state: 'active', linkExpiresAt: now + 60_000 };
 const linkExpired = { state: 'active', linkExpiresAt: now - 60_000 };
 
-check('ttl is 72h', LINK_TTL_MS, 72 * 60 * 60 * 1000);
+check('ttl is 90 days', LINK_TTL_MS, 90 * 24 * 60 * 60 * 1000);
 check('linkExpiresAt preferred', linkExpiresAt({ linkExpiresAt: 1, expiresAt: 2 }), 1);
 check('expiresAt fallback', linkExpiresAt({ expiresAt: 2 }), 2);
 check('missing invite', linkExpiresAt(null), null);

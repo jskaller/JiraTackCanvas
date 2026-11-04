@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
 import { generateGuestToken } from '../api';
 
-export default function GuestLinkModal({ canvases, defaultCanvas, onClose }) {
+export default function GuestLinkModal({ canvases, defaultCanvas, mode, onClose }) {
+  const extension = mode === 'extension';
   const [selected, setSelected] = useState(() => new Set(defaultCanvas ? [defaultCanvas] : []));
   const [guestName, setGuestName] = useState('');
   const [guestEmail, setGuestEmail] = useState('');
@@ -9,8 +10,14 @@ export default function GuestLinkModal({ canvases, defaultCanvas, onClose }) {
   const [error, setError] = useState(null);
   const [result, setResult] = useState(null);
   const [copied, setCopied] = useState(false);
+  const [filter, setFilter] = useState('');
 
   const allSelected = canvases.length > 0 && selected.size === canvases.length;
+  const linkFor = (value) => {
+    if (!value || !value.installerUrl) return '';
+    if (!extension) return value.installerUrl;
+    return `${value.installerUrl}${value.installerUrl.includes('?') ? '&' : '?'}mode=extension`;
+  };
 
   function toggleAll() {
     setSelected(allSelected ? new Set() : new Set(canvases.map((canvas) => canvas.canvasName)));
@@ -70,14 +77,17 @@ export default function GuestLinkModal({ canvases, defaultCanvas, onClose }) {
     const to = result.guestEmail || guestEmail;
     const name = result.guestName || guestName || 'there';
     const subject = 'Your JiraTack review link';
-    const body = `Hi ${name},\n\nHere is your JiraTack review link. Open it, then drag the JiraTack button to your bookmarks bar.\n\n${result.installerUrl}\n\nThe link is valid for 72 hours.`;
+    const how = extension
+      ? 'Install the JiraTack extension, then open this link and click the JiraTack toolbar icon to connect it.'
+      : 'Open this link, then drag the JiraTack button to your bookmarks bar.';
+    const body = `Hi ${name},\n\nHere is your JiraTack review link. ${how}\n\n${linkFor(result)}\n\nThe link is valid for 90 days.`;
     window.location.href = `mailto:${encodeURIComponent(to)}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
   }
 
   async function copyUrl() {
     if (!result || !result.installerUrl) return;
     try {
-      await navigator.clipboard.writeText(result.installerUrl);
+      await navigator.clipboard.writeText(linkFor(result));
       setCopied(true);
       window.setTimeout(() => setCopied(false), 2000);
     } catch (e) {
@@ -86,13 +96,13 @@ export default function GuestLinkModal({ canvases, defaultCanvas, onClose }) {
   }
 
   return (
-    <div className="jt-modal-backdrop" onClick={onClose}>
+    <div className="jt-drawer-backdrop" onClick={onClose}>
       <form
-        className="jt-modal"
+        className="jt-drawer"
         onClick={(event) => event.stopPropagation()}
         onSubmit={handleSubmit}
       >
-        <h2>Generate Guest Link</h2>
+        <h2>{extension ? 'Guest extension link' : 'Guest bookmark link'}</h2>
 
         {result ? (
           <>
@@ -101,13 +111,15 @@ export default function GuestLinkModal({ canvases, defaultCanvas, onClose }) {
             </p>
             <p className="jt-modal-canvas">Guest canvases: {result.permittedCanvases.join(', ')}</p>
             <p>
-              Send this link to your client. They will use it to install the review bookmark.
+              {extension
+                ? 'Send this link to your client. They install the JiraTack extension, open the link, and click the JiraTack toolbar icon on that page to connect it.'
+                : 'Send this link to your client. They open it and drag the JiraTack button to their bookmarks bar.'}
             </p>
             <textarea
               className="jt-bookmarklet-url"
               readOnly
               rows={3}
-              value={result.installerUrl}
+              value={linkFor(result)}
               onFocus={(event) => event.target.select()}
             />
             <div className="jt-modal-actions">
@@ -124,7 +136,20 @@ export default function GuestLinkModal({ canvases, defaultCanvas, onClose }) {
           </>
         ) : (
           <>
-            <p className="jt-modal-canvas">Name the reviewer, then choose which canvases they can view and add pins to.</p>
+            <p className="jt-modal-canvas">
+              Name the reviewer, then choose which canvases they can view and add pins to.
+              {extension ? ' The link also connects the JiraTack browser extension.' : ''}
+            </p>
+            <input
+              className="jt-input"
+              type="search"
+              placeholder="Filter canvases…"
+              value={filter}
+              onChange={(event) => setFilter(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter') event.preventDefault();
+              }}
+            />
 
             <div className="jt-form-row">
               <span className="jt-form-label">Guest name</span>

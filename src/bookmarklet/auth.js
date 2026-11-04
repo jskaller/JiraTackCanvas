@@ -1,3 +1,4 @@
+import { postJson } from './transport.js';
 const SESSION_KEY_PREFIX = 'jiratack_jwt_';
 // Bump whenever the session shape changes. Cached sessions from an older shape
 // are re-exchanged instead of being reused with missing fields.
@@ -119,25 +120,33 @@ export function createSessionManager(storage) {
           || (cached.issuer && cached.guestName && cached.guestEmail))
         && Object.prototype.hasOwnProperty.call(cached, 'displayName')
         && Object.prototype.hasOwnProperty.call(cached, 'isAdmin')
+        && Object.prototype.hasOwnProperty.call(cached, 'accountId')
       ) {
         return cached;
       }
     }
 
-    const response = await fetch(config.apiUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        action: 'exchangeToken',
-        payload: { canvasToken: config.token },
-      }),
+    const response = await postJson(config, {
+      action: 'exchangeToken',
+      payload: { canvasToken: config.token },
     });
 
     let body;
     try {
       body = await response.json();
     } catch (e) {
-      throw new Error('Token exchange returned an invalid response.');
+      // A non-JSON answer means the URL belongs to something else — usually a
+      // stale apiUrl in an extension config after the app moved. Everything the
+      // reviewer needs to fix it is in the message (D39).
+      const contentType = response.headers
+        ? (response.headers.get('content-type') || 'unknown')
+        : 'unknown';
+      const err = new Error(
+        `Token exchange reached ${config.apiUrl}, but it answered ${contentType} — not the JiraTack API. `
+        + 'Reconnect: click the JiraTack toolbar button while a working overlay is open, or re-paste the canvas link in the extension options.',
+      );
+      err.code = 'BAD_EXCHANGE_RESPONSE';
+      throw err;
     }
 
     if (!body || body.ok !== true) {
@@ -164,6 +173,7 @@ export function createSessionManager(storage) {
       currentSdkVersion: data.currentSdkVersion || null,
       jiraBaseUrl: data.jiraBaseUrl || null,
       displayName: data.displayName || null,
+      accountId: data.accountId || null,
       isAdmin: data.isAdmin === true,
     };
     write(canvasId, session);

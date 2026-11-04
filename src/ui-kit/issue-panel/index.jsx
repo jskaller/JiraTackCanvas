@@ -100,6 +100,12 @@ const IssuePanel = () => {
         </Stack>
       )}
 
+      {data.textChange && data.textChange.original && data.textChange.suggested && (
+        <Text>
+          {`Text change: ${data.textChange.original} → ${data.textChange.suggested}`}
+        </Text>
+      )}
+
       {data.screenshot && data.screenshot.dataUrl && (
         <Stack space="space.050">
           <Text>Screenshot</Text>

@@ -7,11 +7,275 @@ All notable changes to JiraTack.
 > the description marker, recovery). They are kept for history and are **not**
 > a description of current behaviour — see `SPEC.md` v3.0 for that. The
 > `0.9.0`-style headings track `package.json`, not the Forge app version
-> (currently 4.92.0 in development).
+> (currently 5.80.0 in development).
 
 ## [Unreleased]
 
+### Canvas identity and dashboard
+
+- **Stable canvas keys (D42).** A canvas is identified by its seed ticket key
+  (`KAN-123`, or `c-xxxxxxxx` when there is no seed) instead of its display
+  name, so canvases can be renamed and no longer collide. Tickets gain
+  `pin.canvasId`; previous names stay indexed so older tickets still resolve.
+  Rename lives on the canvas page and never changes the key.
+
+- **Dashboard split into two jobs.** Anchors lead to **Install JiraTack**
+  (bookmarklet, extension/guest) and **Canvases** (search, cards/list toggle,
+  inline create panel). Creation is an inline panel with name, URL and the
+  field↔value map — no modal, no project picker. Each canvas opens a dedicated
+  page with **Pages / Fields / Access** tabs. The text-field catalogue moved to
+  the admin page as an installation-level setting.
+
+### Install, guests and organisation
+
+- **Card previews show the full page width.** The card was cropping the image
+  with `object-fit: cover` inside a 16:10 box, so a viewport shot lost its left
+  and right edges. The image now fills the card width and the card clips the
+  bottom instead. The capture also always starts at the top-left and renders at
+  the exact viewport width, so nothing is offset or off-screen.
+
+- **One canvas is listed once.** A ticket written before `pin.canvasId` existed
+  fell back to the `canvasName:` index; when that row was missing the launcher
+  showed the canvas a second time with no key. Name resolution now falls back to
+  the canvas records themselves, entries merge by label, and
+  `ensureCanvasRecord` reuses a record already at the derived key instead of
+  overwriting it (which used to discard the folder and the card preview).
+
+- **Canvas previews can no longer be silently empty.** If the page capture
+  returns nothing (a refused tab capture, a page the renderer cannot draw), the
+  ticket's own screenshot is downscaled and stored instead. Encoding now steps
+  down in size and quality until the image fits, so a valid preview can never be
+  rejected by the storage cap, and a canvas id that is a record key resolves to
+  its record rather than creating an orphan. When an attempt still produces no
+  image, the reason is stored and shown on the canvas page under the preview
+  state.
+
+- **The extension's API calls no longer hit page CSP.** The SDK runs in the
+  page's world, where a strict `connect-src` policy produced "Failed to fetch".
+  Extension requests now go through the isolated-world bridge (immune to page
+  CSP) and the background only relays to the configured `apiUrl`; the
+  bookmarklet still posts directly and names the URL when the network refuses.
+
+- **Canvas previews and URLs fixed.** The preview is stored on the canvas record
+  (not a separate key), so **Clear preview** cannot miss it and the next ticket
+  recaptures; a bare host typed as the canvas URL is honoured (https assumed)
+  instead of being replaced with `https://example.com`, and non-http schemes are
+  rejected; dashboard links open real new tabs via `router.open`, which works in
+  the Custom UI iframe.
+
+- **Build stamps.** The dashboard footer shows `SDK <hash> · UI <build time>` and
+  the overlay header shows `SDK <hash> · <channel>`, so a stale build is visible
+  rather than guessed. The harness now reproduces a stored text change on a page
+  where the word appears several times.
+
+- **Text-change previews render inline again.** The stored selection anchor is
+  used (not just the text), JiraTack's own sidebar text can never be the match,
+  and when the stored path spans nodes the preview re-resolves the phrase to a
+  single text node so the replacement is shown inline instead of a box-only
+  outline. A stale anchor no longer breaks the preview.
+- **Issue type keeps its last-used default.** When Jira omits the previous type
+  from the creatable list (or returns an empty list), the select keeps it
+  visible and selected so the ticket stays saveable.
+- **Text-change previews resolve after creation.** The stored suggestion now
+  carries the precise node path of the original selection, so previewing it
+  later no longer depends on the phrase being unique on the page.
+- **Canvas previews, captured locally.** The first ticket on a canvas captures
+  a viewport shot in the reviewer's browser and stores it once per canvas, so
+  cards show a real preview with no external image service. Later tickets reuse
+  the stored image; the client only captures when the canvas has none.
+- **Pastel-style canvas cards.** The title links straight to the canvas's URL in
+  a new tab, and the key, counts, date and actions live on a darkened hover
+  overlay with **Open canvas** in the middle. No third-party screenshot service:
+  a preview only appears if JiraTack captured one itself; otherwise the card
+  shows the hostname. The capture-time thumbnail pipeline was removed.
+
+- **Scale and polish (D43 follow-up).** The dashboard aggregate is cached per
+  user for two minutes with server-side search and pagination; canvas cards show
+  a capture-time thumbnail; an expired session says how to reconnect; a second
+  installation asks for confirmation instead of being ignored; store URLs are
+  admin settings; the guest invite page publishes its own config (no bookmarklet
+  step) and supports zero-click enrollment once the extension ID is set; and the
+  extension distribution policy is documented in
+  `docs/EXTENSION-DISTRIBUTION.md`.
+
+- **Install section split into four actions (D43).** The bookmarklet card now
+  offers *Get bookmark* (scope drawer: selected canvases by default, or all
+  canvases that stay current) and *Create a guest bookmark*. The extension card
+  offers Chrome, Firefox (direct signed `.xpi`) and *Create a guest extension
+  link*. Publication URLs are constants; until they exist the buttons say the
+  extension is not published.
+- **Guest extension continuity.** The invite page leads with the extension card
+  when `mode=extension`: install → click the bookmarklet once → click the
+  toolbar icon → the page turns 🟢 Connected. No paste, no reload, no
+  `externally_connectable`. The bookmarklet remains the zero-install fallback.
+- **Guest links now last 90 days** (was 72 hours); revocation and pause still
+  apply immediately.
+- **Folders.** The dashboard has a folder rail (All, Unfiled, each folder with
+  counts); a canvas page moves the canvas into a folder.
+- **Canvas discovery at scale.** The overlay launcher shows canvas name and key
+  and adds a filter box when there are more than six canvases.
+
+### Canvas configuration
+
+- **The text-field catalogue is installation-only (D42 follow-up).** The
+  per-project "Available text fields" control is gone; the catalogue lives on
+  the Admin page, and a canvas pre-fill record no longer stores a project. The
+  create-canvas field rows sit in a closed **Additional fields** accordion, and
+  cards/list rows have a **Fields** action that opens the canvas editor
+  directly.
+
+- **Project field catalogue and canvas pre-fills (D41).** Admins now choose the
+  text fields a project makes available (Project settings → **Available text
+  fields**, text/URL fields only). Canvas creators pre-fill values for those
+  fields from the create-canvas modal — inside a closed **Additional fields**
+  accordion so the form stays compact — and can change them later from the
+  dashboard row action **Fields**. A pre-filled value is written only when the
+  field is on the Create screen for that ticket's project and issue type
+  (checked per ticket); otherwise it is appended to the description, so nothing
+  is dropped silently.
+
+### Pins and dragging
+
+- **Pin dragging is visible again (D33 amendments).** Three defects made every
+  drag feel broken while the move itself still worked: a press that slid more
+  than a few pixels while held was silently cancelled and could never arm
+  (moving now arms the drag immediately); the drag marker was parented to
+  `document.body`, so the push-mode fixed-shift pass treated it as a page
+  element and shoved it 320 px away from the cursor (it now lives inside
+  JiraTack's overlay, and no JiraTack element can be shifted by the
+  fixed-shift pass); and the dragged pin faded to 35% opacity, which read as
+  "the pin disappeared" (it now keeps full presence and changes colour).
+
+### Filtering and navigation
+
+- **Per-reviewer status filter (D38 amendment).** `Filter By Status ▾` opens an
+  Excel-style checklist with `All` / `None` / `Reset` and one row per status on
+  the canvas with its ticket count. Ticks mean "show", apply immediately to the
+  pin layer and the list, and persist per canvas in `localStorage`. The project
+  setting is now the default seed, renamed **Default filter setting**.
+
+- **Selecting a ticket centres its pin.** Clicking a card (or using ↑/↓) scrolls
+  the page so the pin sits in the middle of the viewport. Hovering only
+  highlights; clicking a pin on the page never scrolls.
+
+- **The overlay follows a cross-URL ticket click (extension, D40).** Clicking a
+  card whose pin lives on another page now carries the overlay to that page
+  automatically, landing on the ticket. Requires `host_permissions`
+  (`<all_urls>`) because `activeTab` is revoked by navigation; the carry is
+  one-shot, so ordinary browsing never drags the overlay along.
+
+- **Viewport presets work on a maximised window.** The background normalises the
+  window state before applying a width (Chrome ignores width on a maximised or
+  full-screen window), **Fit** restores the previous width and state, the bar
+  now lives inside the overlay so page layout cannot move or cover it, and a
+  refused size reports a toast instead of failing silently.
+
 ### Delivery and platform
+
+- **Extension self-enrollment (D39).** The extension no longer depends on
+  pasting a bookmarklet link. While any JiraTack overlay is open, clicking the
+  toolbar button reads the config that overlay is using, verifies it with a
+  real token exchange, and stores it — connecting the extension, or repairing a
+  stale copy, in one click. A different-origin candidate can never take over an
+  existing installation, and the options page is demoted to a repair path.
+  Failed exchanges now name the URL and content type they hit instead of a bare
+  "invalid response".
+
+- **Status rule replaces retirement (D38).** Marking a ticket done now takes
+  it off the canvas by default — the project's rule is the single show/hide
+  control. Project settings gets a **hidden statuses** rule: use the Done
+  default or pick exact statuses (via the new `getProjectStatuses` resolver);
+  `retirementDays` was removed entirely. The sidebar offers
+  **View All** / **Filter By Status** with a hidden count; tickets a status
+  literally named `Removed` are never returned at all.
+
+- **Screenshot off the interaction path (D36).** The composer opens
+  immediately and the capture happens on **Add to ticket**, after the composer
+  is gone — the extension through the fast visible-tab capture, the bookmarklet
+  through a single html2canvas run. Typing is no longer competing with a
+  page-wide raster, and a slow capture surfaces a "Preparing screenshot…"
+  toast instead of freezing the sidebar.
+
+- **New Pin defers to the selection (D36).** With New Pin armed, a text
+  drag-selection shows the **Suggest edit** pill instead of dropping a pin;
+  arming New Pin no longer swallows the gesture. Pill selection is captured
+  live during the drag (rAF) and read at capture-phase mouseup, so the pill
+  survives the mouse release.
+
+- **Immediate composer and grouped capture UI (D36).** The extension now captures the visible tab before the composer opens, so the
+  browser never runs html2canvas while the reviewer types. The bookmarklet opens
+  the composer immediately and runs html2canvas only when **Add to ticket** is
+  pressed, after the composer is gone. The capture control is now
+  **New Pin**, with the helper “Click an element to pin it, or select text to
+  suggest an edit” and a filled, pressed state while armed. The form is split
+  into **Assigned to**, **Ticket** and **Evidence** cards; Assignee is a
+  tinted, accented first card with the reporter line inside. The selection pill now appears on mouse release and keeps its
+  captured range even when the page collapses the native selection. The text
+  change is its own card — `TEXT CHANGE`, a large centered **View on page** toggle,
+  **Edit**, and a wrapping red/green pair — with no CONTENT wrapper.
+  Attach/Record are stronger buttons with icons under **Evidence**. Summary
+  drops the red “REQUIRED” word for a quiet asterisk, and the text-change
+  summary now says `Text change: <original>`.
+
+- **Current-tab recording without a picker (D37).** In the extension, Record
+  screen captures the active tab through `chrome.tabCapture` and an offscreen
+  recorder — no display picker, no window/screen choice. The button becomes
+  **Stop recording** and the recorder caps at 60 seconds. The bookmarklet keeps
+  `getDisplayMedia` with the current tab preselected. Chrome adds the
+  `tabCapture` and `offscreen` manifest permissions.
+
+- **New-ticket form hierarchy (D34, D36).** Details first: Assignee
+  (autofocused; Project is focused instead only when unresolved), then Project /
+  Issue type, the content carried from the popover (Summary, conditional
+  text-change pair, Description), then Attach files / Record screen as peer
+  buttons with the screenshot, chosen files and recording listed below them.
+  Create/Cancel are sticky and `Cmd/Ctrl+Enter` submits. While composing, the
+  sidebar hides filters, collapses the ticket list to one expandable line,
+  removes Pin mode and disables pin dragging and canvas switching, so a draft
+  cannot be replaced. The canvas seed ticket is hidden from the overlay list and
+  pin layer. Toasts were moved off the sticky actions and no longer intercept
+  clicks.
+
+- **Popover capture and carried defaults (D36).** Pin mode opens an anchored
+  composer with Summary and Description; **Add to ticket** hands that content to
+  the sidebar, and the sidebar's Create is the only creation path. A text
+  selection shows a **Suggest edit** pill that opens the replacement composer
+  with **View on page**; there is no Text change mode. Every metadata field
+  defaults from the newest non-empty value across the canvas's non-seed pins:
+  project, issue type, assignee, priority and parent. Assignee falls back to the
+  previous assignee → the current licensed user → the sponsor for guests. All
+  defaults remain visible and editable. Composer placement flips and clamps to
+  the viewport, and the geometry is unit-tested.
+
+- **Text-change preview (D35).** A selection shows a **Suggest edit** pill
+  (never an automatic capture). The composer owns the replacement and the
+  preview: the sidebar shows a compact `Original → Suggested` pair with **Edit**
+  and **View on page**, and Summary is prefilled `Text change: <original>`. The
+  **View on page** switch previews the change: inline red strikethrough + green
+  replacement for single-text-node selections, and a non-destructive marker
+  bubble otherwise. Each show re-resolves the selection from its captured
+  anchor, so repeated previews survive a page re-render; if it cannot resolve,
+  the switch turns off with a hint. Hide, Cancel, Create and overlay close
+  restore the page exactly.
+  The pair is stored in `com.jiratack.metadata.textChange`; a ticket created
+  with a text change shows an `Original → Suggested` switch on its card that
+  re-previews it, including after the overlay is reopened, and the issue panel
+  shows `Text change: Original → Suggested` on one line. New tickets only.
+
+- **Pin move with screenshot supersede (D33).** Hold a pin ~400 ms, drag, release:
+  selector, position and capture context are recomputed with the pin-mode rules,
+  and a `Move <KEY> here?` bar appears beside the pin. Nothing is uploaded,
+  written, or commented until **Confirm**; **Cancel**, `Esc`, closing the overlay,
+  switching canvas, or starting a new ticket reverts locally and sends nothing.
+  No timer or auto-commit, and no other pin can be dragged while the bar is open.
+  On Confirm, a new `jiratack-<key>-<timestamp>.png` is attached through the
+  chunked pipeline; old screenshots are kept and `screenshotVersion` increments.
+  The issue panel renders the newest screenshot. The app posts
+  `Pin moved and screenshot updated by <name> on <time>` when the pointer moved
+  more than 4 px and the screenshot attached — name and time zone read from the
+  reviewer's Jira profile (`UTC` when it cannot be resolved, and for guests).
+  Screenshots exclude JiraTack's own chrome: the overlay and the extension's
+  viewport bar are hidden for the capture and restored afterwards.
 
 - **Extension capture features (D32).** Attachments capped by Jira's own
   `attachmentLimits`; on-screen text-edit suggestions (selection captured on

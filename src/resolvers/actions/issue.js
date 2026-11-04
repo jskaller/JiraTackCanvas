@@ -2,6 +2,7 @@ import api, { route } from '@forge/api';
 import { errorResult } from '../../lib/errors.js';
 import { normalizeUrl } from '../../shared/urlNormalize.js';
 import { METADATA_PROPERTY_KEY, metadataFromIssue, readMetadataBySearch } from '../../lib/metadata.js';
+import { screenshotTimestamp } from '../../shared/pinMove.js';
 
 const MAX_RELATED = 20;
 const MAX_SCANNED = 2000;
@@ -31,10 +32,45 @@ async function fetchJiraBaseUrl() {
   return null;
 }
 
-async function loadScreenshot(attachments) {
-  const list = Array.isArray(attachments) ? attachments : [];
-  const image = list.find((item) => item && typeof item.mimeType === 'string' && item.mimeType.startsWith('image/'));
-  if (!image || !image.id) return null;
+/**
+ * The newest screenshot is the superseding one with the highest filename
+ * timestamp (D33). Old attachments are never deleted, so ordering cannot rely
+ * on the list order Jira returns. Tickets created before D33 have a single
+ * `jiratack-<key>.<ext>` file, which falls back to the newest image by creation
+ * time.
+ */
+function newestScreenshot(attachments, issueKey) {
+  const images = (Array.isArray(attachments) ? attachments : [])
+    .filter((item) => item && item.id && typeof item.mimeType === 'string' && item.mimeType.startsWith('image/'));
+
+  let superseding = null;
+  let supersedingAt = -1;
+  let legacy = null;
+  let legacyAt = -1;
+
+  images.forEach((image) => {
+    const stamped = screenshotTimestamp(image.filename, issueKey);
+    if (stamped !== null) {
+      if (stamped > supersedingAt) {
+        superseding = image;
+        supersedingAt = stamped;
+      }
+      return;
+    }
+    const created = Date.parse(image.created || '');
+    const at = Number.isNaN(created) ? 0 : created;
+    if (at >= legacyAt) {
+      legacy = image;
+      legacyAt = at;
+    }
+  });
+
+  return superseding || legacy;
+}
+
+async function loadScreenshot(attachments, issueKey) {
+  const image = newestScreenshot(attachments, issueKey);
+  if (!image) return null;
 
   try {
     const res = await api.asApp().requestJira(
@@ -151,7 +187,8 @@ export async function issuePanelData(context, payload) {
       url,
       guest: metadata.guest || null,
       pin: metadata.pin,
-      screenshot: await loadScreenshot(issueFields.attachment),
+      textChange: metadata.textChange || null,
+      screenshot: await loadScreenshot(issueFields.attachment, issueKey),
       relatedTickets: await loadRelatedTickets(issueKey, canvasName, url),
       deepLink: appendTicketParam(url, issueKey),
       jiraBaseUrl: await fetchJiraBaseUrl(),

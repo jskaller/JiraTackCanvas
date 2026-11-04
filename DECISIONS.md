@@ -347,6 +347,311 @@ Firefox 159 accepts the package as a temporary add-on (`installTemporaryAddon` o
 
 **Applies to:** `docs/EXTENSION.md`, `src/extension/`, `scripts/build-extension.js`, `src/shared/extensionConfig.js`; CONTRACTS §5.1 (config shape reused); D22.
 
+### D33 — Moving a pin: supersede the screenshot, attribute the move
+
+**Status:** Resolved (2026-11-02)
+
+**Question:** a reviewer drags an existing pin. The ticket already has a screenshot and the web trigger has no user identity. What changes, what stays, and who does the comment say moved it?
+
+**Resolution:**
+
+1. **Capture is the same capture.** A long-press (~400 ms) arms the drag; a ghost follows the cursor; the drop resolves the element under it through `computePinPosition` in `pinMode.js`, so a moved pin obeys §12.2 exactly as a new one — never `body`/`html`, never a box over 80% of the viewport, never a `jiratack-*` class. Releasing over JiraTack's own UI abandons the move rather than anchoring to the overlay.
+
+2. **One new action, not a field in `updateIssue`.** `updatePinPosition` patches `com.jiratack.metadata` in place: `pin.position`, `pin.selector`, the capture context, and `screenshotVersion`. `updateIssue` is about Jira fields and has no screenshot or comment semantics; folding the move in would make both harder to reason about. Authorisation reuses `loadJiraTackIssue`, so label, project and canvas checks are identical.
+
+3. **Supersede, never replace.** The new screenshot is a new attachment named `jiratack-<key>-<epoch-ms>.png`, uploaded through the existing chunked pipeline. Old screenshots are not deleted: they are evidence, and Forge gives no reliable way to undo a deletion. `screenshotVersion` counts supersessions so the fact is machine-readable without parsing filenames; the issue panel nevertheless orders by filename timestamp because that survives attachment-list ordering changes.
+
+4. **Comment attribution is textual.** A web trigger cannot call `asUser()`, so the comment is authored by the app and names the mover: `Pin moved and screenshot updated by <displayName> on <2 Nov 2026, 17:42 GMT>`. The name and zone come from `/rest/api/3/user?accountId=<sub>` for licensed reviewers. A missing or invalid zone formats as UTC and says so. Guest sessions use the invited guest's name and UTC, because `sub` is the sponsor there and the guest's zone is unknowable.
+
+5. **Comment only on a real move.** Nothing is posted when the pointer travelled ≤4 px. The comment also requires the screenshot to have actually attached, because its text claims both. Metadata and screenshot failures are reported as warnings, not as a failed move; a metadata write failure is the one failure that makes the client revert the pin.
+
+**Confirmation (amended 2026-11-02).** A drop is a proposal, not a write. The pin renders at the drop point, the screenshot is captured and held in memory, and a bar beside the pin asks `Move <KEY> here?` with Confirm and Cancel. Only Confirm uploads the screenshot and calls `updatePinPosition`. Cancel, `Esc`, closing the overlay, switching canvas, or starting a new ticket restores the previous selector and position, discards the image, and sends nothing. There is no timer and no auto-commit: a move that is ignored stays pending, and while it is pending no pin can be dragged. This is deliberately stricter than an undo-after-commit window — an app-authored comment cannot be unpublished, so the cheap moment to stop a mistake is before the first request.
+
+**Arm amendment (2026-11-03).** The original arm rule cancelled the whole press when the pointer moved more than the slop (~6 px) before the 400 ms hold completed, reasoning that the gesture was "a click (or a scroll gesture), not a move". In practice that made virtually every real long-press dead: hands slide more than 6 px while pressing onto a 14 px target, the cancel was permanent for that press (even holding perfectly still afterwards never armed), and the reviewer got zero feedback — no ghost, no dimming, no color change — so dragging appeared broken on every page. The rule is now: **moving the pointer past the slop while the button is down arms the drag immediately**, with the ghost snapping to the cursor; a click remains the no-motion press and still selects the pin. Scroll gestures are unaffected (a wheel or trackpad scroll does not move the mouse pointer), and releasing with no significant movement is unchanged (own-pin release abandons, no write). A fast grab-and-release now proposes a move instead of doing nothing — still nothing written without Confirm.
+
+**Visibility amendment (2026-11-03).** The drag feedback itself was broken in two ways, both reported as "dragging shows no pin, no location and no color change until the drop" while the move still landed correctly:
+
+1. **The ghost was parented to `document.body`.** The push-mode fixed-shift pass moves *page* `position: fixed` elements that overlap the sidebar, and it identified page elements by "not inside `#jiratack-overlay`" — so JiraTack's own ghost was shifted by `translate: -320px` the moment it entered the right-hand 320 px, landing 320 px away from the cursor. The ghost is now created inside the overlay (fixed positioning still resolves against the viewport; `pointer-events: none` keeps hit-testing on the page), and the fixed-shift pass now skips anything carrying a `jiratack-` class, so no JiraTack element can be shifted by page-layout compensation again.
+
+2. **The dragged pin faded to `opacity: 0.35`.** An 18 px dot at 35% opacity reads as "the pin disappeared" — the reviewer saw the pin vanish, with no location marker and no colour change to replace it. The dragged pin now keeps full presence and changes colour (the move yellow, with a ring and a slight scale): it is picked up, not erased.
+
+**Rejected alternatives:** renaming or replacing the original attachment (destroys the before state, and Jira attachment names are not a version history); deleting superseded screenshots (irreversible, and a bad screenshot then cannot be compared); delete-and-recreate the ticket (loses the key, comments and status); storing the reviewer's name in metadata on every move (duplicates PII, goes stale, and does not help the comment that is already written); `asUser()` for the comment (impossible in a web trigger and forbidden by AGENTS.md); trusting a timezone from the client (the browser's zone is not the Jira profile's, and the profile is the reviewer's configured zone); reusing `updateIssue` (described above); commenting on every drop, including a jitter (noise on the ticket); an auto-committing undo window (a wrong drop the reviewer does not notice in time still writes a comment and an attachment); a modal dialog (same protection, more friction on every move).
+
+**Known limitations:** A blocked screenshot means no comment even though the pin moved (`screenshot-not-attached` warns the client). Guest moves always print UTC. Comment authorship is the app, not the reviewer — the text is the only attribution. Tickets created before D33 have a single untimestamped screenshot, which still renders via the newest-image fallback. Touch drag is not implemented (mouse long-press only). A drop over the sidebar or viewport bar is discarded. A pending move blocks every drag until it is confirmed or cancelled, and the bar appears only once the capture finishes (about a second), so there is a short window where the pin has moved but cannot yet be confirmed. Jira privacy settings can hide `timeZone`, which degrades to UTC; if the profile cannot be read at all (or the issue was moved by a guest on a non-guest ticket), the name degrades to "a reviewer" — the move and screenshot still apply.
+
+**Applies to:** SPEC §8.3, §10.3, §13.1, §14.3, §16.4; CONTRACTS §1.1, §3.5b, §4.4; `src/shared/pinMove.js`, `src/webtrigger/actions/updatePinPosition.js`, `src/bookmarklet/pinDrag.js`, `src/bookmarklet/moveConfirm.js`, `src/bookmarklet/confirmGeometry.js`, `src/resolvers/actions/issue.js`; TEST_PLAN §2.16b, §3.14.
+
+### D34 — New-ticket form hierarchy and compose mode
+
+**Status:** Resolved (2026-11-03)
+
+**Question:** after a pin is dropped, the sidebar opens a form whose job is to write a Jira summary and description. What should the form make obvious first, and what should get out of the way?
+
+**Resolution:**
+
+1. **Metadata stays visible, compact, at the top.** Project and issue type share a row; assignee follows; the reporter becomes a muted "Reporting as …" line rather than a disabled input. Collapsing metadata behind a disclosure was rejected: those fields are required, and hiding required choices trades one confusion for another.
+
+2. **Summary and description follow immediately and dominate.** Summary is full-width, larger type, required, with a `0/215` counter; description is full-width, five rows, optional. Neither is below the optional content.
+
+3. **Autofocus Summary, with one guard.** The cursor lands in Summary when the form opens *and* a project is resolved. If no project is resolved, focus moves to the project control: otherwise the reviewer writes a summary and is then told the ticket cannot be created. Focus happens once, when the form is created; polling and re-renders never steal it.
+
+4. **Optional content collapses.** The screenshot stays visible as a thumbnail with Remove. Additional fields (priority, parent, console) and `Add evidence` (text change, recording, attachments) are collapsed. The screenshot is evidence, but not the writing task.
+
+5. **Actions stay reachable; validation is inline.** Create/Cancel are sticky; `Cmd/Ctrl+Enter` submits. A short summary shows an error under the field and returns focus; other errors sit above the actions and focus the offending control. The old single error box at the bottom of a long scroll was invisible at the point of failure.
+
+6. **Compose mode lite.** While a form is open the sidebar hides the filter/match row, replaces the page URL with a compact line, collapses the ticket list to `N other tickets on this page`, removes Pin mode, disables pin dragging and blocks Switch Canvas / guest canvas switching. The draft cannot be replaced or lost by an adjacent control. The list remains one click away for duplicate checking — a full focus mode that hides it was rejected for that reason.
+
+7. **The seed ticket is not a pin.** `[JiraTack] Canvas created` has position `0,0` and exists for canvas bookkeeping; it is hidden from the overlay list and pin layer, but still counted by the dashboard/epic panel.
+
+**Rejected alternatives:** metadata collapsed below the writing fields (hides required decisions); always autofocusing Summary even without a project (guaranteed validation failure after typing); a multi-step wizard (more clicks, and the whole form fits one panel); a full-screen compose mode that hides the ticket list (loses at-a-glance duplicate checking); keeping the disabled reporter input (takes a row for immutable information); a sticky submit with no inline validation (the error stays off-screen); auto-submitting on `Enter` (breaks description line breaks).
+
+**Amended 2026-11-03 — details-first order, content captured in a popover.** The sidebar now completes a draft rather than doing the writing. Order: Assignee → reporter line → Project / Issue type → carried Summary → conditional text-change pair → Description → Attach files / Record screen (captured evidence below them) → advanced → actions. Assignee is the first key field and receives focus; project receives focus only when unresolved. The popover at the capture point owns Summary/Description (or the suggested text); "Add to ticket" moves that content into the sidebar, and Create there is the only creation path. See D36 for the flow and D35 for the preview.
+
+**Known limitations:** Compose mode is desktop-pointer shaped; it inherits the overlay's lack of touch support. The form still validates Summary at submit time rather than disabling Create. A draft is not persisted: closing the overlay discards it. The sidebar rebuild must preserve the live form DOM; a future re-render that clears `.jiratack-new-ticket-form` would destroy the draft. A text change exists only for the selection-pill flow; without a captured selection there is no way to add one from the sidebar.
+
+**Applies to:** SPEC §10.2, §10.5; CONTRACTS §5.2; `src/bookmarklet/form.js`, `src/bookmarklet/sidebar.js`, `src/bookmarklet/index.js`, `src/shared/seedPin.js`; TEST_PLAN §3.14, §4.2b, §4.3; `scripts/extension-harness/run.mjs`.
+
+### D35 — Text-change preview on the page
+
+**Status:** Resolved (2026-11-03)
+
+**Question:** when a pin is placed on a text selection, how should the suggested replacement be shown before the ticket is created, without pretending JiraTack can edit the page?
+
+**Resolution:**
+
+1. **A selection pill, not a mode.** Pin mode is the only capture control. A non-collapsed DOM selection outside JiraTack and form controls shows a small **Suggest edit** pill at the selection; clicking it opens the suggestion popover. The pill never auto-opens and never captures ambient selections on its own, so a stray selection cannot mark a pin as a text change and there is no second mode to explain.
+
+2. **The pair is conditional and compact.** No text change → no text-change UI. A text change → the popover owns the suggested text, and the sidebar shows a standalone `TEXT CHANGE` card with a large **View on page** toggle, **Edit**, and a wrapping `Original → Suggested` pair between the Ticket card and Description. Edit reopens the composer with Save; the original is never editable, because editing it would break the range.
+
+3. **Inline preview where it is provable.** If the range is inside a single text node, split it: original in red with `line-through`, suggested text in green, before/after text preserved. The original Text node is kept detached and re-inserted on hide, so the page is restored exactly. This is the common "highlight a phrase" case.
+
+4. **Bubble fallback otherwise.** A range spanning elements, an input selection, or a page that re-rendered under us uses a non-destructive overlay: red rectangles over the range and a bubble with old → new in red/green. No DOM mutation.
+
+5. **Preview only.** Nothing is persisted to the page. Hide, Cancel, Create, and overlay close all restore; the ticket description records `Text change / Original / Suggested` as before. Summary is prefilled with `Text change: <original>` so the reviewer sees what will be sent, and is editable.
+
+6. **Red/green plus strikethrough**, not colour alone, so the meaning survives colour-blindness.
+
+7. **Available after creation.** The pair is also stored in `com.jiratack.metadata.textChange`. A ticket created with a text change shows a switch on its card labelled with the actual `Original → Suggested`; toggling it re-previews the stored pair, including after the overlay is reopened. The post-creation anchor is search-only: scope to the pin's selector, fall back to the document only when the phrase is unique, and refuse rather than highlight the wrong occurrence. The issue panel shows the pair on one line. New tickets only; legacy tickets have the text in the description but no metadata, so no card switch.
+
+**Rejected alternatives:** always showing two textareas (inert after the drop and the main source of clutter); editing the live page permanently (impossible generically, destructive, and not what a ticket does); highlight-only without the replacement (does not show the proposal); storing text only (cannot locate duplicates, so the preview would be a guess); auto-detecting "the text under the pin" as the original (usually a whole element, not the intended phrase); a modal preview (hides the page context that makes the preview useful).
+
+**Amended 2026-11-03 — anchored re-resolution and a switch.** The preview control is a switch (`role="switch"`), not a button. Every show re-resolves a fresh Range from a serialized anchor (node path + offsets + the selected text, with a unique-text fallback scoped to the nearest id ancestor), because a framework can replace the text node between previews; a stored live Range alone made the second toggle fail. If the anchor no longer resolves, the switch turns off and a hint asks the reviewer to select the text again.
+
+**Known limitations:** the anchor can fail if the page removes the phrase entirely (the switch then refuses rather than guess); inline is limited to single-text-node ranges, otherwise the marker bubble is used; selections inside `<input>`/`<textarea>` have no DOM Range and cannot be previewed; the inline preview temporarily mutates the host DOM (restored on hide); nothing is written back to the page; a text fallback only works when the phrase is unique in its scope, which is deliberate. Post-creation previews need the phrase to still exist on the page; legacy tickets have no `textChange` metadata.
+
+**Applies to:** SPEC §10.2, §10.4, §10.5, §8.3; CONTRACTS §1.1, §3.3, §4.4, §5.2; `src/bookmarklet/pinMode.js`, `src/bookmarklet/textAnchor.js`, `src/bookmarklet/textPreview.js`, `src/bookmarklet/form.js`, `src/bookmarklet/sidebar.js`, `src/bookmarklet/index.js`, `src/lib/metadataModel.js`, `src/webtrigger/actions/createIssue.js`, `src/webtrigger/actions/getPins.js`, `src/resolvers/actions/issue.js`; TEST_PLAN §4.2b; harness `/form` and `/text` fixtures.
+
+### D36 — Popover capture, selection pill, and a details-only sidebar
+
+**Status:** Resolved (2026-11-03)
+
+**Question:** the sidebar form was doing two jobs — writing the ticket and choosing its Jira fields. Where should capture happen, and where should the ticket be completed?
+
+**Resolution:**
+
+1. **The popover owns the new content.** Clicking an element in Pin mode opens an anchored composer with **Summary** and **Description**. It does not create a ticket and does not open the full form. The pending pin marks the location while the composer is open; Cancel removes it.
+
+2. **Text changes start from a pill, not a mode.** A selection outside JiraTack and form controls shows a small **Suggest edit** pill. Clicking it opens a composer with the selected quote, the **Suggested text**, and **View on page**. There is no Text change mode and no ambient selection capture.
+
+3. **"Add to ticket" hands the content to the sidebar.** The sidebar is the details step and the only creation path. Its Create button saves. Quick create from the popover was rejected: the Jira fields, attachments and validation live in one place, and a one-step create would either skip them or grow the popover into the form.
+
+4. **The sidebar is details-first.** Order: **Assignee** (first key field, focused on open), reporter line, Project / Issue type, carried **Summary**, the conditional text-change pair, **Description**, Attach files / Record screen with evidence, advanced fields, actions. When no project resolves, focus moves to Project instead.
+
+5. **Text changes stay compact.** The sidebar shows `Original → Suggested`, **View on page**, and **Edit** — not a second editor. Edit reopens the same composer with **Save**, so there is one suggested-text field in the product. View on page exists in both the composer and the sidebar.
+
+6. **Defaults come from the previous ticket.** For each field, take the newest non-empty value across the canvas's non-seed pins: project, issue type, assignee, priority, parent. Assignee fallback: previous assignee → current licensed user → sponsor for a guest. Project fallback: the only permitted project. Issue type fallback: last used → Task → first non-Epic. Priority fallback: last used → Medium → first. Parent carries over and stays editable in advanced fields.
+
+7. **Composer placement is bounded.** The popover flips above the anchor when it would overflow the viewport and clamps to an 8px edge margin; the same helper places the selection pill. This is pure geometry and unit-tested.
+
+**Amended 2026-11-03 — perceived response and grouping.** The control is labelled **New Pin** with a prominent helper ("Click an element to pin it, or select text to suggest an edit") and a filled pressed state. The extension captures the visible tab before the composer opens, so typing never competes with html2canvas; the bookmarklet opens the composer immediately and captures with html2canvas when **Add to ticket** is pressed, after the composer is gone. The selection pill appears on mouse release, not during the drag, and keeps the cloned range if the page collapses the native selection. The sidebar groups fields into **Assigned to / Ticket / Evidence** cards (no CONTENT wrapper), with Assignee as a tinted, accented first card containing the reporter line. The text change is its own card: `TEXT CHANGE`, a large centered **View on page** toggle, **Edit**, and a wrapping red/green pair.
+
+**Rejected alternatives:** quick create from the popover (no undo, skips Jira fields, or duplicates the form); keeping the Text change mode (a second mode to learn for an action the selection itself states); the full form inside the popover (too much for a 320px anchored surface); not carrying parent or assignee (repeats the most common edits on every ticket); a disabled Assignee field that only mirrors the previous value (the reviewer must be able to change it).
+
+**Known limitations:** the pill needs a non-collapsed DOM Range and does not appear for selections inside `input`/`textarea`; popover placement can still land over page content; defaults can mis-file when the previous ticket was exceptional, so every default remains visible and editable; no touch capture. The sidebar's sticky action bar can cover the lower content on a very short viewport; the form scrolls.
+
+**Applies to:** SPEC §10.1, §10.2, §10.4, §10.5; CONTRACTS §1.1, §3.1, §3.2, §5.2; `src/bookmarklet/capturePopover.js`, `src/bookmarklet/popoverGeometry.js`, `src/bookmarklet/textSuggest.js`, `src/bookmarklet/form.js`, `src/bookmarklet/index.js`, `src/webtrigger/actions/getPins.js`, `src/webtrigger/actions/exchangeToken.js`; TEST_PLAN §4.2b, §4.3; harness `/form` and `/text` fixtures.
+
+### D37 — Current-tab recording without a display picker
+
+**Status:** Resolved (2026-11-03)
+
+**Question:** `Record screen` used `getDisplayMedia`, which always opens a picker and, in the reported case, did not list the current tab. How should the tool capture the page as evidence?
+
+**Resolution:**
+
+1. **The extension records the active tab directly.** The background calls `chrome.tabCapture.getMediaStreamId({ targetTabId })`; an offscreen document consumes that id with `getUserMedia` (`chromeMediaSource: 'tab'`), records WebM with `MediaRecorder`, and returns a data URL through the bridge. No picker is shown.
+
+2. **Tab only.** The extension stream is the tab the reviewer invoked; there is no screen/window option and no way to record another tab. This matches the evidence the ticket is about.
+
+3. **The bookmarklet keeps the display picker.** A page cannot suppress `getDisplayMedia` for security reasons. It requests `displaySurface: 'browser'`, `preferCurrentTab: true`, `selfBrowserSurface: 'include'` and `surfaceSwitching: 'include'` so the current tab is the offered source, but the picker remains.
+
+4. **Fallback rather than failure.** If tab capture is unavailable (restricted page, older browser, Firefox), the form falls back to the display picker and says nothing extra. The recording is still capped at 60 seconds.
+
+5. **One recording at a time.** The button becomes **Stop recording** while armed and the form owns the stop. The offscreen recorder auto-stops at 60 seconds; the result is a WebM data URL uploaded as `jiratack-recording-<epoch>.webm`.
+
+**Rejected alternatives:** `getDisplayMedia` alone (picker, and the reported tab omission); `chrome.desktopCapture` (still a picker); screen/window capture (not scoped to the ticket page); `chrome.tabCapture.capture` in the MV3 worker (not available there); no fallback (recording would disappear on Firefox and restricted pages).
+
+**Known limitations:** the recording includes the JiraTack overlay, exactly as the display-picker path did; the 60-second cap is unchanged; the data URL crosses an extension message boundary, so very long recordings are rejected by the size limit; tab capture needs the extension to have been invoked on that tab (`activeTab`) and was verified manually, not in the headless harness.
+
+**Applies to:** SPEC §10.5; CONTRACTS §5.2; `src/extension/manifest.chrome.json`, `src/extension/background.js`, `src/extension/bridge.js`, `src/extension/offscreen.*`, `src/bookmarklet/recording.js`, `src/bookmarklet/form.js`; `scripts/build-extension.js`; TEST_PLAN §4.2b.
+
+### D38 — Status filter as the single visibility rule
+
+**Status:** Resolved (2026-11-03)
+
+**Question:** Done tickets stayed on the canvas after being marked done (retirement never fired by default), and the reviewer had no control over visibility. What governs which tickets show on a canvas?
+
+**Resolution:**
+
+1. **The project's status rule is the only show/hide rule.** Project settings gain `filteredStatusIds`: an explicit array of Jira status IDs to hide. When it is not set (`null`), the default rule hides the **Done** status category. `[]` hides nothing.
+
+2. **One overlay toggle.** The sidebar offers **View All** / **Filter By Status**. Filtering is on by default; **View All** reveals what the rule hides (they keep their muted Done styling), and **Filter By Status** re-applies it. The toggle is display-only; it never changes the rule. When the filtered-out tickets leave the list empty, the empty state offers "Show N filtered tickets".
+
+3. **The server marks, the client hides.** `getPins` stamps each pin with `filtered: true/false` using that pin's own project's rule (canvases can span projects), so the toggle works without a refetch. The pin layer and the ticket list always agree.
+
+4. **"Removed" is never returned.** A status literally named `Removed` (case-insensitive) is a permanent exclusion enforced server-side in `getPins`; no toggle reveals it.
+
+5. **Retirement is removed entirely (supersedes D14).** Aging out no longer deletes or hides anything. `retirementDays` is gone from project settings, `getEffectiveRetirementDays` is deleted, and `getPins` no longer computes a retirement cutoff. A done/aged ticket is filtered by status exactly like any other; it is permanently removed only when its status is Moved/Removed/Deleted inside Jira.
+
+**Rejected alternatives:** a separate "retired" concept (the status rule and only the status rule was requested); hiding Done client-side with no admin control (the rule must live with the product in Jira); per-user *server-side* filter memory (the choice is a convenience, not shared state — localStorage is enough and needs no migration); returning "Removed" tickets for future un-reveals (Removed means removed).
+
+**Amendment (2026-11-03): the reviewer owns the filter.** The original resolution made the admin rule the only visibility control and reset the toggle on reload. That was wrong in use: "Done" means different things on different canvases, and re-hiding after every reload is friction. The rule is now the **default seed** only:
+
+1. The client derives the default hidden set from the per-pin `filtered` flags (status **names** present on the canvas) and stores a per-canvas override in `localStorage['jiratack:statusFilter:<canvas name>']` — absent = default, `[]` = nothing hidden, list = exactly those hidden.
+2. The row is `View All | Filter By Status ▾`. The caret opens an Excel-style checklist: `All` / `None` / `Reset` plus one row per status on the canvas with its ticket count (including currently hidden tickets, so a hidden status can be re-enabled). A tick means *show*; edits apply immediately and persist.
+3. **View All** is a temporary peek that changes neither the rule nor storage. The filter button reads `(N hidden)` where N is what the rule holds back.
+4. The project setting is renamed **Default filter setting** and its copy says it seeds the list rather than locking it.
+
+**Known limitations (updating the above):** the override is keyed by canvas **name** and by status **name** (the pin record carries `status.name`, not an ID), so renaming either starts the canvas from the default; clearing site data clears the overrides; the rule still matches status IDs server-side, so recreating a status needs the admin setting re-saved.
+
+**Applies to:** SPEC §7.2, §10.2; CONTRACTS §1.1 (PinRecord), §3.1 (project settings), §7.2 (getPins); `src/lib/statusFilter.js`, `src/webtrigger/actions/getPins.js`, `src/resolvers/actions/config.js` (`getProjectStatuses`), `src/ui-kit/project-config/index.jsx`, `src/bookmarklet/index.js`, `src/bookmarklet/sidebar.js`; TEST_PLAN §4.2b, harness `/plain` fixture.
+
+### D39 — Extension self-enrollment without the bookmark
+
+**Status:** Resolved (2026-11-03)
+
+**Question:** the extension's config was created by pasting a bookmarklet `javascript:` link into its options page (CONTRACTS §5.1, "one config shape, one place it comes from"). That made the extension carry a frozen copy of `apiUrl`/`token` that went stale when the app moved — with a bare "Token exchange returned an invalid response" and no recovery cue. How should the extension get and keep its config?
+
+**Resolution:**
+
+1. **The bookmarklet exposes the config it already uses.** While the SDK runs, `window.__jiratackConfig` holds `{ token, apiUrl, sdkUrl, canvasId, canvasName, sdkVersion }`. This exposes nothing new: the same token crossed the page world inside the bootstrap, and page scripts could already observe every fetch the overlay makes.
+
+2. **Toolbar click = enroll and repair.** Clicking the extension's toolbar button on a page with a live overlay reads that view. If it differs from what is stored (`apiUrl` or token), the background validates it with a real `exchangeToken` against the submitted `apiUrl` and, only on success, replaces the stored config and opens the overlay. If the stored config still differs but the page's copy fails validation, the stored config keeps running.
+
+3. **Page-supplied configs cannot invent an installation.** An attacker page can spoof `__jiratackConfig`, but the stored config must be one the real JiraTack API accepted in an exchange, and when a config is already stored, a different-origin candidate cannot silently replace it. Residual risk (a malicious page enrolling its own canvas while nothing is stored, only after a user click) is documented in SECURITY-REVIEW.
+
+4. **The options page demotes to repair path.** Paste remains for the case where nothing is stored and the page has no live overlay. Copy on the page now says "Canvas link (repair path)" and explains the toolbar-click flow.
+
+5. **Errors name the cause.** A token exchange that receives non-JSON reports the reached URL and the answer's content type (D14-grade diagnosability), instead of "invalid response".
+
+**Rejected alternatives:** piece-of-`postMessage` enrollment pushed from any overlay without a click (no user gesture, easier to spoof); `externally_connectable` web messaging (needs manifest host list per site — unknown at install time); asking the reviewer to re-paste after every app move (this is what failed); syncing config from Jira at runtime (no place to learn the webtrigger URLs without a working apiUrl — chicken-and-egg).
+
+**Known limitations:** a bookmarklet-driven enrollment session must be opened at least once in the browser; extension-only users (never running the bookmarklet) still use the paste path once; the toolbar-click repair only heals configs whose difference is the apiUrl/token, not other fields.
+
+**Applies to:** SPEC §6.4b, §1 (scope); CONTRACTS §5.1; `src/bookmarklet/index.js` (`window.__jiratackConfig`), `src/extension/background.js` (`pickEnrollConfig`, `validateEnrollConfig`, action click), `src/bookmarklet/auth.js` (exchange error), `src/extension/options.html`, `src/extension/options.js`; TEST_PLAN §4.2c; harness enrollment-exposure assertion.
+
+### D40 — Keeping the overlay open across a URL change (extension)
+
+**Status:** Resolved (2026-11-03)
+
+**Question:** a reviewer clicks a ticket card whose pin lives on another URL. Today the tab navigates, the document is replaced, and the overlay disappears with it — the reviewer has to re-open the toolbar (or the bookmark) and find their canvas again. Can the overlay survive the navigation?
+
+**Resolution:**
+
+1. **The bookmarklet cannot, structurally.** The SDK is injected into the document; a document change destroys it. Bookmarklet users keep the existing notice and re-open the bookmark.
+
+2. **The extension can, with `host_permissions: ["<all_urls>"]`.** `activeTab` is revoked by *any* navigation, so re-injection needs a host grant. The permission is scoped to injection only: the overlay still starts from an explicit toolbar click, and the automatic re-injection happens only for a navigation the reviewer initiated from the overlay.
+
+3. **One-shot carry, not follow-me.** Before navigating, the SDK posts `carry-overlay` through the bridge. The background records it for that tab and re-injects bridge + SDK with the stored config when the tab finishes loading. The flag is cleared when used, when the toolbar closes the overlay, and when the tab closes — so ordinary browsing never carries the overlay along.
+
+4. **The destination page keeps the context.** `navigateToPin` already appends `jiratack_ticket` and `jiratack_canvas`; the reopened overlay consumes them (§12.3), so it lands on the ticket that was clicked.
+
+**Rejected alternatives:** reopening on every navigation in a tab that once had the overlay (surprising — the toolbar would follow the reviewer around the web); a permanent content script on every page (pays for the 290 KB bundle on every tab while idle); opening the target in a second tab (the current overlay survives, but the destination has no overlay and the reviewer ends up looking at a bare page); relying on `tabs.onUpdated` without a carry flag (indistinguishable from ordinary browsing).
+
+**Known limitations:** requires the host-permission bump (users must approve it when re-loading the extension); restricted URLs (`chrome://`, the Web Store, PDF viewer) are skipped; an in-page router that keeps the overlay alive is detected with `isActive` and not re-injected twice; Firefox's behaviour is untested.
+
+**Applies to:** SPEC §6.4b, §6.7; CONTRACTS §5.1b (bridge shapes, manifest); `src/extension/manifest.chrome.json`, `src/extension/manifest.firefox.json`, `src/extension/background.js` (`carryOverlay`, `tabs.onUpdated`), `src/extension/bridge.js`, `src/bookmarklet/index.js` (`handleBeforeNavigate`); TEST_PLAN §4.2d; harness "cross-URL" assertions.
+
+### D41 — Canvas field pre-fills
+
+**Status:** Resolved (2026-11-04)
+
+**Question:** canvases need extra text on their tickets — a UAT URL, a Figma link every URL on the canvas references — and Jira sites differ in which fields exist and which are on a screen. How do admins make fields available, how do canvas creators set values, and what happens when a ticket type cannot hold the field?
+
+**Resolution:**
+
+1. **Admins curate the catalogue, per project.** Project settings gain **Available text fields** (`projects[key].textFields = [{ id, name }]`), chosen from `GET /rest/api/3/field` filtered to `schema.type === "string"` without `items` (single-line text, multi-line text, URL). Managed fields the app writes itself (`summary`, `description`, `labels`, `issuetype`, `project`, `reporter`, `assignee`, `priority`, `parent`, `status`, …) are never offered. This is the only place a field enters JiraTack.
+
+2. **Canvas creators pick values from that catalogue.** The create-canvas modal has a **Project** selector and an **Additional fields (optional)** accordion: rows of `field` + `value`, limited to the selected project's catalogue. Rows live inside a closed `<details>` so the form stays compact and the modal does not scroll unless the creator opens it.
+
+3. **Values are editable afterwards.** Each active canvas row has a **Fields** action that opens the same editor for the canvas's project; saving replaces the pre-fills. No "clear all" switch — removing a row is the way to stop a pre-fill.
+
+4. **Storage is per canvas, hashed.** `canvasAux:<sha256(canvasName).slice(0,32)>` holds `{ version: 2, projectKey, prefillFields: [{ fieldId, fieldName, value }] }`. `createCanvas` always writes or clears it, `deleteCanvas` deletes it, `archiveCanvas` keeps it so unarchive restores the values. The web trigger reads it by canvas name, so no Jira search runs per pin.
+
+5. **The screen check is per ticket.** Canvases can create any mix of issue types, so a canvas-wide verdict would be wrong. `createIssue` reads the canvas pre-fills and, immediately before creating, calls `GET /rest/api/3/issue/createmeta/{project}/issuetypes/{type}`. A field on that Create screen is written as `fields[fieldId] = value`; everything else is appended to the human-readable description as `Field: value` (bare URLs get a link mark). If the createmeta call fails, nothing is written and every value falls back to the description. Nothing is ever dropped silently and no ticket is blocked by a pre-fill.
+
+6. **Legacy shape still reads.** Canvases created under the first D41 iteration stored `{ label, value, mode }` rows; a mapped row becomes a pre-fill for its target field, a description row becomes a label-only note that always lands in the description. The web trigger normalises both.
+
+**Rejected alternatives:** a generic mapping table for every Jira field (user/option/cascade values are not strings and cannot be written blindly); letting creators type any field ID (the catalogue is the admin's control point); pre-validating screens per canvas at creation (a canvas spans issue types, so it would show the intersection or lie); a per-canvas "description vs field" mode toggle (the fallback already covers it and doubles the UI); storing config on the seed ticket's property (a Jira search per ticket); refusing to create the ticket when a field is unavailable (a UAT URL must never cost the ticket); a "None" row for clearing (removing the row is simpler).
+
+**Known limitations:** a pre-filled value can be written but invisible on the issue view if the field is not also on the View screen — no REST API exposes view-screen fields, so the UI says so and the creator checks in Jira; the screen check costs one Jira API call per ticket when the canvas has pre-fills; config is keyed by canvas name, so renaming a canvas starts it without values; the overlay launcher can create a canvas but does not offer fields (dashboard only).
+
+**Follow-up (2026-11-04):** the catalogue is edited **only** on the admin page — the per-project "Available text fields" control was removed from project settings, and the canvas pre-fill record dropped its vestigial `projectKey`. A canvas never shows a project picker; the seed ticket uses the installation's default project.
+
+**Applies to:** SPEC §8.1, §14.1, §14.1b; CONTRACTS §3.3 (steps 6/6b), §3.9, §4.8, §4.8b, §4.8c, §4.9; `src/lib/fieldPrefill.js`, `src/lib/canvas.js`, `src/lib/issueDescription.js`, `src/webtrigger/actions/createIssue.js`, `src/resolvers/actions/config.js`, `src/resolvers/actions/admin.js`, `src/resolvers/index.js`, `src/ui-kit/project-config/index.jsx`, `src/custom-ui/dashboard/components/CreateCanvasModal.jsx`, `src/custom-ui/dashboard/components/EditCanvasFieldsModal.jsx`, `src/custom-ui/dashboard/components/FieldPrefillEditor.jsx`; TEST_PLAN §5.3b.
+
+### D42 — Stable canvas keys and the dashboard information architecture
+
+**Status:** Resolved (2026-11-04)
+
+**Question:** canvases were identified by their display name. Renames were impossible, two teams could collide on a name, and the dashboard mixed "install" and "manage canvases" into one undifferentiated page that will not survive hundreds of canvases.
+
+**Resolution:**
+
+1. **The seed ticket's key is the canvas key.** `KAN-123` is stable, unique and already visible in Jira. A canvas created without a seed ticket (a pin with a new canvas name) gets a generated `c-xxxxxxxx` key. The name is a label.
+
+2. **A registry, not a name.** KVS `canvas:<key>` holds `{ key, name, names, folder, createdAt, createdBy, archived }`; `canvasName:<normalised>` maps every name the canvas has ever had to its key. Rename updates the record and adds the new name to the index — old names keep resolving, so tickets written before a rename still belong to the canvas. `deleteCanvas` removes the record; archive/delete lists stay in `installationConfig` and are rewritten on rename.
+
+3. **New tickets carry the key.** `createIssue` writes `pin.canvasId` alongside `pin.canvas`. Tickets without it resolve through the name index. Legacy tickets are not rewritten; the user explicitly does not care about them.
+
+4. **Pre-fills and catalogue move to key/installation scope.** The installation-level **Available text fields** catalogue (admin page) replaces the per-project list; a canvas stores `{ prefillFields }` keyed by `canvasKey` (`canvasAux:<sha256(key)>`). Both are keyed by the stable key.
+
+5. **Dashboard IA.** The page is split into **Install JiraTack** (`#install`: bookmarklet card + extension/guest card) and **Canvases** (`#canvases`: search, cards/list toggle, inline create panel). Canvas creation is an inline panel with name, URL and the field↔value map — no modal, no project picker (the seed ticket uses the default project). A dedicated canvas page (`#/canvas/<key>`) has tabs **Pages / Fields / Access**; rename lives in Fields, sharing lives in Access. Cards and list rows both show the name and the key. Destructive confirmations stay modal.
+
+**Rejected alternatives:** keeping the name as identity (renames and collisions stay broken); a random UUID (unreadable, and the seed key already exists); rewriting every ticket property on rename (an expensive background job for no user-visible gain, and legacy tickets are out of scope); a modal per action (the original clutter); a project selector in creation (the canvas is the product, the seed project is an implementation detail).
+
+**Known limitations:** the dashboard still derives counts by scanning `labels = "jiratack"` (2,000-issue cap) rather than a maintained index; the bookmarklet scope picker (selected-canvases default, "All canvases" option, typeahead) and extension canvas discoverability are the next phase, so the install card still issues the universal launcher token; the guest picker remains a modal; folders exist in the record shape but have no UI yet; thumbnails are not implemented (they need a capture-time product, not a dashboard-time fetch).
+
+**Applies to:** SPEC §8.1, §8.1b, §14.1b; CONTRACTS §1.1 (`pin.canvasId`), §3.3, §3.9, §4.2 (`dashboardAggregate`), §4.8/§4.8b/§4.8c (canvas resolvers), §4.9 (`textFields` at installation level); `src/lib/canvasRegistry.js`, `src/lib/canvas.js`, `src/lib/metadataModel.js`, `src/webtrigger/actions/createIssue.js`, `src/resolvers/actions/{admin,dashboard,config}.js`, `src/resolvers/index.js`, `src/ui-kit/admin/index.jsx`, `src/custom-ui/dashboard/**`; TEST_PLAN §5.3b, §5.5.
+
+### D43 — Install paths, guest continuity, folders and bookmark scope
+
+**Status:** Resolved (2026-11-04)
+
+**Question:** the install section mixed the bookmarklet and extension into one action, guests could not use the extension at all, canvases had no grouping, a bookmarklet could only ever be "all canvases", and guest links expired after 72 hours. What is the install and organisation model?
+
+**Resolution:**
+
+1. **Two install paths, four actions.** The Bookmarklet card offers **Get bookmark** and **Create a guest bookmark**; the Browser extension card offers **Chrome extension**, **Firefox add-on** and **Create a guest extension link**. Chrome links to the Web Store; Firefox links to the signed `.xpi` (one click, no store page). Publication URLs are constants; until they exist the button says the extension is not published and points at the bookmarklet. The misplaced "Invite a guest reviewer" button is gone from the extension card.
+
+2. **The guest invite page is the identity handoff.** The guest link (`?token=…`) stays the credential. The page shows the extension card first when `mode=extension`, with: install → click the bookmarklet once (starts JiraTack with the invite) → click the toolbar icon → the page turns **🟢 Connected** by observing `window.__jiratackActiveCanvas`. It never polls the extension, needs no `externally_connectable`, no reload and no paste. The bookmarklet card remains below as the zero-install fallback.
+
+3. **Guest links last 90 days.** `LINK_TTL_MS` is 90 days (was 72 h); sessions still renew through `exchangeToken`, and revocation/pause/deactivation still take effect immediately. Copy in the invite email, the installer page and the guest drawer says 90 days. The longer bearer lifetime is recorded in SECURITY-REVIEW.
+
+4. **Folders are a label on the canvas record.** The dashboard shows a folder rail (All, Unfiled, each folder with counts); the canvas page has a **Folder** field with suggestions from existing folders. No separate folder entity: a folder exists while a canvas carries its name.
+
+5. **Bookmark scope is explicit.** **Get bookmark** opens a drawer: **Selected canvases** (the default) or **All canvases (always current)**. A selection is frozen — new canvases need a regenerated bookmark, and the drawer says so. The token record carries `permittedCanvasesJson` (an array or `"all"`); `exchangeToken` puts it in the session JWT and `listCanvasesForUser` filters by it.
+
+6. **Canvas discovery at scale.** The overlay's launcher lists every accessible canvas with **name and key**, and shows a filter box once there are more than six.
+
+7. **The card preview is captured locally and stored on the record (amended 2026-11-04).** The image is a screenshot of the **top of the page at the full viewport width**, taken by the reviewer's browser at the first ticket, excluding JiraTack's own pins and overlay; no external image service. The capture always scrolls to the top-left and renders at the exact viewport width so nothing is offset, and the card fills its width and clips the bottom of a tall shot rather than cropping the sides. It is stored on the canvas record (`thumbnail`, `thumbnailAt`, `thumbnailVersion: 2`) so **Clear preview** deletes exactly what the card displays. If the page capture yields nothing, the ticket's own screenshot is downscaled and used; encoding steps down in size and quality until the data URL fits the record, so a valid image is never silently dropped by the storage cap. A canvas id that already is a record key resolves to that record instead of creating a duplicate named after the key. When no image is produced, the client's reason is stored as `thumbnailNote` and shown on the canvas page, so "not captured" is diagnosable rather than a blind end state.
+
+**Rejected alternatives:** a store link in the invite email (the store cannot carry a token, so the guest would dead-end); auto-detect-after-install (needs a reload, so an explicit instruction is more honest); a separate firefox/xpi installer build (the manifest already differs; only the link does); folders as KVS entities (a label is enough and cannot orphan); a global "all canvases" bookmark only (guests need a narrow link).
+
+**Known limitations:** the extension cannot be installed from the page (store or Developer mode only); the guest must click the bookmarklet once on the invite page before the toolbar icon has something to enroll; zero-click enrollment waits for `externally_connectable`; a frozen selection does not pick up new canvases; folders have no nesting or rename; the fallback preview is the ticket's cropped screenshot, so it can show the pin's area rather than the top of the page when the primary capture fails.
+
+**Applies to:** SPEC §6.5, §8.1, §8.6; CONTRACTS §4.7 (`generateUserToken`), §3.1 (`permittedCanvases` claims), §3.11 (`listCanvasesForUser`), §4.8d (`assignCanvasFolder`), §2.1 (link TTL); `src/lib/inviteModel.js`, `src/webtrigger/install.js`, `src/webtrigger/actions/{exchangeToken,listCanvasesForUser}.js`, `src/resolvers/actions/admin.js`, `src/resolvers/index.js`, `src/bookmarklet/sidebar.js`, `src/custom-ui/dashboard/**`; TEST_PLAN §5.3b, §5.6, §5.7.
+
 ### D13 — SDK version source
 
 **Status:** Resolved (2026-10-23)
@@ -357,7 +662,7 @@ Firefox 159 accepts the package as a temporary add-on (`installTemporaryAddon` o
 
 ### D14 — Retirement config source in multi-project canvases
 
-**Status:** Resolved (2026-10-23)
+**Status:** Resolved (2026-10-23); **superseded by D38** — retirement (`retirementDays`) was removed; the per-project status rule is the only visibility control. The canvas→project mapping note below is then moot.
 **Resolution:** Use the project of the canvas's **first (oldest) ticket** to determine `retirementDays`. Cache the canvas→project mapping in KVS (`canvasProjectCache:<canvasName>` → `{ projectKey, cachedAt }`) with TTL 300s. If the canvas has no tickets, treat as `retirementDays: 0` (default).
 **Documented limitation:** If a canvas spans two projects and the oldest ticket is deleted, retirement behavior may change. Rare; acceptable for v1.
 **Rejected alternatives:** Per-page first-ticket (inconsistent); max across projects (expensive); installation-level config (schema change; defer).

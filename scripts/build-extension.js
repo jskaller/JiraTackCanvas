@@ -54,6 +54,13 @@ for (const target of targets) {
     copy(path.join(SOURCE, file), path.join(target.dir, file));
   }
 
+  if (target.manifest === 'manifest.chrome.json') {
+    // Chrome's MV3 recorder needs an offscreen document; Firefox falls back to
+    // getDisplayMedia in the page.
+    copy(path.join(SOURCE, 'offscreen.html'), path.join(target.dir, 'offscreen.html'));
+    copy(path.join(SOURCE, 'offscreen.js'), path.join(target.dir, 'offscreen.js'));
+  }
+
   // shared config parser lives with the other shared modules so it is tested
   copy('src/shared/extensionConfig.js', path.join(target.dir, 'extensionConfig.js'));
 

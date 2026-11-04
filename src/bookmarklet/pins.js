@@ -1,4 +1,5 @@
 import { filterPinsByUrl } from '../shared/urlNormalize.js';
+import { attachPinDrag } from './pinDrag.js';
 
 const SELECTED_CLASS = 'jiratack-pin-selected';
 const HOVERED_CLASS = 'jiratack-pin-hovered';
@@ -42,6 +43,30 @@ function resolvePlacement(pin) {
   return { mode: 'detached' };
 }
 
+/**
+ * The pin's anchor in DOCUMENT coordinates, for scrolling the page.
+ *
+ * The pin marker itself is `position: absolute` inside the fixed overlay, so
+ * `pinEl.scrollIntoView()` is a no-op — only the anchor can tell the page where
+ * the pin belongs. Returns null for a detached pin (lost selector and no stored
+ * pixels), which has no page location to scroll to.
+ */
+export function pinPagePoint(pin) {
+  if (!pin) return null;
+  const placement = resolvePlacement(pin);
+  if (placement.mode === 'selector') {
+    const rect = placement.element.getBoundingClientRect();
+    return {
+      x: rect.left + (placement.relX / 100) * rect.width + window.scrollX,
+      y: rect.top + (placement.relY / 100) * rect.height + window.scrollY,
+    };
+  }
+  if (placement.mode === 'absolute') {
+    return { x: placement.x, y: placement.y };
+  }
+  return null;
+}
+
 export function renderPins(container, pins, options = {}) {
   const onSelect = options.onSelect;
   const onHover = options.onHover;
@@ -58,6 +83,8 @@ export function renderPins(container, pins, options = {}) {
   const entries = [];
   const elementsByKey = new Map();
   const entriesByKey = new Map();
+  const placementsByKey = new Map();
+  const drags = [];
   let detachedCount = 0;
   let selectedKey = null;
 
@@ -74,21 +101,16 @@ export function renderPins(container, pins, options = {}) {
     const el = document.createElement('div');
     el.className = 'jiratack-pin';
     el.dataset.key = pin.key;
-    el.title = pin.key + (pin.summary ? ` — ${pin.summary}` : '');
+    // Hover only highlights the pin and its card (D33 follow-up): no label
+    // popup, and no native title tooltip either.
     if (pin.status && pin.status.category === 'done') {
       el.classList.add('jiratack-pin-done');
     }
 
-    const hover = document.createElement('div');
-    hover.className = 'jiratack-pin-hover';
-    hover.textContent = `${pin.key}${pin.summary ? `: ${pin.summary}` : ''}`;
-    el.appendChild(hover);
     el.addEventListener('mouseenter', () => {
-      hover.classList.add('jiratack-pin-hover-visible');
       if (onHover) onHover(pin);
     });
     el.addEventListener('mouseleave', () => {
-      hover.classList.remove('jiratack-pin-hover-visible');
       if (onHover) onHover(null);
     });
     el.addEventListener('click', (event) => {
@@ -106,7 +128,21 @@ export function renderPins(container, pins, options = {}) {
 
     entries.push({ el, pin, placement });
     elementsByKey.set(pin.key, el);
-    entriesByKey.set(pin.key, { el, hover });
+    entriesByKey.set(pin.key, { el });
+    placementsByKey.set(pin.key, entries[entries.length - 1]);
+
+    if (typeof options.onMove === 'function') {
+      drags.push(attachPinDrag(el, pin, {
+        onDrop: options.onMove,
+        canStart: options.canStartDrag,
+        onArm: () => {
+          if (onHover) onHover(pin);
+        },
+        onCancel: () => {
+          if (onHover) onHover(null);
+        },
+      }));
+    }
   });
 
   cluster.style.display = detachedCount > 0 ? 'flex' : 'none';
@@ -204,9 +240,7 @@ export function renderPins(container, pins, options = {}) {
 
   function setHover(key) {
     entriesByKey.forEach((entry, elKey) => {
-      const on = elKey === key;
-      entry.el.classList.toggle(HOVERED_CLASS, on);
-      entry.hover.classList.toggle('jiratack-pin-hover-visible', on);
+      entry.el.classList.toggle(HOVERED_CLASS, elKey === key);
     });
   }
 
@@ -226,13 +260,28 @@ export function renderPins(container, pins, options = {}) {
     if (!pin) return false;
     const entry = entriesByKey.get(pin.key);
     if (!entry) return false;
-    entry.el.title = pin.key + (pin.summary ? ` — ${pin.summary}` : '');
-    entry.hover.textContent = `${pin.key}${pin.summary ? `: ${pin.summary}` : ''}`;
     entry.el.classList.toggle('jiratack-pin-done', Boolean(pin.status && pin.status.category === 'done'));
     return true;
   }
 
+  /**
+   * Re-anchors one pin without re-rendering the layer. A move must not tear
+   * down an open inline edit in the sidebar, so this updates the placement in
+   * place — including the detached fallback when the drop resolved no element.
+   */
+  function setPlacement(key, capture) {
+    const entry = placementsByKey.get(key);
+    if (!entry) return false;
+    entry.placement = resolvePlacement({
+      selector: capture && capture.selector ? capture.selector : null,
+      pinPosition: capture ? capture.pinPosition : null,
+    });
+    update();
+    return true;
+  }
+
   function destroy() {
+    drags.forEach((drag) => drag.destroy());
     window.removeEventListener('scroll', scheduleUpdate, true);
     window.removeEventListener('resize', scheduleUpdate);
     if (frame !== null) {
@@ -241,7 +290,7 @@ export function renderPins(container, pins, options = {}) {
     }
   }
 
-  return { select, update, updatePin, setHover, flash, destroy, elementsByKey };
+  return { select, update, updatePin, setPlacement, setHover, flash, destroy, elementsByKey };
 }
 
 export function createPendingPin(container, capture) {

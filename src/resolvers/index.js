@@ -1,8 +1,8 @@
 import Resolver from '@forge/resolver';
 import { getInstallationConfig, mutateInstallationConfig } from '../lib/config.js';
 import { requireAdmin } from '../lib/access.js';
-import { generateCanvasToken, generateGuestToken, generateUserToken, listCanvasTokens, revokeCanvasToken, createCanvas, deleteCanvas, archiveCanvas } from './actions/admin.js';
-import { getProjectConfig, setProjectConfig } from './actions/config.js';
+import { generateCanvasToken, generateGuestToken, generateUserToken, listCanvasTokens, revokeCanvasToken, createCanvas, deleteCanvas, archiveCanvas, listTextFields, getCanvasConfig, setCanvasConfig, renameCanvas, listAvailableTextFields, assignCanvasFolder, clearCanvasPreview } from './actions/admin.js';
+import { getProjectConfig, setProjectConfig, getProjectStatuses } from './actions/config.js';
 import { listGuestInvites, setGuestInviteActive, revokeGuestInvite, regenerateGuestInvite } from './actions/invites.js';
 import { dashboardAggregate } from './actions/dashboard.js';
 import { epicPanelData } from './actions/epic.js';
@@ -79,6 +79,25 @@ resolver.define('setInstallationConfig', async (req) => {
       if (payload.projects) {
         draft.projects = { ...(draft.projects || {}), ...payload.projects };
       }
+      if (payload.chromeStoreUrl !== undefined || payload.firefoxXpiUrl !== undefined) {
+        const cleanUrl = (value) => {
+          if (typeof value !== 'string') return '';
+          const trimmed = value.trim();
+          return /^https:\/\/[^\s]+$/i.test(trimmed) ? trimmed.slice(0, 500) : '';
+        };
+        if (payload.chromeStoreUrl !== undefined) draft.chromeStoreUrl = cleanUrl(payload.chromeStoreUrl);
+        if (payload.firefoxXpiUrl !== undefined) draft.firefoxXpiUrl = cleanUrl(payload.firefoxXpiUrl);
+      }
+      if (payload.textFields !== undefined) {
+        // The installation-level catalogue a canvas may pre-fill (D41/D42).
+        const seen = new Set();
+        draft.textFields = (Array.isArray(payload.textFields) ? payload.textFields : [])
+          .map((field) => ({
+            id: field && typeof field.id === 'string' ? field.id.trim() : '',
+            name: field && typeof field.name === 'string' ? field.name.trim().slice(0, 120) : '',
+          }))
+          .filter((field) => field.id && field.name && !seen.has(field.id) && seen.add(field.id));
+      }
       return draft;
     });
     return { ok: true, data: updated };
@@ -103,9 +122,73 @@ resolver.define('setProjectConfig', async (req) => {
   }
 });
 
+resolver.define('getProjectStatuses', async (req) => {
+  try {
+    return await getProjectStatuses(req.context, req.payload);
+  } catch (e) {
+    return { ok: false, error: { code: 'INTERNAL', message: e && e.message ? e.message : String(e) } };
+  }
+});
+
+resolver.define('listTextFields', async (req) => {
+  try {
+    return await listTextFields(req.context, req.payload);
+  } catch (e) {
+    return { ok: false, error: { code: 'INTERNAL', message: e && e.message ? e.message : String(e) } };
+  }
+});
+
+resolver.define('getCanvasConfig', async (req) => {
+  try {
+    return await getCanvasConfig(req.context, req.payload);
+  } catch (e) {
+    return { ok: false, error: { code: 'INTERNAL', message: e && e.message ? e.message : String(e) } };
+  }
+});
+
+resolver.define('setCanvasConfig', async (req) => {
+  try {
+    return await setCanvasConfig(req.context, req.payload);
+  } catch (e) {
+    return { ok: false, error: { code: 'INTERNAL', message: e && e.message ? e.message : String(e) } };
+  }
+});
+
+resolver.define('renameCanvas', async (req) => {
+  try {
+    return await renameCanvas(req.context, req.payload);
+  } catch (e) {
+    return { ok: false, error: { code: 'INTERNAL', message: e && e.message ? e.message : String(e) } };
+  }
+});
+
+resolver.define('listAvailableTextFields', async (req) => {
+  try {
+    return await listAvailableTextFields(req.context, req.payload);
+  } catch (e) {
+    return { ok: false, error: { code: 'INTERNAL', message: e && e.message ? e.message : String(e) } };
+  }
+});
+
+resolver.define('clearCanvasPreview', async (req) => {
+  try {
+    return await clearCanvasPreview(req.context, req.payload);
+  } catch (e) {
+    return { ok: false, error: { code: 'INTERNAL', message: e && e.message ? e.message : String(e) } };
+  }
+});
+
+resolver.define('assignCanvasFolder', async (req) => {
+  try {
+    return await assignCanvasFolder(req.context, req.payload);
+  } catch (e) {
+    return { ok: false, error: { code: 'INTERNAL', message: e && e.message ? e.message : String(e) } };
+  }
+});
+
 resolver.define('dashboardAggregate', async (req) => {
   try {
-    return await dashboardAggregate(req.context);
+    return await dashboardAggregate(req.context, req.payload);
   } catch (e) {
     return { ok: false, error: { code: 'INTERNAL', message: e && e.message ? e.message : String(e) } };
   }

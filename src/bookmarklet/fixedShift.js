@@ -9,7 +9,13 @@ function viewportZoneLeft() {
 
 function isJiraTackNode(el) {
   try {
-    return Boolean(el && el.closest && el.closest('#jiratack-overlay'));
+    if (!el) return false;
+    if (el.closest && el.closest('#jiratack-overlay')) return true;
+    // Anything we created is ours even when it lives outside the overlay (the
+    // drag ghost, the viewport bar, the pin-mode outline): shifting those
+    // would move a JiraTack element the reviewer is watching.
+    const owner = el.closest && el.closest('#jiratack-overlay, [id^="jiratack-"], [class*="jiratack-"]');
+    return Boolean(owner);
   } catch (e) {
     return false;
   }

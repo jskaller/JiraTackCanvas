@@ -9,6 +9,7 @@ export async function createCanvas(payload, claims) {
     targetUrl: payload && payload.targetUrl,
     projectKey: payload && payload.projectKey,
     issueTypeId: payload && payload.issueTypeId,
+    prefillFields: payload && payload.prefillFields,
     permittedProjects: claims && claims.permittedProjects,
   });
 }

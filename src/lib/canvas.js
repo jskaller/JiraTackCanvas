@@ -4,6 +4,10 @@ import { errorResult } from './errors.js';
 import { canonicalUrl } from '../shared/urlNormalize.js';
 import { buildIssueDescription } from './issueDescription.js';
 import { writeMetadata } from './metadata.js';
+import { kvsSet, kvsDelete } from './kvs.js';
+import { normalizePrefillFields, prefillConfigKey } from './fieldPrefill.js';
+import { ensureCanvasRecord } from './canvasRegistry.js';
+import { resolveCanvasTarget } from './targetUrl.js';
 
 function chooseProject(config, permittedProjects, projectKey) {
   if (projectKey) return projectKey;
@@ -43,10 +47,16 @@ export async function createSeedTicket(options) {
     projectKey,
     issueTypeId,
     permittedProjects,
+    prefillFields,
   } = options;
 
   if (typeof canvasName !== 'string' || canvasName.trim().length === 0) {
     return errorResult('BAD_REQUEST', 'canvasName is required.');
+  }
+
+  const prefill = normalizePrefillFields(prefillFields);
+  if (!prefill.ok) {
+    return errorResult('BAD_REQUEST', prefill.message);
   }
 
   const config = await getInstallationConfig();
@@ -61,9 +71,11 @@ export async function createSeedTicket(options) {
     return errorResult('BAD_REQUEST', 'No issue type is available for the project.');
   }
 
-  const url = typeof targetUrl === 'string' && /^https?:\/\//i.test(targetUrl.trim())
-    ? canonicalUrl(targetUrl.trim())
-    : 'https://example.com';
+  const target = resolveCanvasTarget({ canvasName, targetUrl });
+  if (!target.ok) {
+    return errorResult('VALIDATION_ERROR', target.message);
+  }
+  const url = target.url;
 
   const fields = {
     summary: 'Canvas created',
@@ -123,5 +135,41 @@ export async function createSeedTicket(options) {
     return errorResult('INTERNAL', 'Canvas seed ticket was created but its metadata could not be stored.');
   }
 
-  return { ok: true, data: { canvasName: canvasName.trim(), key: created.key, id: created.id } };
+  // The canvas key is the seed ticket's key (D42): stable, unique, and already
+  // visible in Jira. The display name can then change without orphaning pins.
+  const registry = await ensureCanvasRecord({
+    name: canvasName.trim(),
+    seedKey: created.key,
+    createdBy: reporterAccountId || null,
+  });
+  const canvasKey = registry && registry.record ? registry.record.key : created.key;
+
+  // Canvas field pre-fills (D41) live next to the ticket, not on it: the web
+  // trigger reads them by canvas key for every pin it creates, and a Jira
+  // search per pin would be wasteful. Always write (or clear) the config so a
+  // recreated canvas never inherits a previous canvas's fields.
+  try {
+    if (prefill.fields.length > 0) {
+      await kvsSet(prefillConfigKey(canvasKey), {
+        version: 2,
+        prefillFields: prefill.fields,
+      });
+    } else {
+      await kvsDelete(prefillConfigKey(canvasKey));
+    }
+  } catch (e) {
+    return errorResult('INTERNAL', 'Canvas was created but its field pre-fills could not be stored.');
+  }
+
+  return {
+    ok: true,
+    data: {
+      canvasName: canvasName.trim(),
+      canvasKey,
+      targetUrl: url,
+      key: created.key,
+      id: created.id,
+      projectKey: resolvedProject,
+    },
+  };
 }

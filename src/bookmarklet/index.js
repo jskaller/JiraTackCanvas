@@ -1,17 +1,26 @@
 import { exchangeSession, clearSession } from './auth.js';
-import { getPins, listCanvasesForUser, createCanvas } from './api.js';
+import { getPins, listCanvasesForUser, createCanvas, updatePinPosition, uploadAttachment } from './api.js';
 import { createOverlay, removeOverlay } from './overlay.js';
-import { renderPins, createPendingPin } from './pins.js';
+import { renderPins, createPendingPin, pinPagePoint } from './pins.js';
 import { renderSidebar } from './sidebar.js';
 import { installPinMode } from './pinMode.js';
-import { captureScreenshot } from './screenshot.js';
+import { computePinPosition } from './pinMode.js';
+import { installTextSuggest } from './textSuggest.js';
+import { openPinPopover, openTextPopover } from './capturePopover.js';
+import { buildAnchor } from './textAnchor.js';
+import { captureVisibleTab, supportsTabScreenshot } from './tabScreenshot.js';
+import { getBufferSnapshot } from './consoleProxy.js';
+import { createMoveConfirm } from './moveConfirm.js';
+import { createTextPreview } from './textPreview.js';
+import { captureScreenshot, captureCanvasThumbnail } from './screenshot.js';
 import { renderTicketForm } from './form.js';
 import { installFixedShift } from './fixedShift.js';
 import { installFitScale } from './fitScale.js';
 import { playDoneAnimation } from './done.js';
-import { installSelectionTracking, clearLastSelection } from './selection.js';
 import { installConsoleProxy, restoreConsoleProxy, clearConsoleBuffer } from './consoleProxy.js';
 import { normalizeUrl, stripDeepLinkParams } from '../shared/urlNormalize.js';
+import { screenshotFilename } from '../shared/pinMove.js';
+import { isSeedPin } from '../shared/seedPin.js';
 import { buildRefreshUrl, isSdkOutdated } from '../shared/bookmarklet.js';
 import { toSafeHttpUrl } from '../shared/safeUrl.js';
 import styles from './styles.css?inline';
@@ -280,6 +289,43 @@ function showToast(message) {
   }, 4000);
 }
 
+/**
+ * Bring a pin into the middle of the page.
+ *
+ * Used when the reviewer picks a ticket from the sidebar (click or arrow keys):
+ * the pin may be anywhere on a long page, and "highlighted in the list" is only
+ * useful if the page shows you where it is. Never triggered by clicking the pin
+ * itself — it is already where the reviewer is looking — and never on hover.
+ */
+function centrePinOnPage(key) {
+  if (!current) return;
+  const pin = (current.pins || []).find((entry) => entry.key === key);
+  if (!pin) return;
+  const point = pinPagePoint(pin);
+  if (!point) return;
+
+  const viewportWidth = window.innerWidth;
+  const viewportHeight = window.innerHeight;
+  const viewY = point.y - window.scrollY;
+  const viewX = point.x - window.scrollX;
+
+  const centredVertically = Math.abs(viewY - viewportHeight / 2) <= viewportHeight * 0.18;
+  const onScreenHorizontally = viewX >= 0 && viewX <= viewportWidth;
+  if (centredVertically && onScreenHorizontally) return;
+
+  const next = { top: Math.max(0, Math.round(point.y - viewportHeight / 2)), behavior: 'smooth' };
+  // Only pull horizontally when the pin is actually off-screen: horizontal
+  // scrolling reflows many pages for no benefit when the pin is already visible.
+  if (!onScreenHorizontally) {
+    next.left = Math.max(0, Math.round(point.x - viewportWidth / 2));
+  }
+  try {
+    window.scrollTo(next);
+  } catch (e) {
+    window.scrollTo(next.left || window.scrollX, next.top);
+  }
+}
+
 function scrollPairIntoView(key) {
   if (!current) return;
 
@@ -292,19 +338,15 @@ function scrollPairIntoView(key) {
   } catch (e) {
     // ignore
   }
-
-  const pinEl = current.pinsController && current.pinsController.elementsByKey
-    ? current.pinsController.elementsByKey.get(key)
-    : null;
-  if (pinEl) pinEl.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
 }
 
-function select(key) {
+function select(key, options = {}) {
   if (!current) return;
   current.selectedKey = key;
   if (current.pinsController) current.pinsController.select(key);
   if (current.sidebarController) current.sidebarController.select(key);
   scrollPairIntoView(key);
+  if (options.centre) centrePinOnPage(key);
 }
 
 function handlePinHover(pin) {
@@ -355,6 +397,9 @@ function restoreNavFilter(canvasName) {
 }
 
 const CROSS_PAGE_NOTICE_MS = 3000;
+// Long enough for the carry message to reach the extension before the page
+// goes away, short enough to feel like a normal link.
+const CARRY_NOTICE_MS = 400;
 
 function showPageNotice(message, durationMs, onProceed) {
   if (!message) return null;
@@ -399,6 +444,25 @@ function handleBeforeNavigate(pin, proceed) {
     selectedKey: pin ? pin.key : null,
   });
   const label = pin && pin.key ? pin.key : 'the ticket';
+
+  // The extension can put the overlay back on the next page: the background
+  // keeps a one-shot carry flag for this tab and re-injects after the
+  // navigation completes (D40). Tell it before we leave, and keep the notice
+  // short — there is nothing to re-open by hand.
+  if (current.config && current.config.channel === 'extension') {
+    try {
+      window.postMessage({ source: 'jiratack', type: 'carry-overlay', url: pin && pin.url ? pin.url : null }, '*');
+    } catch (e) {
+      // no bridge: fall through to the manual notice
+    }
+    showPageNotice(
+      `Opening ${label} on its page. JiraTack will reopen there.`,
+      CARRY_NOTICE_MS,
+      proceed,
+    );
+    return CARRY_NOTICE_MS;
+  }
+
   showPageNotice(
     `Opening ${label}. This is on another page. You will need to re-open the JiraTack bookmark to continue.`,
     CROSS_PAGE_NOTICE_MS,
@@ -443,7 +507,7 @@ function handleSidebarKeydown(event) {
   } else {
     next = Math.min(keys.length - 1, Math.max(0, index + direction));
   }
-  select(keys[next]);
+  select(keys[next], { centre: true });
 }
 
 function handleDone({ pin, cardEl }) {
@@ -457,6 +521,132 @@ function handleFilterChange(filter) {
   if (!current) return;
   current.filter = filter;
   renderPinsAndSidebar();
+}
+
+// The single visibility control (D38, amended). The project rule is the default;
+// the reviewer's per-canvas choice (localStorage) overrides it; View All is a
+// temporary peek that changes nothing.
+const STATUS_FILTER_PREFIX = 'jiratack:statusFilter:';
+
+function statusNameOf(pin) {
+  return pin && pin.status && pin.status.name ? String(pin.status.name) : '';
+}
+
+function readStatusRule(canvasName) {
+  if (!canvasName) return null;
+  try {
+    const raw = window.localStorage.getItem(`${STATUS_FILTER_PREFIX}${canvasName}`);
+    if (raw === null) return null;
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return null;
+    return parsed.filter((name) => typeof name === 'string' && name.length > 0);
+  } catch (e) {
+    return null;
+  }
+}
+
+function writeStatusRule(canvasName, names) {
+  if (!canvasName) return;
+  try {
+    if (names === null) {
+      window.localStorage.removeItem(`${STATUS_FILTER_PREFIX}${canvasName}`);
+      return;
+    }
+    const unique = Array.from(new Set(names.filter((name) => typeof name === 'string' && name.length > 0)));
+    window.localStorage.setItem(`${STATUS_FILTER_PREFIX}${canvasName}`, JSON.stringify(unique));
+  } catch (e) {
+    // Storage blocked: the choice still applies for this session.
+  }
+}
+
+function statusesOnCanvas(pins) {
+  const counts = new Map();
+  pins.forEach((pin) => {
+    const name = statusNameOf(pin);
+    if (!name) return;
+    counts.set(name, (counts.get(name) || 0) + 1);
+  });
+  return Array.from(counts.entries())
+    .map(([name, count]) => ({ name, count }))
+    .sort((a, b) => a.name.localeCompare(b.name));
+}
+
+function resolveStatusState(pins) {
+  if (!current) {
+    return { hidden: new Set(), groups: [], hiddenCount: 0, rule: [], ruleIsDefault: true, showAll: false };
+  }
+  // Re-read the stored rule when the canvas changed, so one canvas's choice
+  // never leaks into another.
+  if (current.statusHiddenCanvas !== current.canvasName) {
+    current.statusHidden = readStatusRule(current.canvasName);
+    current.statusHiddenCanvas = current.canvasName;
+    current.statusShowAll = false;
+    current.statusPanelOpen = false;
+  }
+
+  const groups = statusesOnCanvas(pins);
+  // The project rule comes down as a per-pin flag on the pins it hides.
+  const defaultHidden = new Set(pins.filter((pin) => pin.filtered).map(statusNameOf).filter(Boolean));
+  const ruleList = current.statusHidden === null ? Array.from(defaultHidden) : current.statusHidden;
+  const rule = new Set(ruleList);
+  const showAll = Boolean(current.statusShowAll);
+  const hidden = showAll ? new Set() : new Set(rule);
+  // The count describes what the FILTER is holding back, even while View All is
+  // showing everything — that is the number the badge offers to re-hide.
+  const hiddenCount = pins.filter((pin) => rule.has(statusNameOf(pin))).length;
+
+  current.statusRule = Array.from(rule);
+  return {
+    hidden,
+    groups,
+    hiddenCount,
+    rule: current.statusRule,
+    ruleIsDefault: current.statusHidden === null,
+    showAll,
+  };
+}
+
+function applyStatusRule(names) {
+  if (!current) return;
+  writeStatusRule(current.canvasName, names);
+  current.statusHidden = names;
+  current.statusHiddenCanvas = current.canvasName;
+  current.statusShowAll = false;
+  renderPinsAndSidebar();
+}
+
+function handleStatusFilterChange(mode) {
+  if (!current) return;
+  current.statusShowAll = mode === 'all';
+  renderPinsAndSidebar();
+}
+
+function handleStatusPanelToggle() {
+  if (!current) return;
+  current.statusPanelOpen = !current.statusPanelOpen;
+  renderPinsAndSidebar();
+}
+
+function handleStatusToggle(name, show) {
+  if (!current || !name) return;
+  const next = new Set(Array.isArray(current.statusRule) ? current.statusRule : []);
+  if (show) next.delete(name);
+  else next.add(name);
+  applyStatusRule(Array.from(next));
+}
+
+function handleStatusAll() {
+  applyStatusRule([]);
+}
+
+function handleStatusNone() {
+  if (!current) return;
+  const pins = (current.pins || []).filter((pin) => !isSeedPin(pin));
+  applyStatusRule(statusesOnCanvas(pins).map((group) => group.name));
+}
+
+function handleStatusReset() {
+  applyStatusRule(null);
 }
 
 function handleMatchModeChange(mode) {
@@ -563,6 +753,7 @@ function schedulePinReposition(delay) {
 }
 
 function dismissTicketForm() {
+  destroyCapturePopover();
   if (current && current.formController) {
     try {
       current.formController.destroy();
@@ -571,10 +762,16 @@ function dismissTicketForm() {
     }
     current.formController = null;
   }
+  if (current) {
+    current.composing = false;
+    current.composeListOpen = false;
+  }
   if (current && current.overlay && current.overlay.formEl) {
     current.overlay.formEl.innerHTML = '';
   }
   clearPendingPin();
+  // Leave compose mode: restore filters and the ticket list immediately.
+  if (current) renderPinsAndSidebar();
 }
 
 function stripLocationDeepLinks() {
@@ -628,12 +825,58 @@ function warnIfOutdated(config, session) {
   sidebar.insertBefore(banner, sidebar.firstChild);
 }
 
+/**
+ * Post-creation text-change preview (D35). The selection is gone, so the
+ * passage is re-found from the stored pair: scoped to the pinned element first,
+ * then document-wide only when unique. Never highlight the wrong occurrence.
+ */
+function handleTextChangeToggle(pin) {
+  if (!current || !current.textPreview || !pin || !pin.textChange) return;
+  const preview = current.textPreview;
+  const showingThis = current.activeTextChangeKey === pin.key
+    && preview.isVisible()
+    && preview.isAttached();
+  if (showingThis) {
+    preview.hide();
+    current.activeTextChangeKey = null;
+    if (current.sidebarController && current.sidebarController.setTextChangeActive) {
+      current.sidebarController.setTextChangeActive(null);
+    }
+    return;
+  }
+
+  preview.hide();
+  const storedAnchor = pin.textChange.anchor || null;
+  const anchor = storedAnchor
+    ? { ...storedAnchor, text: pin.textChange.original }
+    : { text: pin.textChange.original, ancestorSelector: pin.selector || null };
+  const mode = preview.show({
+    text: pin.textChange.original,
+    anchor,
+    replacement: pin.textChange.suggested,
+  });
+  if (!mode) {
+    current.activeTextChangeKey = null;
+    if (current.sidebarController && current.sidebarController.setTextChangeActive) {
+      current.sidebarController.setTextChangeActive(null);
+    }
+    showToast('Could not locate that text on the page.');
+    return;
+  }
+
+  current.activeTextChangeKey = pin.key;
+  if (current.sidebarController && current.sidebarController.setTextChangeActive) {
+    current.sidebarController.setTextChangeActive(pin.key);
+  }
+}
+
 function renderPinsAndSidebar() {
   if (!current) return;
   const { overlay, config, session } = current;
   const universal = Boolean(current.universal);
   const hasCanvas = Boolean(current.canvasName);
   const guest = Boolean(session && session.scope === 'guest_create');
+  const composing = Boolean(current.composing);
 
   if (current.pinModeController) {
     current.pinModeController.destroy();
@@ -645,14 +888,40 @@ function renderPinsAndSidebar() {
   }
 
   const pageUrl = getPageUrl();
+  const canWrite = Boolean(session)
+    && ['create', 'universal', 'guest_create'].includes(session.scope);
+  // The canvas seed ticket is bookkeeping, not a pin: it has position 0,0 and
+  // would otherwise draw a card and a marker at the document origin.
+  const withSeedRemoved = (current.pins || []).filter((pin) => !isSeedPin(pin));
 
-  current.pinsController = renderPins(overlay.pinsEl, current.pins, {
+  // Status filter (D38, amended): the project rule is the DEFAULT, the reviewer
+  // owns a per-canvas choice, and View All is a temporary peek at everything.
+  const statusState = resolveStatusState(withSeedRemoved);
+  const displayPins = withSeedRemoved.filter(
+    (pin) => !statusState.hidden.has(statusNameOf(pin)),
+  );
+
+  if (current.activeTextChangeKey) {
+    const stillThere = displayPins.some((pin) => pin.key === current.activeTextChangeKey && pin.textChange);
+    if (!stillThere || !current.textPreview || !current.textPreview.isAttached()) {
+      if (current.textPreview) current.textPreview.hide();
+      current.activeTextChangeKey = null;
+    }
+  }
+
+  current.pinsController = renderPins(overlay.pinsEl, displayPins, {
     pageUrl,
     // Pins are spatial: they only make sense on their own page, so the pin layer
     // always uses the page matcher even when the list is showing all canvases.
     matchMode: current.matchMode || 'smart',
     onSelect: (pin) => select(pin.key),
     onHover: handlePinHover,
+    onMove: canWrite && !composing ? handlePinMove : undefined,
+    // A pending confirmation blocks every drag, not just the same pin. While a
+    // ticket is being written, pins are not draggable either.
+    canStartDrag: canWrite
+      ? () => !current || (!current.pendingMove && !current.composing && !current.capturePopover)
+      : undefined,
   });
   // The push margin animates; re-read element rects once it settles so pins
   // stay on their targets when toggling layout modes.
@@ -665,8 +934,9 @@ function renderPinsAndSidebar() {
         onChange: handleCanvasSelect,
         onCreate: session && session.scope === 'view' ? undefined : handleCreateCanvas,
         onSwitch: () => {
-          if (!current) return;
+          if (!current || current.composing) return;
           cancelHydration();
+          cancelPendingMoveIfAny();
           dismissTicketForm();
           current.canvasName = null;
           current.pins = [];
@@ -690,9 +960,19 @@ function renderPinsAndSidebar() {
   current.sidebarController = renderSidebar(overlay.sidebarEl, {
     canvasName: universal && !hasCanvas ? 'JiraTack Launcher' : current.canvasName,
     session,
-    pins: current.pins,
+    pins: displayPins,
     config,
-    onSelect: (pin) => select(pin.key),
+    composing,
+    composeListOpen: Boolean(current.composeListOpen),
+    keepForm: Boolean(current.formController),
+    activeTextChangeKey: current.activeTextChangeKey,
+    onTextChangeToggle: handleTextChangeToggle,
+    onToggleComposeList: () => {
+      if (!current) return;
+      current.composeListOpen = !current.composeListOpen;
+      renderPinsAndSidebar();
+    },
+    onSelect: (pin) => select(pin.key, { centre: true }),
     onToast: showToast,
     onDone: handleDone,
     onEditStart: handleEditStart,
@@ -711,6 +991,15 @@ function renderPinsAndSidebar() {
     matchMode: current.matchMode || 'smart',
     onFilterChange: handleFilterChange,
     onMatchModeChange: handleMatchModeChange,
+    runningSdkVersion: RUNNING_SDK_VERSION,
+    statusState,
+    statusPanelOpen: Boolean(current.statusPanelOpen),
+    onStatusFilterChange: handleStatusFilterChange,
+    onStatusPanelToggle: handleStatusPanelToggle,
+    onStatusToggle: handleStatusToggle,
+    onStatusAll: handleStatusAll,
+    onStatusNone: handleStatusNone,
+    onStatusReset: handleStatusReset,
   });
 
   if (current.session && !current.outdatedWarned) {
@@ -718,19 +1007,21 @@ function renderPinsAndSidebar() {
     warnIfOutdated(current.config, current.session);
   }
 
-  if (!current.loading && (!universal || hasCanvas)) {
+  if (!current.loading && (!universal || hasCanvas) && !composing) {
     current.pinModeController = installPinMode({
       header: overlay.headerEl,
       session,
       onCapture: handleCapture,
+      onHint: showToast,
     });
   }
 }
 
 async function handleCanvasSelect(canvasName) {
-  if (!current || !current.universal) return;
+  if (!current || !current.universal || current.composing) return;
 
   cancelHydration();
+  cancelPendingMoveIfAny();
   dismissTicketForm();
 
   if (!canvasName) {
@@ -765,8 +1056,10 @@ async function handleCanvasSelect(canvasName) {
 async function handleGuestCanvasSelect(canvasName) {
   if (!current || !canvasName) return;
   if (!current.session || current.session.scope !== 'guest_create') return;
+  if (current.composing) return;
 
   cancelHydration();
+  cancelPendingMoveIfAny();
   dismissTicketForm();
   current.canvasName = canvasName;
   current.loading = true;
@@ -827,62 +1120,118 @@ async function handleCreateCanvas() {
   }
 }
 
-async function handleCapture(capture) {
-  if (!current || !current.canvasName) return;
-  const { config, session, overlay } = current;
-  const activeAtStart = current.canvasName;
-
-  clearPendingPin();
-  current.pendingPin = createPendingPin(overlay.overlayEl, capture);
-
-  const screenshotDataUrl = await captureScreenshot(capture.clientX, capture.clientY);
-  if (screenshotDataUrl) {
-    console.log(`${LOG_PREFIX} Screenshot captured successfully`);
-  } else {
-    console.log(`${LOG_PREFIX} Screenshot failed`);
+function destroyCapturePopover() {
+  if (current && current.capturePopover) {
+    try {
+      current.capturePopover.destroy();
+    } catch (e) {
+      // ignore
+    }
+    current.capturePopover = null;
   }
+}
 
-  if (!current || window.__jiratackActiveCanvas !== activeAtStart) {
-    clearPendingPin();
-    return;
+/**
+ * Screenshot at the capture point, taken only after the composer is submitted.
+ * The extension uses the fast visible-tab capture; if that is unavailable the
+ * ticket is created without an image rather than freezing the page. The
+ * bookmarklet has no extension APIs, so it pays for html2canvas once, with the
+ * sidebar kept on screen and omitted from the raster.
+ */
+async function captureThumbnailForTicket() {
+  if (current && supportsTabScreenshot(current.config)) {
+    const shot = await captureCanvasThumbnail({ captureTab: captureVisibleTab });
+    if (shot) return shot;
   }
+  // The visible-tab capture can be refused (lost activeTab, restricted frame);
+  // fall back to an in-page render rather than leaving the canvas without one.
+  return captureCanvasThumbnail();
+}
 
-  const sortedPins = (current.pins || []).slice().sort((a, b) => {
+async function captureForTicket(clientX, clientY) {
+  if (current && supportsTabScreenshot(current.config)) {
+    return captureScreenshot(clientX, clientY, { captureTab: captureVisibleTab });
+  }
+  return captureScreenshot(clientX, clientY, {
+    scale: 1,
+    keepVisibleIds: ['jiratack-sidebar'],
+  });
+}
+
+/**
+ * Defaults from the most recent tickets on the canvas, newest first, using the
+ * newest non-empty value for each field. The seed ticket is bookkeeping, not a
+ * previous ticket.
+ */
+function computeDefaults() {
+  if (!current || !current.session) return {};
+  const session = current.session;
+  const pins = (current.pins || []).filter((pin) => !isSeedPin(pin));
+  const sorted = pins.slice().sort((a, b) => {
     const aTime = a && a.createdAt ? Date.parse(a.createdAt) : 0;
     const bTime = b && b.createdAt ? Date.parse(b.createdAt) : 0;
     return bTime - aTime;
   });
-  // The canvas seed ticket ("Canvas created", an Epic) must not drive defaults.
-  const isSeedTicket = (pin) => Boolean(pin)
-    && typeof pin.summary === 'string'
-    && pin.summary.replace(/^\[JiraTack\]\s*/i, '').trim() === 'Canvas created';
-  const usablePins = sortedPins.filter((pin) => !isSeedTicket(pin));
-  const newestPin = usablePins.length > 0 ? usablePins[0] : null;
-  const defaultProject = newestPin && newestPin.projectKey ? newestPin.projectKey : undefined;
-  const sponsorAssignee = session && session.scope === 'guest_create' && session.issuer
+  const pick = (fn) => {
+    for (const pin of sorted) {
+      const value = fn(pin);
+      if (value !== undefined && value !== null && value !== '') return value;
+    }
+    return null;
+  };
+  const permitted = Array.isArray(session.permittedProjects) ? session.permittedProjects : [];
+  const projectKey = pick((pin) => pin.projectKey)
+    || (permitted.length === 1 ? permitted[0] : null);
+  const issueTypeId = pick((pin) => pin.issueTypeId);
+  const priorityId = pick((pin) => pin.priorityId);
+  const parentKey = pick((pin) => pin.parentKey);
+  const previousAssignee = pick((pin) => (pin.assignee && pin.assignee.accountId ? pin.assignee : null));
+  const sponsor = session.scope === 'guest_create' && session.issuer
     ? { accountId: session.issuer, displayName: session.issuerName || session.displayName || session.issuer }
-    : undefined;
-  // "Last entered" first, sponsor as the initial fallback for guests.
-  const defaultAssignee = (newestPin && newestPin.assignee ? { ...newestPin.assignee } : undefined)
-    || sponsorAssignee;
-  const defaultIssueTypeId = newestPin && newestPin.issueTypeId ? newestPin.issueTypeId : undefined;
-  const defaultPriorityId = newestPin && newestPin.priorityId ? newestPin.priorityId : undefined;
+    : null;
+  const self = session.accountId
+    ? { accountId: session.accountId, displayName: session.displayName || null }
+    : null;
+  return {
+    projectKey,
+    issueTypeId,
+    priorityId,
+    parentKey,
+    assignee: previousAssignee || sponsor || self || null,
+  };
+}
 
+function openTicketForm(options) {
+  if (!current) return;
+  const { config, session, overlay } = current;
+  const { capture, screenshotDataUrl, initialSummary, initialDescription, textChange, textSelection, defaults } = options;
+  current.composing = true;
+  current.composeListOpen = false;
+  if (current.textSuggest) current.textSuggest.hide();
+  renderPinsAndSidebar();
   current.formController = renderTicketForm(overlay.formEl, {
     config: { ...config, canvasId: current.canvasName },
     session,
     capture,
+    textSelection,
+    textChange,
+    textPreview: current.textPreview,
+    capturePopoverHost: overlay.capturePopoverHostEl,
+    initialSummary,
+    initialDescription,
     screenshotDataUrl,
     screenshotFailed: !screenshotDataUrl,
-    pins: current.pins,
-    defaultProject,
-    defaultAssignee,
-    defaultIssueTypeId,
-    defaultPriorityId,
+    needsCanvasThumbnail: Boolean(current && !current.canvasHasThumbnail),
+    captureCanvasThumbnail: captureThumbnailForTicket,
+    defaultProject: defaults.projectKey,
+    defaultAssignee: defaults.assignee,
+    defaultIssueTypeId: defaults.issueTypeId,
+    defaultPriorityId: defaults.priorityId,
+    defaultParentKey: defaults.parentKey,
     onCancel: () => {
       dismissTicketForm();
     },
-    onCreated: ({ result, capture: createdCapture, summary, projectKey, issueTypeId, priorityId, assignee }) => {
+    onCreated: ({ result, capture: createdCapture, summary, projectKey, issueTypeId, priorityId, textChange: createdTextChange, assignee, parentKey }) => {
       if (!current) return;
       dismissTicketForm();
       const displaySummary = summary && summary.startsWith('[JiraTack]')
@@ -895,12 +1244,14 @@ async function handleCapture(capture) {
           projectKey: projectKey || null,
           issueTypeId: issueTypeId || null,
           priorityId: priorityId || null,
+          parentKey: parentKey || null,
           status: { name: '', category: '', colorName: '' },
           priority: null,
           assignee: assignee || null,
           reporter: null,
           pinPosition: createdCapture.pinPosition,
           selector: createdCapture.selector || null,
+          textChange: createdTextChange || null,
           issueType: null,
           createdAt: new Date().toISOString(),
           url: getPageUrl(),
@@ -918,6 +1269,288 @@ async function handleCapture(capture) {
       }
     },
   });
+}
+
+async function handleCapture(capture) {
+  if (!current || !current.canvasName) return;
+  if (current.composing) return;
+  if (current.textSuggest) current.textSuggest.hide();
+  if (current.textPreview) {
+    current.textPreview.hide();
+    current.activeTextChangeKey = null;
+  }
+  destroyCapturePopover();
+  cancelPendingMoveIfAny();
+  const { overlay } = current;
+
+  clearPendingPin();
+  current.pendingPin = createPendingPin(overlay.overlayEl, capture);
+
+  const defaults = computeDefaults();
+  const canvasAtStart = current.canvasName;
+  let screenshotDataUrl = null;
+
+  current.capturePopover = openPinPopover({
+    host: overlay.capturePopoverHostEl,
+    anchor: {
+      left: capture.clientX,
+      top: capture.clientY,
+      right: capture.clientX,
+      bottom: capture.clientY,
+    },
+    onAdd: async ({ summary, description }) => {
+      if (!current) return;
+      current.capturePopover = null;
+      const slowNotice = window.setTimeout(() => showToast('Preparing screenshot…'), 300);
+      screenshotDataUrl = await captureForTicket(capture.clientX, capture.clientY);
+      window.clearTimeout(slowNotice);
+      if (!current || current.canvasName !== canvasAtStart) return;
+      openTicketForm({
+        capture,
+        screenshotDataUrl,
+        initialSummary: summary,
+        initialDescription: description,
+        textChange: null,
+        textSelection: null,
+        defaults,
+      });
+    },
+    onCancel: () => {
+      current.capturePopover = null;
+      if (current) clearPendingPin();
+    },
+  });
+}
+
+async function handleTextSuggest(suggestion) {
+  if (!current || !current.canvasName || current.composing || !suggestion) return;
+  if (current.pinModeController) current.pinModeController.deactivate();
+  if (current.textSuggest) current.textSuggest.hide();
+  if (current.textPreview) {
+    current.textPreview.hide();
+    current.activeTextChangeKey = null;
+  }
+  destroyCapturePopover();
+  cancelPendingMoveIfAny();
+
+  const { overlay } = current;
+  const result = computePinPosition(suggestion.target, suggestion.clientX, suggestion.clientY);
+  const capture = {
+    ...result,
+    consoleSnapshot: getBufferSnapshot(),
+    elementTag: suggestion.target.tagName.toLowerCase(),
+    clientX: suggestion.clientX,
+    clientY: suggestion.clientY,
+  };
+
+  clearPendingPin();
+  current.pendingPin = createPendingPin(overlay.overlayEl, capture);
+  const defaults = computeDefaults();
+  const textSelection = {
+    text: suggestion.text,
+    range: suggestion.range,
+    anchor: buildAnchor(suggestion.range, suggestion.text),
+  };
+  const initialSummary = `Text change: ${suggestion.text.slice(0, 60)}`;
+  const canvasAtStart = current.canvasName;
+  let screenshotDataUrl = null;
+
+  current.capturePopover = openTextPopover({
+    host: overlay.capturePopoverHostEl,
+    anchor: suggestion.anchorRect,
+    selection: textSelection,
+    initialReplacement: '',
+    preview: current.textPreview,
+    submitLabel: 'Add to ticket',
+    onAdd: async ({ replacement }) => {
+      if (!current) return;
+      current.capturePopover = null;
+      const slowNotice = window.setTimeout(() => showToast('Preparing screenshot…'), 300);
+      screenshotDataUrl = await captureForTicket(suggestion.clientX, suggestion.clientY);
+      window.clearTimeout(slowNotice);
+      if (!current || current.canvasName !== canvasAtStart) return;
+      openTicketForm({
+        capture,
+        screenshotDataUrl,
+        initialSummary,
+        initialDescription: '',
+        textChange: { original: suggestion.text, suggested: replacement },
+        textSelection,
+        defaults,
+      });
+    },
+    onCancel: () => {
+      current.capturePopover = null;
+      if (current) clearPendingPin();
+    },
+  });
+}
+
+/**
+ * A pin was dropped (SPEC §10.3, D33). Nothing is written yet: the pin renders
+ * at the drop point, the screenshot is captured and held in memory, and a bar
+ * beside the pin asks for confirmation. Confirm commits; Cancel, Escape or
+ * closing the overlay restores the previous selector and position and sends
+ * nothing. There is no timer and no auto-commit.
+ */
+function revertPendingMove(pending) {
+  if (!current) return;
+  const target = (current.pins || []).find((candidate) => candidate.key === pending.key);
+  if (target) {
+    target.selector = pending.previous.selector;
+    target.pinPosition = pending.previous.pinPosition;
+  }
+  if (current.pinsController) {
+    current.pinsController.setPlacement(pending.key, pending.previous);
+  }
+}
+
+function clearPendingMove(pending) {
+  if (current && current.pendingMove === pending) current.pendingMove = null;
+  if (pending && pending.controller) {
+    pending.controller.destroy();
+    pending.controller = null;
+  }
+}
+
+function cancelPendingMove(pending) {
+  if (!current || current.pendingMove !== pending || pending.busy) return;
+  revertPendingMove(pending);
+  clearPendingMove(pending);
+}
+
+function cancelPendingMoveIfAny() {
+  if (current && current.pendingMove) cancelPendingMove(current.pendingMove);
+}
+
+function handlePinMove(move) {
+  if (!current || !current.session || !move || !move.pin) return;
+  if (current.composing) return;
+  // One move at a time. The drag controller is also gated, so this is a second
+  // line of defence rather than the primary control.
+  if (current.pendingMove) return;
+
+  // A drag and a composer cannot own the page at the same time.
+  destroyCapturePopover();
+  if (current.textSuggest) current.textSuggest.hide();
+  if (current.textPreview) {
+    current.textPreview.hide();
+    current.activeTextChangeKey = null;
+  }
+
+  const { pin } = move;
+  if (!pin.key) return;
+
+  const previous = {
+    selector: typeof pin.selector === 'string' && pin.selector.length > 0 ? pin.selector : null,
+    pinPosition: pin.pinPosition,
+  };
+  if (previous.selector === move.selector && previous.pinPosition === move.pinPosition) return;
+
+  const pending = {
+    key: pin.key,
+    previous,
+    next: {
+      selector: move.selector,
+      pinPosition: move.pinPosition,
+      captureContext: move.captureContext || null,
+      clientX: move.clientX,
+      clientY: move.clientY,
+      movedPixels: Math.round(move.movedPixels),
+    },
+    // Identity of the overlay this move belongs to. A confirmed commit is
+    // allowed to finish after the overlay closes; an unconfirmed one never
+    // leaves the page.
+    overlay: current.overlay,    capture: null,
+    controller: null,
+    busy: false,
+  };
+  current.pendingMove = pending;
+
+  pin.selector = pending.next.selector;
+  pin.pinPosition = pending.next.pinPosition;
+  if (current.pinsController) current.pinsController.setPlacement(pin.key, pending.next);
+
+  pending.capture = captureScreenshot(pending.next.clientX, pending.next.clientY, { png: true })
+    .catch((e) => {
+      console.error(`${LOG_PREFIX} Move screenshot capture failed:`, e);
+      return null;
+    });
+
+  // Show the bar only once the capture has finished. The capture hides the
+  // whole overlay, so a bar created before it would be invisible for that
+  // window while still occupying its position — an immediate click would land
+  // on the page underneath. The pin itself moves straight away, so there is
+  // still instant feedback.
+  pending.capture
+    .then((dataUrl) => {
+      if (!current || current.pendingMove !== pending) return;
+      pending.dataUrl = dataUrl;
+      pending.controller = createMoveConfirm({
+        host: current.overlay.overlayEl,
+        key: pending.key,
+        reservedRight: SIDEBAR_WIDTH_PX,
+        onConfirm: () => confirmPendingMove(pending),
+        onCancel: () => cancelPendingMove(pending),
+      });
+    })
+    .catch((e) => {
+      console.error(`${LOG_PREFIX} Move confirmation failed:`, e);
+      cancelPendingMove(pending);
+    });
+}
+
+async function confirmPendingMove(pending) {
+  if (!current || current.pendingMove !== pending || pending.busy) return;
+  const { config, session } = current;
+  pending.busy = true;
+  if (pending.controller) pending.controller.setBusy(true);
+
+  try {
+    const dataUrl = await pending.capture;
+    if (!current || current.overlay !== pending.overlay) return;
+
+    let screenshotUploadId = null;
+    if (dataUrl) {
+      try {
+        screenshotUploadId = await uploadAttachment(config, session, {
+          dataUrl,
+          filename: screenshotFilename(pending.key, Date.now()),
+          mimeType: 'image/png',
+        });
+      } catch (e) {
+        console.error(`${LOG_PREFIX} Move screenshot upload failed:`, e);
+      }
+    } else {
+      console.error(`${LOG_PREFIX} Move screenshot capture failed`);
+    }
+
+    const result = await updatePinPosition(config, session, {
+      issueKey: pending.key,
+      pinPosition: pending.next.pinPosition,
+      selector: pending.next.selector,
+      captureContext: pending.next.captureContext,
+      movedPixels: pending.next.movedPixels,
+      screenshotUploadId,
+    });
+
+    if (!current || current.overlay !== pending.overlay) return;
+    if (current.pendingMove === pending) {
+      clearPendingMove(pending);
+      if (result && Array.isArray(result.warnings) && result.warnings.includes('screenshot-not-attached')) {
+        showToast(`${pending.key} moved, but the screenshot could not be attached.`);
+      }
+    }
+  } catch (e) {
+    console.error(`${LOG_PREFIX} Pin move failed:`, e);
+    if (current && current.overlay === pending.overlay) {
+      revertPendingMove(pending);
+      if (current.pendingMove === pending) clearPendingMove(pending);
+      showToast((e && e.message) || 'Could not move this pin.');
+    }
+  } finally {
+    pending.busy = false;
+  }
 }
 
 const POLL_INTERVAL_MS = 15000;
@@ -953,6 +1586,17 @@ function startPolling() {
       const next = (data && data.pins) || [];
       if (pinSignature(next) === pinSignature(current.pins)) return;
       current.pins = next;
+      if (data && data.canvasHasThumbnail !== undefined) {
+        current.canvasHasThumbnail = Boolean(data.canvasHasThumbnail);
+      }
+      // Polling must not undo a move the reviewer is still confirming.
+      if (current.pendingMove) {
+        const pendingPin = next.find((pin) => pin.key === current.pendingMove.key);
+        if (pendingPin) {
+          pendingPin.selector = current.pendingMove.next.selector;
+          pendingPin.pinPosition = current.pendingMove.next.pinPosition;
+        }
+      }
       renderPinsAndSidebar();
     } catch (e) {
       // best effort
@@ -964,7 +1608,6 @@ function startPolling() {
 
 function teardown(clearStoredSession) {
   stopPolling();
-  clearLastSelection();
   if (current && current.pinRepositionTimer) {
     window.clearTimeout(current.pinRepositionTimer);
     current.pinRepositionTimer = null;
@@ -972,6 +1615,40 @@ function teardown(clearStoredSession) {
   teardownLayout();
   cancelHydration();
   clearPendingPin();
+  if (current && current.textSuggest) {
+    try {
+      current.textSuggest.destroy();
+    } catch (e) {
+      // ignore
+    }
+    current.textSuggest = null;
+  }
+  if (current && current.capturePopover) {
+    try {
+      current.capturePopover.destroy();
+    } catch (e) {
+      // ignore
+    }
+    current.capturePopover = null;
+  }
+  if (current && current.textPreview) {
+    try {
+      current.textPreview.hide();
+    } catch (e) {
+      // ignore
+    }
+    current.textPreview = null;
+  }
+  // An unconfirmed move is discarded, never committed: closing the overlay is
+  // the "oops" exit. A confirmed move already in flight continues.
+  if (current && current.pendingMove) {
+    try {
+      if (current.pendingMove.controller) current.pendingMove.controller.destroy();
+    } catch (e) {
+      // ignore
+    }
+    current.pendingMove = null;
+  }
   if (current) {
     try {
       if (current.pinModeController) current.pinModeController.destroy();
@@ -1016,6 +1693,21 @@ function teardown(clearStoredSession) {
   window.__jiratackActiveCanvas = null;
 }
 
+/**
+ * Session failures that a reviewer can fix themselves (D43). A token that has
+ * expired or been replaced reads as "invalid token" from the API, which is
+ * useless advice; name the recovery instead.
+ */
+function friendlyAuthError(error) {
+  const code = error && error.code;
+  const message = (error && error.message) || 'Failed to load JiraTack.';
+  if (code === 'TOKEN_EXPIRED' || code === 'TOKEN_INVALID' || code === 'TOKEN_REVOKED') {
+    return 'Your JiraTack session has expired. Open a fresh JiraTack link, or click the JiraTack toolbar button on a page where the bookmarklet is running, to reconnect.';
+  }
+  if (code === 'BAD_EXCHANGE_RESPONSE') return message;
+  return message;
+}
+
 function close() {
   teardown(true);
   console.log(`${LOG_PREFIX} Close called`);
@@ -1030,6 +1722,18 @@ async function init(config) {
     return;
   }
 
+  // A safe, token-bearing view for the extension to enroll itself from (D39):
+  // clicking the toolbar button on this page connects without any paste. The
+  // bootstrap already used this token on the page, so this exposes nothing new.
+  window.__jiratackConfig = {
+    token: config.token,
+    apiUrl: config.apiUrl,
+    sdkUrl: config.sdkUrl || '',
+    canvasId: config.canvasId || 'universal',
+    canvasName: config.canvasName || 'Canvas',
+    sdkVersion: config.sdkVersion || '',
+  };
+
   if (config.canvasId && window.__jiratackActiveCanvas === config.canvasId) {
     window.__jiratackClose();
     return;
@@ -1039,9 +1743,6 @@ async function init(config) {
   installConsoleProxy();
   window.__jiratackActiveCanvas = config.canvasId || 'universal';
   injectStyles();
-  installSelectionTracking();
-  // Available in every mode: the launcher link is the one most people copy.
-  renderViewportBar(config);
 
   const deepParams = new URLSearchParams(window.location.search);
   const deepCanvas = deepParams.get('jiratack_canvas');
@@ -1055,9 +1756,13 @@ async function init(config) {
   try {
     const isLauncher = config.canvasId === 'universal';
     overlay = createOverlay();
+    // The preset bar lives inside the overlay so page layout (the push-mode
+    // fixed-shift pass, page CSS, page z-index) can never move or cover it.
+    // Available in every mode: the launcher link is the one most people copy.
+    renderViewportBar(config, overlay.overlayEl);
     removeBootstrapLoading();
     debugConfig = config;
-    console.log(`${LOG_PREFIX} SDK ${config.sdkVersion || 'unknown'} ready`);
+    console.log(`${LOG_PREFIX} SDK ${RUNNING_SDK_VERSION} ready (enrolled config ${config.sdkVersion || 'unknown'})`);
     overlay.sidebarEl.tabIndex = -1;
     overlay.sidebarEl.addEventListener('mousedown', handleSidebarMouseDown);
     overlay.sidebarEl.addEventListener('keydown', handleSidebarKeydown);
@@ -1066,6 +1771,10 @@ async function init(config) {
       config,
       session: null,
       overlay,
+      textPreview: createTextPreview(),
+      activeTextChangeKey: null,
+      textSuggest: null,
+      capturePopover: null,
       universal: isLauncher,
       canvases: [],
       pins: [],
@@ -1087,9 +1796,26 @@ async function init(config) {
       hydrationKeys: new Set(),
       hydrationToken: 0,
       hydrationRunning: false,
+      pendingMove: null,
+      composing: false,
+      composeListOpen: false,
     };
     current.layoutMode = applyLayoutMode(getStoredLayoutMode());
     setStoredLayoutMode(current.layoutMode);
+    current.textSuggest = installTextSuggest({
+      host: overlay.overlayEl,
+      canStart: () => Boolean(
+        current
+        && current.session
+        && current.canvasName
+        && !current.composing
+        && !current.capturePopover
+        && !current.pendingMove
+        && !current.loading
+        && ['create', 'universal', 'guest_create'].includes(current.session.scope)
+      ),
+      onSuggest: handleTextSuggest,
+    });
     renderPinsAndSidebar();
 
     let session = await exchangeSession(config);
@@ -1222,6 +1948,7 @@ async function init(config) {
 
     if (!current || current.overlay !== overlay) return;
     current.pins = (data && data.pins) || [];
+    current.canvasHasThumbnail = Boolean(data && data.canvasHasThumbnail);
     current.canvasName = (data && data.canvasName) || config.canvasName || canvasId;
     current.loading = false;
     current.loadError = null;
@@ -1233,7 +1960,7 @@ async function init(config) {
     console.error(`${LOG_PREFIX} Init failed:`, e);
     if (current && overlay && current.overlay === overlay) {
       current.loading = false;
-      current.loadError = (e && e.message) || 'Failed to load JiraTack.';
+      current.loadError = friendlyAuthError(e);
       renderPinsAndSidebar();
     } else {
       teardown(false);
@@ -1251,7 +1978,7 @@ async function init(config) {
  * permanent warning bar. This is a real layout at a real width, so media
  * queries fire; it is not device emulation, and the copy says so.
  */
-function renderViewportBar(config) {
+function renderViewportBar(config, host) {
   if (!config || config.channel !== 'extension') return;
   const existing = document.getElementById('jiratack-viewport-bar');
   if (existing) existing.remove();
@@ -1260,8 +1987,21 @@ function renderViewportBar(config) {
   bar.id = 'jiratack-viewport-bar';
   // The bar must survive the narrowest preset it offers: wrap rather than
   // overflow, and never exceed the viewport it is measuring.
-  bar.style.cssText = 'position:fixed;left:8px;bottom:8px;z-index:2147483647;display:flex;flex-wrap:wrap;gap:3px;align-items:center;padding:3px 5px;max-width:calc(100vw - 16px);box-sizing:border-box;border-radius:6px;background:#fff;color:#172b4d;color-scheme:light;border:1px solid #dfe1e6;box-shadow:0 4px 12px rgba(9,30,66,.2);font:12px -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;';
+  bar.style.cssText = 'position:fixed;left:8px;bottom:8px;z-index:2147483647;display:flex;flex-wrap:wrap;gap:3px;align-items:center;padding:3px 5px;max-width:calc(100vw - 16px);box-sizing:border-box;border-radius:6px;background:#fff;color:#172b4d;color-scheme:light;border:1px solid #dfe1e6;box-shadow:0 4px 12px rgba(9,30,66,.2);font:12px -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;pointer-events:auto;';
   bar.title = 'Page width, sidebar excluded. Real layout, not device emulation.';
+
+  // The extension refuses a size Chrome will not grant (a maximised or
+  // full-screen window). Say so instead of letting the click look dead.
+  if (!window.__jiratackResizeResultBound) {
+    window.__jiratackResizeResultBound = true;
+    window.addEventListener('message', (event) => {
+      if (event.source !== window) return;
+      const data = event.data;
+      if (!data || data.source !== 'jiratack' || data.type !== 'resize-result') return;
+      if (data.ok) return;
+      showToast(data.message || 'Chrome refused the window size.');
+    });
+  }
 
   const buttonStyle = 'padding:2px 5px;min-width:30px;border:1px solid #dfe1e6;border-radius:3px;background:#fff;color:#172b4d;color-scheme:light;cursor:pointer;font:600 11px/1.3 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;';
   // A preset is the width of the *page*, so the window must also carry the
@@ -1324,7 +2064,7 @@ function renderViewportBar(config) {
   });
   bar.appendChild(fit);
 
-  document.body.appendChild(bar);
+  (host || document.documentElement).appendChild(bar);
 }
 
 window.__jiratackInit = init;

@@ -16,7 +16,9 @@ import {
   uploadAttachment,
   getAttachmentLimits,
 } from './api.js';
-import { getLastSelection } from './selection.js';
+import { createTextPreview } from './textPreview.js';
+import { openTextPopover } from './capturePopover.js';
+import { supportsTabRecording, recordCurrentTab } from './recording.js';
 import { serializeToAdf } from '../shared/adfSerializer.js';
 import { normalizeUrl, stripDeepLinkParams } from '../shared/urlNormalize.js';
 import { formatConsoleLog } from './consoleProxy.js';
@@ -40,7 +42,20 @@ function descriptionToAdf(text) {
 }
 
 export function renderTicketForm(container, options) {
-  const { config, session, capture, onCancel, onCreated, defaultProject, defaultAssignee, defaultIssueTypeId, defaultPriorityId, pins } = options;
+  const {
+    config,
+    session,
+    capture,
+    onCancel,
+    onCreated,
+    defaultProject,
+    defaultAssignee,
+    defaultIssueTypeId,
+    defaultIssueTypeName,
+    defaultPriorityId,
+    defaultParentKey,
+    capturePopoverHost,
+  } = options;
   const isGuest = Boolean(session && session.scope === 'guest_create');
   const guestNameInput = isGuest ? textInput('Your name', (session && session.guestName) || '') : null;
   const guestEmailInput = isGuest ? textInput('you@example.com', (session && session.guestEmail) || '') : null;
@@ -53,15 +68,27 @@ export function renderTicketForm(container, options) {
     guestEmailInput.title = 'Set by the person who invited you.';
   }
   let screenshotDataUrl = options.screenshotDataUrl || null;
+  let screenshotFailed = Boolean(options.screenshotFailed);
   let submitting = false;
+  let destroyed = false;
   const pageUrl = normalizeUrl(stripDeepLinkParams(window.location.href));
+
+  const textSelection = options.textSelection || null;
+  const textPreview = options.textPreview || createTextPreview();
+  let textChangeState = options.textChange
+    ? { original: String(options.textChange.original || ''), suggested: String(options.textChange.suggested || '') }
+    : null;
+  let textComposer = null;
+  let textChangeRow = null;
 
   container.innerHTML = '';
 
   const form = el('form', 'jiratack-form');
 
   function field(labelText, control) {
-    const wrap = el('div', 'jiratack-field');
+    // An implicit <label> keeps the field accessible without inventing ids for
+    // every control, and still lets the label wrap a typeahead div.
+    const wrap = el('label', 'jiratack-field');
     wrap.appendChild(el('span', 'jiratack-field-label', labelText));
     wrap.appendChild(control);
     return wrap;
@@ -75,45 +102,28 @@ export function renderTicketForm(container, options) {
     return input;
   }
 
+  function sectionHead(title, hint) {
+    const head = el('div', 'jiratack-section-head');
+    head.appendChild(el('span', 'jiratack-section-title', title));
+    if (hint) head.appendChild(el('span', 'jiratack-section-hint', hint));
+    return head;
+  }
+
 
   const permitted = Array.isArray(session.permittedProjects) ? session.permittedProjects : [];
   const openMode = session.permittedProjects === '*';
 
-  const existingPins = Array.isArray(options.pins) ? options.pins : [];
-  const isSeedTicket = (pin) => Boolean(pin)
-    && typeof pin.summary === 'string'
-    && pin.summary.replace(/^\[JiraTack\]\s*/i, '').trim() === 'Canvas created';
-  const newestPin = existingPins.length > 0
-    ? existingPins.reduce((newest, pin) => {
-        if (!newest) return pin;
-        const newestTime = newest.createdAt ? Date.parse(newest.createdAt) : 0;
-        const pinTime = pin.createdAt ? Date.parse(pin.createdAt) : 0;
-        return pinTime > newestTime ? pin : newest;
-      }, null)
-    : null;
-  // The canvas seed ticket is an Epic; it must never drive the issue-type default.
-  const usablePins = existingPins.filter((pin) => pin && !isSeedTicket(pin));
-  const lastUsedPin = usablePins.length > 0
-    ? usablePins.reduce((newest, pin) => {
-        if (!newest) return pin;
-        const newestTime = newest.createdAt ? Date.parse(newest.createdAt) : 0;
-        const pinTime = pin.createdAt ? Date.parse(pin.createdAt) : 0;
-        return pinTime > newestTime ? pin : newest;
-      }, null)
-    : null;
-
-  const resolvedDefaultProject = (newestPin && newestPin.projectKey)
-    || (permitted.length > 0 ? permitted[0] : '');
-  const resolvedDefaultIssueTypeId = (lastUsedPin && lastUsedPin.issueTypeId)
-    || defaultIssueTypeId
-    || null;
-  const resolvedDefaultPriorityId = newestPin && newestPin.priorityId ? newestPin.priorityId : null;
+  const resolvedDefaultProject = defaultProject || (permitted.length > 0 ? permitted[0] : '');
+  const resolvedDefaultIssueTypeId = defaultIssueTypeId || null;
+  const resolvedDefaultIssueTypeName = defaultIssueTypeName || null;
+  const resolvedDefaultPriorityId = defaultPriorityId || null;
 
   let projectSelect = null;
   let projectInput = null;
 
   if (!openMode && permitted.length > 0) {
     projectSelect = el('select', 'jiratack-input jiratack-select');
+    projectSelect.id = 'jiratack-project';
     const placeholder = el('option', null, 'Select project');
     placeholder.value = '';
     projectSelect.appendChild(placeholder);
@@ -129,6 +139,7 @@ export function renderTicketForm(container, options) {
     if (preferredProject) projectSelect.value = preferredProject;
   } else {
     projectInput = textInput('e.g. MM', resolvedDefaultProject || '');
+    projectInput.id = 'jiratack-project';
   }
 
   function getProjectKey() {
@@ -137,33 +148,71 @@ export function renderTicketForm(container, options) {
   }
 
   const issueTypeSelect = el('select', 'jiratack-input jiratack-select');
+  issueTypeSelect.id = 'jiratack-issue-type';
   issueTypeSelect.disabled = true;
   const initialTypeOption = el('option', null, 'Select a project first');
   initialTypeOption.value = '';
   issueTypeSelect.appendChild(initialTypeOption);
 
-  const summaryInput = textInput('Short summary', '');
+  const summaryInput = textInput('Pin Summary', options.initialSummary || '');
+  summaryInput.id = 'jiratack-summary';
+  summaryInput.className = 'jiratack-input jiratack-input-primary';
   summaryInput.maxLength = 215;
+  summaryInput.setAttribute('aria-required', 'true');
 
-  const descriptionInput = el('textarea', 'jiratack-textarea');
-  descriptionInput.rows = 3;
-  descriptionInput.placeholder = 'Describe the issue…';
+  const descriptionInput = el('textarea', 'jiratack-textarea jiratack-textarea-primary');
+  descriptionInput.id = 'jiratack-description';
+  descriptionInput.rows = 5;
+  descriptionInput.placeholder = 'Detailed Description';
+  descriptionInput.value = options.initialDescription || '';
 
-  const assigneeWrap = el('div', 'jiratack-field');
-  assigneeWrap.appendChild(
-    el('span', 'jiratack-field-label', isGuest ? 'Assign To (Licensed User)' : 'Assignee'),
-  );
+  const summaryCounter = el('span', 'jiratack-counter', '0/215');
+  const summaryHead = el('div', 'jiratack-field-head');
+  const summaryLabel = el('label', 'jiratack-field-label', 'Summary');
+  summaryLabel.htmlFor = 'jiratack-summary';
+  summaryHead.appendChild(summaryLabel);
+  const requiredMark = el('span', 'jiratack-required', '*');
+  requiredMark.setAttribute('aria-hidden', 'true');
+  summaryHead.appendChild(requiredMark);
+  summaryHead.appendChild(summaryCounter);
+
+  const summaryError = el('div', 'jiratack-field-error');
+  summaryError.style.display = 'none';
+
+  const summaryField = el('div', 'jiratack-field jiratack-field-primary');
+  summaryField.appendChild(summaryHead);
+  summaryField.appendChild(summaryInput);
+  summaryField.appendChild(summaryError);
+
+  const descriptionHead = el('div', 'jiratack-field-head');
+  const descriptionLabel = el('label', 'jiratack-field-label', 'Description');
+  descriptionLabel.htmlFor = 'jiratack-description';
+  descriptionHead.appendChild(descriptionLabel);
+  descriptionHead.appendChild(el('span', 'jiratack-optional', 'Optional'));
+
+  const descriptionField = el('div', 'jiratack-field jiratack-field-primary');
+  descriptionField.appendChild(descriptionHead);
+  descriptionField.appendChild(descriptionInput);
+
+  const assigneeWrap = el('div', 'jiratack-field jiratack-field-assignee');
+  if (isGuest) {
+    assigneeWrap.appendChild(el('span', 'jiratack-field-label', 'Licensed user'));
+  }
   const typeahead = el('div', 'jiratack-typeahead');
   const assigneeInput = textInput('Search by name', '');
+  assigneeInput.id = 'jiratack-assignee';
+  assigneeInput.setAttribute('aria-label', isGuest ? 'Assign to a licensed user' : 'Assignee');
   const typeaheadResults = el('div', 'jiratack-typeahead-results');
   typeaheadResults.style.display = 'none';
   typeahead.appendChild(assigneeInput);
   typeahead.appendChild(typeaheadResults);
   assigneeWrap.appendChild(typeahead);
 
-  const reporterInput = textInput('', session.displayName || 'Current user');
-  reporterInput.disabled = true;
-  reporterInput.title = 'Reporter is set from the authenticated Jira user.';
+  // The reporter is always the authenticated user; a disabled input took a full
+  // row for information the reviewer cannot change.
+  const reporterLine = el('div', 'jiratack-form-meta');
+  reporterLine.textContent = `Reporting as ${session.displayName || 'the current user'}`;
+  reporterLine.title = 'The reporter is the authenticated Jira user.';
 
   const topBar = el('div', 'jiratack-form-top');
   topBar.appendChild(el('span', 'jiratack-form-title', 'New ticket'));
@@ -186,17 +235,173 @@ export function renderTicketForm(container, options) {
     form.appendChild(field('Your Name', guestNameInput));
     form.appendChild(field('Your Email', guestEmailInput));
   }
-  form.appendChild(field('Project', projectSelect || projectInput));
-  form.appendChild(field('Issue type', issueTypeSelect));
-  form.appendChild(assigneeWrap);
-  if (!isGuest) {
-    form.appendChild(field('Reporter', reporterInput));
+
+  function buildTextChangeRow(selection) {
+    if (!textChangeState) return null;
+    const originalText = String(textChangeState.original || '').trim();
+    if (!originalText) return null;
+
+    const panel = el('div', 'jiratack-textchange');
+
+    const head = el('div', 'jiratack-textchange-head');
+    head.appendChild(el('span', 'jiratack-textchange-title', 'Text change'));
+
+    const toggle = el('button', 'jiratack-switch jiratack-textchange-toggle');
+    toggle.type = 'button';
+    toggle.setAttribute('role', 'switch');
+    toggle.setAttribute('aria-checked', 'false');
+    toggle.setAttribute('aria-label', 'View suggested text on page');
+    toggle.appendChild(el('span', 'jiratack-textchange-toggle-label', 'View on page'));
+    const switchTrack = el('span', 'jiratack-switch-track');
+    switchTrack.appendChild(el('span', 'jiratack-switch-knob'));
+    toggle.appendChild(switchTrack);
+    head.appendChild(toggle);
+
+    const editButton = el('button', 'jiratack-textchange-edit', 'Edit');
+    editButton.type = 'button';
+    head.appendChild(editButton);
+    panel.appendChild(head);
+
+    const pair = el('div', 'jiratack-textchange-pair');
+    const original = el('span', 'jiratack-textchange-original', originalText);
+    original.title = originalText;
+    pair.appendChild(original);
+    pair.appendChild(el('span', 'jiratack-textchange-arrow', ' \u2192 '));
+    const suggested = el('span', 'jiratack-textchange-suggested', textChangeState.suggested || '');
+    suggested.title = textChangeState.suggested || '';
+    pair.appendChild(suggested);
+    panel.appendChild(pair);
+
+    const hint = el('div', 'jiratack-textchange-hint', '');
+    panel.appendChild(hint);
+
+    function setPreviewState(on) {
+      toggle.setAttribute('aria-checked', on ? 'true' : 'false');
+      toggle.classList.toggle('jiratack-switch-on', on);
+    }
+
+    function hidePreview() {
+      textPreview.hide();
+      setPreviewState(false);
+      hint.textContent = '';
+    }
+
+    function showPreview() {
+      const value = String(textChangeState.suggested || '').trim();
+      if (!value) {
+        setPreviewState(false);
+        hint.textContent = 'Write the replacement first.';
+        return;
+      }
+      const mode = textPreview.show({
+        text: textChangeState.original,
+        range: selection ? selection.range : null,
+        anchor: selection ? selection.anchor : null,
+        replacement: value,
+      });
+      if (!mode) {
+        setPreviewState(false);
+        hint.textContent = 'Select the text again to preview it.';
+        return;
+      }
+      setPreviewState(true);
+      hint.textContent = mode === 'inline'
+        ? ''
+        : 'Previewing with a marker \u2014 this selection spans elements.';
+    }
+
+    toggle.addEventListener('click', () => {
+      // A re-render can remove the preview while the switch still looks on.
+      if (textPreview.isVisible() && !textPreview.isAttached()) {
+        textPreview.hide();
+        setPreviewState(false);
+      }
+      if (toggle.getAttribute('aria-checked') === 'true') hidePreview();
+      else showPreview();
+    });
+
+    editButton.addEventListener('click', () => {
+      if (!capturePopoverHost || textComposer) return;
+      if (toggle.getAttribute('aria-checked') === 'true') hidePreview();
+      const rect = editButton.getBoundingClientRect();
+      textComposer = openTextPopover({
+        host: capturePopoverHost,
+        anchor: { left: rect.left, top: rect.top, right: rect.right, bottom: rect.bottom },
+        selection: {
+          text: textChangeState.original,
+          range: selection ? selection.range : null,
+          anchor: selection ? selection.anchor : null,
+        },
+        initialReplacement: textChangeState.suggested,
+        preview: textPreview,
+        submitLabel: 'Save',
+        onAdd: ({ replacement }) => {
+          textComposer = null;
+          textChangeState = { original: textChangeState.original, suggested: replacement };
+          suggested.textContent = replacement;
+          suggested.title = replacement;
+          hint.textContent = '';
+        },
+        onCancel: () => {
+          textComposer = null;
+        },
+      });
+    });
+
+    return {
+      element: panel,
+      hint,
+      destroy() {
+        hidePreview();
+        if (textComposer) {
+          try {
+            textComposer.destroy();
+          } catch (e) {
+            // ignore
+          }
+          textComposer = null;
+        }
+      },
+    };
   }
-  form.appendChild(field('Summary', summaryInput));
-  form.appendChild(field('Description', descriptionInput));
+
+  // The reviewer's key decision comes first: who is this for. Project and type
+  // follow, then the content the popover captured.
+  const assignSection = el('section', 'jiratack-form-section jiratack-assignee-card');
+  assignSection.appendChild(sectionHead('Assigned to', 'Who should fix this?'));
+  assignSection.appendChild(assigneeWrap);
+  if (!isGuest) assignSection.appendChild(reporterLine);
+  form.appendChild(assignSection);
+
+  const ticketSection = el('section', 'jiratack-form-section');
+  ticketSection.appendChild(sectionHead('Ticket', 'Where it goes'));
+  const metaGrid = el('div', 'jiratack-form-grid');
+  metaGrid.appendChild(field('Project', projectSelect || projectInput));
+  metaGrid.appendChild(field('Issue type', issueTypeSelect));
+  ticketSection.appendChild(metaGrid);
+  ticketSection.appendChild(summaryField);
+  form.appendChild(ticketSection);
+
+  if (textChangeState) {
+    const autoSummary = `Text change: ${String(textChangeState.original || '').slice(0, 60)}`;
+    if (!summaryInput.value) {
+      summaryInput.value = autoSummary;
+      updateSummaryCounter();
+    }
+    textChangeRow = buildTextChangeRow(textSelection);
+    if (textChangeRow) form.appendChild(textChangeRow.element);
+  }
+
+  const descriptionSection = el('section', 'jiratack-form-section');
+  descriptionSection.appendChild(descriptionField);
+  form.appendChild(descriptionSection);
+
+  const evidenceSection = el('section', 'jiratack-form-section');
+  evidenceSection.appendChild(sectionHead('Evidence', 'Screenshot is automatic'));
+  form.appendChild(evidenceSection);
 
   const additional = el('details', 'jiratack-additional');
-  additional.appendChild(el('summary', 'jiratack-additional-summary', 'Additional Fields'));
+  additional.appendChild(el('summary', 'jiratack-additional-summary', 'Additional fields'));
 
   const prioritySelect = el('select', 'jiratack-input jiratack-select');
   const noPriority = el('option', null, 'No priority');
@@ -204,7 +409,8 @@ export function renderTicketForm(container, options) {
   prioritySelect.appendChild(noPriority);
   additional.appendChild(field('Priority', prioritySelect));
 
-  const parentInput = textInput('e.g. MM-123', '');
+  const parentInput = textInput('e.g. MM-123', defaultParentKey || '');
+  parentInput.id = 'jiratack-parent';
   additional.appendChild(field('Parent key (optional)', parentInput));
 
   let consoleCheckbox = null;
@@ -218,8 +424,6 @@ export function renderTicketForm(container, options) {
     additional.appendChild(wrap);
   }
 
-  form.appendChild(additional);
-
   const preview = el('div', 'jiratack-screenshot');
 
   function renderPreview() {
@@ -228,65 +432,176 @@ export function renderTicketForm(container, options) {
       preview.style.display = 'none';
       return;
     }
-    preview.style.display = 'block';
+    preview.style.display = 'flex';
     const img = el('img', 'jiratack-screenshot-preview');
     img.src = screenshotDataUrl;
-    img.alt = 'Screenshot preview';
-    const remove = el('button', 'jiratack-screenshot-remove', '✕ Remove');
+    img.alt = 'Pin screenshot';
+    const meta = el('div', 'jiratack-screenshot-meta');
+    meta.appendChild(el('span', 'jiratack-screenshot-label', 'Pin screenshot'));
+    const remove = el('button', 'jiratack-screenshot-remove', 'Remove');
     remove.type = 'button';
     remove.addEventListener('click', () => {
       screenshotDataUrl = null;
+      screenshotFailed = false;
+      if (screenshotWarning) screenshotWarning.style.display = 'none';
       renderPreview();
     });
+    meta.appendChild(remove);
     preview.appendChild(img);
-    preview.appendChild(remove);
+    preview.appendChild(meta);
   }
 
-  form.appendChild(preview);
+
   renderPreview();
 
-  // Text-edit suggestion (plan 6.4). Seeded from the page selection so the
-  // common case — highlight the wrong copy, then file it — needs no typing of
-  // the original.
-  const textEditBox = el('div', 'jiratack-textedit');
-  textEditBox.appendChild(el('span', 'jiratack-field-label', 'Suggest a text change (optional)'));
-  const textEditOriginal = el('textarea', 'jiratack-textarea');
-  textEditOriginal.placeholder = 'Original text (select it on the page first)';
-  const textEditReplacement = el('textarea', 'jiratack-textarea');
-  textEditReplacement.placeholder = 'Suggested replacement';
-  // Read the stored selection, not the live one: the click that placed the pin
-  // already collapsed it.
-  const selected = getLastSelection();
-  if (selected) textEditOriginal.value = selected;
-  textEditBox.appendChild(textEditOriginal);
-  textEditBox.appendChild(textEditReplacement);
-  form.appendChild(textEditBox);
+  // Attach/record are peers; everything captured appears below them.
+  const attachRow = el('div', 'jiratack-attach-row');
+  const attachmentInput = el('input', 'jiratack-attachment-input');
+  attachmentInput.type = 'file';
+  attachmentInput.multiple = true;
+  const attachButton = el('button', 'jiratack-button jiratack-attach-button', 'Attach files');
+  attachButton.type = 'button';
+  attachButton.addEventListener('click', () => attachmentInput.click());
+  const videoButton = el('button', 'jiratack-button jiratack-record-button', 'Record screen');
+  videoButton.type = 'button';
+  attachRow.appendChild(attachButton);
+  attachRow.appendChild(videoButton);
+  attachRow.appendChild(attachmentInput);
+
+  const evidenceList = el('div', 'jiratack-evidence-list');
+  evidenceList.appendChild(preview);
+
+  const attachmentList = el('div', 'jiratack-attachment-list');
+  evidenceList.appendChild(attachmentList);
+
+  const attachmentNote = el('div', 'jiratack-form-hint', '');
+  evidenceList.appendChild(attachmentNote);
+
+  function formatFileSize(bytes) {
+    const value = Number(bytes);
+    if (!Number.isFinite(value) || value <= 0) return '';
+    if (value < 1024) return `${value} B`;
+    if (value < 1024 * 1024) return `${Math.round(value / 1024)} KB`;
+    return `${(value / (1024 * 1024)).toFixed(1)} MB`;
+  }
+
+  function renderAttachmentList() {
+    attachmentList.innerHTML = '';
+    Array.from(attachmentInput.files || []).forEach((file) => {
+      const item = el('div', 'jiratack-attachment-item');
+      const name = el('span', 'jiratack-attachment-name', file.name);
+      name.title = file.name;
+      item.appendChild(name);
+      item.appendChild(el('span', 'jiratack-attachment-size', formatFileSize(file.size)));
+      attachmentList.appendChild(item);
+    });
+  }
+
+  attachmentInput.addEventListener('change', renderAttachmentList);
 
   // Screen recording (plan 6.5). WebM because Chrome and Firefox both produce
   // it; MP4 would fork the pipeline and Jira's previewer is not the only
   // consumer — our issue panel plays it from attachment content.
   let videoBlob = null;
-  const videoBox = el('div', 'jiratack-video');
-  const videoButton = el('button', 'jiratack-button', 'Record screen (up to 60s)');
-  videoButton.type = 'button';
+  let videoDataUrl = null;
+  let recording = null;
+  let pickerStopTimer = null;
   const videoStatus = el('div', 'jiratack-form-hint', '');
   const videoPreview = el('video', 'jiratack-video-preview');
   videoPreview.controls = true;
   videoPreview.style.display = 'none';
   videoPreview.style.maxWidth = '100%';
-  videoBox.appendChild(videoButton);
-  videoBox.appendChild(videoStatus);
-  videoBox.appendChild(videoPreview);
-  form.appendChild(videoBox);
+  evidenceList.appendChild(videoStatus);
+  evidenceList.appendChild(videoPreview);
 
-  videoButton.addEventListener('click', async () => {
+  function setRecordedDataUrl(dataUrl) {
+    videoDataUrl = dataUrl;
+    videoBlob = null;
+    videoPreview.src = dataUrl;
+    videoPreview.style.display = 'block';
+    const bytes = Math.round((dataUrl.length * 3) / 4);
+    videoStatus.textContent = `Recorded ${(bytes / 1024 / 1024).toFixed(1)} MB`;
+  }
+
+  function setRecordedBlob(blob) {
+    videoBlob = blob;
+    videoDataUrl = null;
+    videoPreview.src = URL.createObjectURL(blob);
+    videoPreview.style.display = 'block';
+    videoStatus.textContent = `Recorded ${(blob.size / 1024 / 1024).toFixed(1)} MB`;
+  }
+
+  function setRecordButtonIdle() {
+    videoButton.disabled = false;
+    videoButton.textContent = 'Record screen';
+    videoButton.classList.remove('jiratack-recording');
+  }
+
+  function setRecordButtonRecording() {
+    videoButton.disabled = false;
+    videoButton.textContent = 'Stop recording';
+    videoButton.classList.add('jiratack-recording');
+  }
+
+  function startTabRecording() {
+    videoButton.disabled = true;
+    videoStatus.textContent = 'Starting recording…';
+    let started = false;
+
+    recording = recordCurrentTab({
+      onStatus(state) {
+        if (state === 'recording') {
+          started = true;
+          setRecordButtonRecording();
+          videoStatus.textContent = 'Recording the current tab. Stops after 60 seconds.';
+        } else if (state === 'stopping') {
+          videoButton.disabled = true;
+          videoStatus.textContent = 'Finishing recording…';
+        }
+      },
+      onResult(dataUrl) {
+        recording = null;
+        if (destroyed) return;
+        setRecordButtonIdle();
+        if (!dataUrl) {
+          videoStatus.textContent = '';
+          showError('Recording could not be saved.');
+          return;
+        }
+        setRecordedDataUrl(dataUrl);
+      },
+      onError(message) {
+        recording = null;
+        if (destroyed) return;
+        setRecordButtonIdle();
+        videoStatus.textContent = '';
+        if (started) {
+          showError(message || 'Recording failed.');
+          return;
+        }
+        // chrome.tabCapture can be unavailable on a restricted tab. The display
+        // picker is the honest fallback, even though it cannot skip its prompt.
+        startPickerRecording();
+      },
+    });
+
+    if (!recording) startPickerRecording();
+  }
+
+  async function startPickerRecording() {
     if (!navigator.mediaDevices || !navigator.mediaDevices.getDisplayMedia || typeof MediaRecorder === 'undefined') {
       showError('Screen recording is not available in this browser.');
       return;
     }
     let stream;
     try {
-      stream = await navigator.mediaDevices.getDisplayMedia({ video: { frameRate: 30 }, audio: true });
+      stream = await navigator.mediaDevices.getDisplayMedia({
+        video: { frameRate: 30, displaySurface: 'browser' },
+        audio: true,
+        preferCurrentTab: true,
+        selfBrowserSurface: 'include',
+        surfaceSwitching: 'include',
+      });
     } catch (e) {
       return; // the picker was dismissed
     }
@@ -297,6 +612,7 @@ export function renderTicketForm(container, options) {
       showError('This browser cannot record WebM.');
       return;
     }
+
     const recorder = new MediaRecorder(stream, { mimeType, videoBitsPerSecond: 1500000 });
     const chunks = [];
     recorder.addEventListener('dataavailable', (event) => {
@@ -304,34 +620,65 @@ export function renderTicketForm(container, options) {
     });
     recorder.addEventListener('stop', () => {
       stream.getTracks().forEach((track) => track.stop());
-      videoBlob = new Blob(chunks, { type: 'video/webm' });
-      videoPreview.src = URL.createObjectURL(videoBlob);
-      videoPreview.style.display = 'block';
-      videoStatus.textContent = `Recorded ${(videoBlob.size / 1024 / 1024).toFixed(1)} MB`;
-      videoButton.disabled = false;
-      window.clearTimeout(stopTimer);
+      if (pickerStopTimer) {
+        window.clearTimeout(pickerStopTimer);
+        pickerStopTimer = null;
+      }
+      recording = null;
+      if (destroyed) return;
+      setRecordButtonIdle();
+      const blob = new Blob(chunks, { type: 'video/webm' });
+      if (!blob.size) {
+        showError('Recording could not be saved.');
+        return;
+      }
+      setRecordedBlob(blob);
     });
-    recorder.start();
-    videoButton.disabled = true;
-    videoStatus.textContent = 'Recording… stops after 60 seconds.';
-    const stopTimer = window.setTimeout(() => {
+
+    const stop = () => {
       if (recorder.state === 'recording') recorder.stop();
-    }, 60000);
+    };
+    recording = {
+      stop,
+      destroy() {
+        try {
+          if (recorder.state !== 'inactive') recorder.stop();
+        } catch (e) {
+          // ignore
+        }
+        stream.getTracks().forEach((track) => track.stop());
+      },
+    };
+    stream.getVideoTracks().forEach((track) => track.addEventListener('ended', stop));
+    recorder.start();
+    setRecordButtonRecording();
+    videoStatus.textContent = 'Recording… stops after 60 seconds.';
+    pickerStopTimer = window.setTimeout(stop, 60000);
+  }
+
+  videoButton.addEventListener('click', () => {
+    if (recording) {
+      recording.stop();
+      videoButton.disabled = true;
+      videoStatus.textContent = 'Finishing recording…';
+      return;
+    }
+    if (supportsTabRecording(config)) startTabRecording();
+    else startPickerRecording();
   });
 
-  // Attachments. No type allowlist: Jira decides what it accepts, and the size
-  // ceiling comes from Jira's own attachment metadata rather than a guess.
-  const attachmentsBox = el('div', 'jiratack-attachments');
-  const attachmentLabel = el('label', 'jiratack-field');
-  attachmentLabel.appendChild(el('span', 'jiratack-field-label', 'Attach files'));
-  const attachmentInput = el('input', 'jiratack-attachment-input');
-  attachmentInput.type = 'file';
-  attachmentInput.multiple = true;
-  attachmentLabel.appendChild(attachmentInput);
-  const attachmentNote = el('div', 'jiratack-form-hint', '');
-  attachmentsBox.appendChild(attachmentLabel);
-  attachmentsBox.appendChild(attachmentNote);
-  form.appendChild(attachmentsBox);
+  evidenceSection.appendChild(attachRow);
+  evidenceSection.appendChild(evidenceList);
+
+  const screenshotWarning = el(
+    'div',
+    'jiratack-form-warning',
+    'Screenshot could not be captured due to site security. Ticket will be created without an image.',
+  );
+  screenshotWarning.style.display = screenshotFailed ? 'block' : 'none';
+  evidenceSection.appendChild(screenshotWarning);
+
+  form.appendChild(additional);
 
   let attachmentLimit = 0;
   getAttachmentLimits(config, session).then((limits) => {
@@ -342,16 +689,6 @@ export function renderTicketForm(container, options) {
   }).catch(() => {
     // Limits are advisory; the server still enforces Jira's rule.
   });
-
-  if (options.screenshotFailed) {
-    form.appendChild(
-      el(
-        'div',
-        'jiratack-form-warning',
-        'Screenshot could not be captured due to site security. Ticket will be created without an image.',
-      ),
-    );
-  }
 
   const errorBox = el('div', 'jiratack-form-error');
   errorBox.style.display = 'none';
@@ -365,6 +702,7 @@ export function renderTicketForm(container, options) {
   cancelButton.addEventListener('click', cancel);
   actions.appendChild(submitButton);
   actions.appendChild(cancelButton);
+  actions.appendChild(el('span', 'jiratack-form-shortcut', '⌘/Ctrl + Enter'));
   form.appendChild(actions);
 
   container.appendChild(form);
@@ -374,6 +712,26 @@ export function renderTicketForm(container, options) {
     errorBox.style.display = 'block';
   }
 
+  function showSummaryError(message) {
+    summaryError.textContent = message;
+    summaryError.style.display = 'block';
+    summaryInput.setAttribute('aria-invalid', 'true');
+  }
+
+  function hideSummaryError() {
+    summaryError.textContent = '';
+    summaryError.style.display = 'none';
+    summaryInput.removeAttribute('aria-invalid');
+  }
+
+  function updateSummaryCounter() {
+    summaryCounter.textContent = `${summaryInput.value.length}/215`;
+    if (summaryInput.value.trim().length >= 3) hideSummaryError();
+  }
+
+  summaryInput.addEventListener('input', updateSummaryCounter);
+  updateSummaryCounter();
+
   function cancel() {
     destroy();
     if (onCancel) onCancel();
@@ -381,6 +739,8 @@ export function renderTicketForm(container, options) {
 
   function onKeydown(event) {
     if (event.key !== 'Escape') return;
+    // The composer is a child surface; Escape closes it, not the whole draft.
+    if (textComposer) return;
     event.preventDefault();
     event.stopPropagation();
     cancel();
@@ -391,6 +751,7 @@ export function renderTicketForm(container, options) {
   function clearError() {
     errorBox.textContent = '';
     errorBox.style.display = 'none';
+    hideSummaryError();
   }
 
   let issueTypesRequestId = 0;
@@ -419,6 +780,16 @@ export function renderTicketForm(container, options) {
       issueTypeSelect.innerHTML = '';
 
       if (issueTypes.length === 0) {
+        // Never leave the form unsaveable: if the last ticket had a type, keep
+        // it selectable even when Jira returns an empty list for this project.
+        if (resolvedDefaultIssueTypeId) {
+          const keep = el('option', null, resolvedDefaultIssueTypeName || 'Last used issue type');
+          keep.value = String(resolvedDefaultIssueTypeId);
+          issueTypeSelect.appendChild(keep);
+          issueTypeSelect.value = String(resolvedDefaultIssueTypeId);
+          issueTypeSelect.disabled = false;
+          return;
+        }
         const empty = el('option', null, 'No issue types available');
         empty.value = '';
         issueTypeSelect.appendChild(empty);
@@ -432,6 +803,14 @@ export function renderTicketForm(container, options) {
       });
 
       if (resolvedDefaultIssueTypeId && issueTypes.some((type) => String(type.id) === String(resolvedDefaultIssueTypeId))) {
+        issueTypeSelect.value = String(resolvedDefaultIssueTypeId);
+      } else if (resolvedDefaultIssueTypeId) {
+        // The previous default is not in this project's creatable list (a
+        // subtask type, a moved project, a filtered screen). Keep it visible so
+        // the reviewer can still submit the ticket they were writing.
+        const keep = el('option', null, resolvedDefaultIssueTypeName || 'Last used issue type');
+        keep.value = String(resolvedDefaultIssueTypeId);
+        issueTypeSelect.appendChild(keep);
         issueTypeSelect.value = String(resolvedDefaultIssueTypeId);
       } else {
         // Last used, then Task, then anything that is not an Epic.
@@ -571,14 +950,12 @@ export function renderTicketForm(container, options) {
     event.preventDefault();
     if (submitting) return;
     clearError();
+    if (textChangeRow) textChangeRow.hint.textContent = '';
 
-    // A text-edit ticket is meaningful with only the change filled in, so derive
-    // the summary *before* validation instead of after it.
-    const editOriginal = textEditOriginal.value.trim();
-    const editReplacement = textEditReplacement.value.trim();
-    if (!summaryInput.value.trim() && editOriginal && editReplacement) {
-      summaryInput.value = `Text edit: ${editOriginal.slice(0, 60)}`;
-    }
+    // The summary is prefilled when a text change is present, so the reviewer
+    // sees what will be sent. Do not silently re-derive it if they cleared it.
+    const editOriginal = textChangeState ? String(textChangeState.original || '').trim() : '';
+    const editReplacement = textChangeState ? String(textChangeState.suggested || '').trim() : '';
 
     const summary = summaryInput.value.trim();
     const projectKey = getProjectKey();
@@ -587,23 +964,34 @@ export function renderTicketForm(container, options) {
 
     if (!projectKey) {
       showError('Select a project.');
+      if (projectSelect) projectSelect.focus();
+      else if (projectInput) projectInput.focus();
       return;
     }
     if (summary.length < 3) {
-      showError('Summary must be at least 3 characters.');
+      showSummaryError('Summary must be at least 3 characters.');
+      summaryInput.focus();
+      return;
+    }
+    if (textChangeRow && editOriginal && !editReplacement) {
+      textChangeRow.hint.textContent = 'Write the replacement, or remove the text change.';
       return;
     }
     if (!issueTypeId) {
       showError('Select an issue type.');
+      if (!issueTypeSelect.disabled) issueTypeSelect.focus();
       return;
     }
     if (parentKey && !PARENT_KEY_RE.test(parentKey)) {
+      additional.open = true;
       showError('Parent key must look like MM-123.');
+      parentInput.focus();
       return;
     }
 
     if (isGuest && !assigneeAccountId) {
       showError('Select a licensed user to assign this ticket to.');
+      assigneeInput.focus();
       return;
     }
 
@@ -650,14 +1038,15 @@ export function renderTicketForm(container, options) {
         if (uploadId) attachmentIds.push(uploadId);
       }
 
-      if (videoBlob) {
-        if (attachmentLimit && videoBlob.size > attachmentLimit) {
+      if (videoDataUrl || videoBlob) {
+        const recordingDataUrl = videoDataUrl || await readFileAsDataUrl(videoBlob);
+        const bytes = Math.round((recordingDataUrl.length * 3) / 4);
+        if (attachmentLimit && bytes > attachmentLimit) {
           const mb = Math.round(attachmentLimit / (1024 * 1024));
           throw new Error(`The recording is larger than Jira allows (${mb} MB).`);
         }
-        const videoDataUrl = await readFileAsDataUrl(videoBlob);
         const videoUploadId = await uploadAttachment(config, session, {
-          dataUrl: videoDataUrl,
+          dataUrl: recordingDataUrl,
           filename: `jiratack-recording-${Date.now()}.webm`,
           mimeType: 'video/webm',
         });
@@ -665,6 +1054,39 @@ export function renderTicketForm(container, options) {
       }
 
       console.log(`[JiraTack] sending ${attachmentIds.length} attachment id(s)`);
+      const textChange = editOriginal && editReplacement
+        ? {
+          original: editOriginal,
+          suggested: editReplacement,
+          anchor: options.textSelection && options.textSelection.anchor
+            ? options.textSelection.anchor
+            : undefined,
+        }
+        : null;
+      // The first ticket on a canvas also supplies its card preview (D43).
+      let canvasThumbnail = null;
+      let canvasThumbnailNote = null;
+      if (options.needsCanvasThumbnail && typeof options.captureCanvasThumbnail === 'function') {
+        try {
+          canvasThumbnail = await options.captureCanvasThumbnail();
+        } catch (e) {
+          canvasThumbnail = null;
+          canvasThumbnailNote = `Page capture failed: ${e && e.message ? e.message : String(e)}`;
+        }
+        // The page capture can be refused (CSP, a capture race, a page that
+        // html2canvas cannot render). The ticket's own screenshot is still a
+        // real image of the page, so use it rather than showing no preview.
+        if (!canvasThumbnail && screenshotDataUrl) {
+          canvasThumbnail = await thumbnailFromDataUrl(screenshotDataUrl);
+          if (!canvasThumbnail) canvasThumbnailNote = 'The screenshot could not be scaled for the card.';
+        }
+        if (!canvasThumbnail && !canvasThumbnailNote) {
+          canvasThumbnailNote = screenshotDataUrl
+            ? 'No page image was produced.'
+            : 'This page produced no screenshot.';
+        }
+      }
+
       const result = await createIssue(config, session, {
         canvasId: config.canvasId,
         url: pageUrl,
@@ -674,6 +1096,8 @@ export function renderTicketForm(container, options) {
         summary,
         descriptionAdf,
         screenshotUploadId,
+        canvasThumbnail,
+        canvasThumbnailNote,
         attachmentUploadIds: attachmentIds,
         consoleLog,
         issueTypeId,
@@ -681,6 +1105,7 @@ export function renderTicketForm(container, options) {
         priorityId: prioritySelect.value || null,
         assigneeAccountId: assigneeAccountId || null,
         parentKey: parentKey || null,
+        textChange,
       });
 
       if (result && result.warning) {
@@ -696,6 +1121,8 @@ export function renderTicketForm(container, options) {
           projectKey,
           issueTypeId,
           priorityId: prioritySelect.value || null,
+          textChange,
+          parentKey: parentKey || null,
           assignee: assigneeAccountId
             ? {
               accountId: assigneeAccountId,
@@ -723,8 +1150,41 @@ export function renderTicketForm(container, options) {
   }
 
   form.addEventListener('submit', handleSubmit);
+  form.addEventListener('keydown', (event) => {
+    if ((event.metaKey || event.ctrlKey) && event.key === 'Enter' && !event.isComposing) {
+      event.preventDefault();
+      handleSubmit(event);
+    }
+  });
+
+  // Assignee is the key field, so it gets focus first. If no project is
+  // resolved the ticket cannot be created, and that control is the honest
+  // target instead.
+  const initialProjectKey = getProjectKey();
+  if (!initialProjectKey) {
+    if (projectSelect) projectSelect.focus();
+    else if (projectInput) projectInput.focus();
+  } else {
+    try {
+      assigneeInput.focus({ preventScroll: false });
+      if (assigneeInput.value) assigneeInput.select();
+    } catch (e) {
+      assigneeInput.focus();
+    }
+  }
 
   function destroy() {
+    destroyed = true;
+    textPreview.hide();
+    if (textChangeRow) textChangeRow.destroy();
+    if (recording) {
+      try {
+        recording.destroy();
+      } catch (e) {
+        // ignore
+      }
+      recording = null;
+    }
     document.removeEventListener('keydown', onKeydown, true);
     if (assigneeDebounce) {
       window.clearTimeout(assigneeDebounce);

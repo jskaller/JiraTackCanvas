@@ -68,6 +68,12 @@ function page(title, body) {
     background: #0052cc; color: #fff; font-weight: 700; text-decoration: none; cursor: grab; }
   .bookmarklet:active { cursor: grabbing; }
   .capacity { font-size: 12px; color: #5e6c84; border-top: 1px solid #dfe1e6; padding-top: 14px; }
+  .card.focus { border-color: #4c9aff; box-shadow: 0 0 0 2px rgba(76,154,255,.15); }
+  .install-button { display: inline-block; margin: 2px 6px 6px 0; padding: 8px 14px; border-radius: 6px;
+    background: #0052cc; color: #fff; font-weight: 700; text-decoration: none; font-size: 13px; }
+  .status { display: flex; align-items: center; gap: 8px; font-size: 12px; color: #42526e; }
+  .dot { width: 9px; height: 9px; border-radius: 50%; background: #dfe1e6; display: inline-block; }
+  .dot.on { background: #22a06b; box-shadow: 0 0 0 3px rgba(34,160,107,.18); }
   .error { color: #bf2600; font-weight: 600; }
   ol { margin: 0 0 8px; padding-left: 20px; line-height: 1.6; font-size: 13px; }
 </style>
@@ -116,7 +122,7 @@ function bookmarkletFor(token, urls) {
   });
 }
 
-function phaseOne(token, urls) {
+function phaseOne(token, urls, mode) {
   const legacyHref = bookmarkletFor(buildCompositeToken(token, ''), urls);
 
   const body = `<h1>Get JiraTack</h1>
@@ -147,9 +153,9 @@ function phaseOne(token, urls) {
       id = '';
     }
 
-    location.replace('?token=' + encodeURIComponent(token) + '&installId=' + encodeURIComponent(recent ? '' : id));
+    location.replace('?token=' + encodeURIComponent(token) + '&installId=' + encodeURIComponent(recent ? '' : id) + ${JSON.stringify(mode === 'extension' ? '&mode=extension' : '')});
   } catch (e) {
-    location.replace('?token=' + encodeURIComponent(token) + '&installId=');
+    location.replace('?token=' + encodeURIComponent(token) + '&installId=' + ${JSON.stringify(mode === 'extension' ? '&mode=extension' : '')});
   }
 })();
 </script>`;
@@ -157,7 +163,10 @@ function phaseOne(token, urls) {
   return { statusCode: 200, headers: HTML_HEADERS, body: page('Get JiraTack', body) };
 }
 
-function validPage(token, installId, remaining, urls, invite) {
+// Filled in after the extension is published; enables zero-click enrollment.
+const EXTENSION_ID = '';
+
+function validPage(token, installId, remaining, urls, invite, mode, store) {
   const href = bookmarkletFor(buildCompositeToken(token, installId), urls);
 
   const guestName = invite && invite.guestName;
@@ -172,13 +181,33 @@ function validPage(token, installId, remaining, urls, invite) {
   }
   if (sponsor) invitedParts.push(`Invited by ${escapeHtml(sponsor)}${sponsorContact}.`);
   const invited = invitedParts.length > 0 ? `<p class="muted">${invitedParts.join(' ')}</p>` : '';
-  const body = `<h1>Get JiraTack</h1>${invited}
-<div class="card disabled">
-  <h2>🔌 Install the extension <span class="muted">(recommended)</span></h2>
-  <p>Works on Chrome, Edge and Firefox. Safari is not supported in this release, and some sites block the bookmarklet, so a Safari reviewer needs one of those three.</p>
-  <p><strong>Coming soon — use the bookmarklet for now.</strong></p>
-</div>
-<div class="card">
+  const extensionFirst = mode === 'extension';
+  const safeStoreUrl = (value) => (/^https:\/\/[^\s]+$/i.test(String(value || '')) ? String(value) : '');
+  const chromeUrl = safeStoreUrl(store && store.chromeStoreUrl);
+  const firefoxUrl = safeStoreUrl(store && store.firefoxXpiUrl);
+  const storeButtons = [
+    chromeUrl ? `<a class="install-button" href="${escapeHtml(chromeUrl)}" target="_blank" rel="noopener">Chrome extension</a>` : '',
+    firefoxUrl ? `<a class="install-button" href="${escapeHtml(firefoxUrl)}" target="_blank" rel="noopener">Firefox add-on</a>` : '',
+  ].join(' ');
+  const noStore = !chromeUrl && !firefoxUrl
+    ? '<p class="muted">The extension is not published yet — use the bookmarklet below.</p>'
+    : '';
+
+  const extensionCard = `<div class="card${extensionFirst ? ' focus' : ''}">
+  <h2>🔌 Connect the extension <span class="muted">(recommended on strict sites)</span></h2>
+  <p>Install the JiraTack extension, then connect it to this invite:</p>
+  <p>${storeButtons}</p>
+  ${noStore}
+  <ol>
+    <li>Install the extension (Chrome, Edge or Firefox — Safari is not supported).</li>
+    <li>Come back to this page and click the JiraTack icon in your browser toolbar.</li>
+    <li>The dot below turns green when connected.</li>
+    <li>Open the page you want to review and click the toolbar icon there.</li>
+  </ol>
+  <p class="status"><span class="dot" id="jt-dot"></span><span id="jt-status">Not connected yet</span></p>
+</div>`;
+
+  const bookmarkCard = `<div class="card${extensionFirst ? '' : ' focus'}">
   <h2>🔖 Use the bookmarklet <span class="muted">(works on any browser)</span></h2>
   <p>Nothing to install. Drag this to your bookmarks bar:</p>
   <p><a class="bookmarklet" href="${escapeHtml(href)}" draggable="true" title="Drag to your bookmarks bar">📌 JiraTack</a></p>
@@ -187,18 +216,69 @@ function validPage(token, installId, remaining, urls, invite) {
     <li>Open the page you want to review.</li>
     <li>Click the JiraTack bookmark on that page.</li>
   </ol>
-</div>
+</div>`;
+
+  const body = `<h1>Get JiraTack</h1>${invited}
+${extensionFirst ? extensionCard + bookmarkCard : bookmarkCard + extensionCard}
 <p class="muted" id="jt-browser-note" hidden></p>
 <p class="capacity">Reviewer capacity for this invite: ${remaining} of ${MAX_PAIRINGS} devices remaining.</p>
 <script>
+// The extension enrolls from this page (D43). The token carries the invitation;
+// nothing is stored until the extension validates it with a real exchange.
+window.__jiratackConfig = {
+  token: ${JSON.stringify(buildCompositeToken(token, installId))},
+  apiUrl: ${JSON.stringify(urls.apiUrl)},
+  sdkUrl: ${JSON.stringify(urls.sdkUrl)},
+  canvasId: 'guest',
+  canvasName: 'Guest canvases',
+  sdkVersion: ${JSON.stringify(SDK_VERSION)}
+};
+
+// If the extension is published and known, enrol without any click. The
+// extension still validates the token before storing it.
+var JT_EXTENSION_ID = ${JSON.stringify(EXTENSION_ID)};
+if (JT_EXTENSION_ID && typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.sendMessage) {
+  try {
+    chrome.runtime.sendMessage(JT_EXTENSION_ID, {
+      type: 'jiratack-enroll',
+      config: window.__jiratackConfig
+    }, function (response) {
+      if (response && response.ok) {
+        var d = document.getElementById('jt-dot');
+        var s = document.getElementById('jt-status');
+        if (d) d.className = 'dot on';
+        if (s) s.textContent = 'Connected — use the JiraTack toolbar icon on the page you review';
+      }
+    });
+  } catch (e) {
+    // Extension absent or blocked; the toolbar-click flow still works.
+  }
+}
 (function () {
   var ua = navigator.userAgent || '';
   var isSafari = /Safari\//.test(ua) && !/Chrome\/|Chromium\/|Edg\/|OPR\//.test(ua);
-  if (!isSafari) return;
   var note = document.getElementById('jt-browser-note');
-  if (!note) return;
-  note.hidden = false;
-  note.textContent = 'This is Safari. The JiraTack extension is not available for Safari in this release, and some sites block the bookmarklet. Use Chrome, Edge or Firefox to pin on those sites.';
+  if (isSafari && note) {
+    note.hidden = false;
+    note.textContent = 'This is Safari. The JiraTack extension is not available for Safari in this release, and some sites block the bookmarklet. Use Chrome, Edge or Firefox to pin on those sites.';
+  }
+
+  // Connected state: the injected SDK sets __jiratackActiveCanvas on this page
+  // when the guest starts JiraTack (bookmarklet or toolbar icon). No extension
+  // API is needed, and nothing polls the extension itself.
+  var dot = document.getElementById('jt-dot');
+  var label = document.getElementById('jt-status');
+  var tries = 0;
+  var timer = setInterval(function () {
+    tries += 1;
+    if (window.__jiratackActiveCanvas) {
+      if (dot) dot.className = 'dot on';
+      if (label) label.textContent = 'Connected — use the JiraTack toolbar icon on the page you review';
+      clearInterval(timer);
+      return;
+    }
+    if (tries > 600) clearInterval(timer);
+  }, 500);
 })();
 </script>`;
 
@@ -220,8 +300,11 @@ export const handler = async (req) => {
   }
   if (!urls.apiUrl || !urls.sdkUrl) return unavailable();
 
+  const rawModeQuery = query.mode;
+  const requestedMode = (Array.isArray(rawModeQuery) ? rawModeQuery[0] : rawModeQuery) === 'extension' ? 'extension' : 'bookmark';
+
   const hasInstallId = Object.prototype.hasOwnProperty.call(query, 'installId');
-  if (!hasInstallId) return phaseOne(token, urls);
+  if (!hasInstallId) return phaseOne(token, urls, requestedMode);
 
   const rawInstall = query.installId;
   const supplied = Array.isArray(rawInstall) ? rawInstall[0] : rawInstall;
@@ -258,7 +341,7 @@ export const handler = async (req) => {
 
   const expiry = linkExpiresAt(invite);
   if (expiry && expiry < now) {
-    const window = invite.mintedAfterCutover ? ' after 72 hours' : '';
+    const window = invite.mintedAfterCutover ? ' after 90 days' : '';
     return {
       statusCode: 200,
       headers: HTML_HEADERS,
@@ -286,5 +369,11 @@ export const handler = async (req) => {
     };
   }
 
-  return validPage(token, installId, remainingPairings(used), urls, invite);
+  const rawMode = query.mode;
+  const mode = (Array.isArray(rawMode) ? rawMode[0] : rawMode) === 'extension' ? 'extension' : 'bookmark';
+  const config = await getInstallationConfig();
+  return validPage(token, installId, remainingPairings(used), urls, invite, mode, {
+    chromeStoreUrl: config.chromeStoreUrl || '',
+    firefoxXpiUrl: config.firefoxXpiUrl || '',
+  });
 };

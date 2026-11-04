@@ -11,24 +11,58 @@ export function generateToken(canvasName, scope) {
   return invoke('generateCanvasToken', { canvasName, scope });
 }
 
-export function generateUserToken() {
-  return invoke('generateUserToken');
+export function generateUserToken(permittedCanvases) {
+  return invoke('generateUserToken', permittedCanvases ? { permittedCanvases } : {});
 }
 
 export function generateGuestToken({ permittedCanvases, guestName, guestEmail }) {
   return invoke('generateGuestToken', { permittedCanvases, guestName, guestEmail });
 }
 
-export function createCanvas(canvasName, targetUrl) {
-  return invoke('createCanvas', { canvasName, targetUrl });
+export function createCanvas(canvasName, targetUrl, prefillFields) {
+  return invoke('createCanvas', {
+    canvasName,
+    targetUrl,
+    prefillFields: prefillFields || [],
+  });
 }
 
-export function deleteCanvas(canvasName) {
-  return invoke('deleteCanvas', { canvasName });
+export function deleteCanvas(canvas) {
+  return invoke('deleteCanvas', {
+    canvasKey: canvas && canvas.canvasKey,
+    canvasName: canvas && canvas.canvasName,
+  });
 }
 
-export function archiveCanvas(canvasName) {
-  return invoke('archiveCanvas', { canvasName });
+export function archiveCanvas(canvas) {
+  return invoke('archiveCanvas', {
+    canvasKey: canvas && canvas.canvasKey,
+    canvasName: canvas && canvas.canvasName,
+  });
+}
+
+export function renameCanvas(canvasKey, canvasName) {
+  return invoke('renameCanvas', { canvasKey, canvasName });
+}
+
+export function getCanvasConfig(canvasKey) {
+  return invoke('getCanvasConfig', { canvasKey });
+}
+
+export function setCanvasConfig(canvasKey, prefillFields) {
+  return invoke('setCanvasConfig', { canvasKey, prefillFields: prefillFields || [] });
+}
+
+export function assignCanvasFolder(canvasKey, folder) {
+  return invoke('assignCanvasFolder', { canvasKey, folder });
+}
+
+export function clearCanvasPreview(canvasKey) {
+  return invoke('clearCanvasPreview', { canvasKey });
+}
+
+export function listAvailableTextFields() {
+  return invoke('listAvailableTextFields');
 }
 
 export function formatDate(value) {

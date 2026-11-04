@@ -126,11 +126,21 @@ export async function exchangeToken(payload, request) {
 
     const scope = userRecord.scope || 'create';
 
+    let permittedCanvases = 'all';
+    if (typeof userRecord.permittedCanvasesJson === 'string') {
+      try {
+        permittedCanvases = JSON.parse(userRecord.permittedCanvasesJson);
+      } catch (e) {
+        permittedCanvases = 'all';
+      }
+    }
+
     const sessionJwt = await generateSessionJwt({
       iss: 'jiratack',
       sub: userRecord.userId,
       aud: userRecord.installationId,
       scope,
+      permittedCanvases,
       permittedProjects,
       isAdmin: userRecord.isAdmin === true,
       iat,
@@ -148,6 +158,7 @@ export async function exchangeToken(payload, request) {
       permittedProjects,
       isAdmin: userRecord.isAdmin === true,
       displayName,
+      accountId: userRecord.userId || null,
     });
   }
 
@@ -259,6 +270,7 @@ export async function exchangeToken(payload, request) {
         isAdmin: false,
         displayName,
         pairingId,
+        accountId: invite.issuer || null,
         guestName: invite.guestName || null,
         guestEmail: invite.guestEmail || null,
         issuerName: invite.issuedByName || displayName || null,
@@ -319,5 +331,6 @@ export async function exchangeToken(payload, request) {
     permittedProjects,
     isAdmin: record.isAdmin === true,
     displayName,
+    accountId: record.userId || null,
   });
 }

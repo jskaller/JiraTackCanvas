@@ -9,6 +9,9 @@ const DEFAULT_CONFIG = {
   projects: {},
   archivedCanvases: [],
   deletedCanvases: [],
+  // Extension publication URLs (D43). Empty until the listings exist.
+  chromeStoreUrl: '',
+  firefoxXpiUrl: '',
   configVersion: '',
   updatedAt: 0,
   schemaVersion: 1,
