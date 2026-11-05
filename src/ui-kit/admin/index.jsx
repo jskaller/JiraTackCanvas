@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import ForgeReconciler, {
+  Box,
   Button,
   Checkbox,
   DynamicTable,
@@ -51,6 +52,7 @@ const AdminApp = () => {
   const [confirmRef, setConfirmRef] = useState(null);
   const [confirmGuestRef, setConfirmGuestRef] = useState(null);
   const [showLegacy, setShowLegacy] = useState(false);
+  const [showRevokedFor, setShowRevokedFor] = useState({});
   const [textFields, setTextFields] = useState(null);
   const [fieldCatalogueError, setFieldCatalogueError] = useState(null);
   const [fieldsSaved, setFieldsSaved] = useState(false);
@@ -246,6 +248,67 @@ const AdminApp = () => {
   const named = invites.filter((invite) => invite.guestName || invite.guestEmail);
   const legacy = invites.filter((invite) => !invite.guestName && !invite.guestEmail);
 
+  // One card per person (D48): invites are grouped by reviewer email, which is
+  // what the reviewer binding is derived from. Active first, then soonest expiry.
+  const guestGroups = (() => {
+    const byEmail = new Map();
+    named.forEach((invite) => {
+      const key = invite.guestEmail || invite.tokenRef;
+      if (!byEmail.has(key)) {
+        byEmail.set(key, {
+          key,
+          name: invite.guestName || 'Guest',
+          email: invite.guestEmail || '',
+          invites: [],
+        });
+      }
+      byEmail.get(key).invites.push(invite);
+    });
+
+    const groups = [...byEmail.values()].map((group) => {
+      const active = group.invites
+        .filter((invite) => invite.status !== 'revoked')
+        .sort((a, b) => (a.linkExpiresAt || 0) - (b.linkExpiresAt || 0));
+      const revoked = group.invites
+        .filter((invite) => invite.status === 'revoked')
+        .sort((a, b) => (b.linkExpiresAt || 0) - (a.linkExpiresAt || 0));
+      const sponsor = active[0] || group.invites[0] || {};
+      // The pin count lives on the reviewer binding, so it is one number for the
+      // person, not one per invite.
+      const pins = Math.max(0, ...group.invites.map((invite) => Number(invite.pinCount) || 0));
+      return {
+        ...group,
+        active,
+        revoked,
+        pins,
+        sponsor: sponsor.issuedByName || sponsor.issuedBy || 'unknown',
+      };
+    });
+
+    groups.sort((a, b) => {
+      const aLive = a.active.length > 0;
+      const bLive = b.active.length > 0;
+      if (aLive !== bLive) return aLive ? -1 : 1;
+      const aNext = a.active[0] ? a.active[0].linkExpiresAt || 0 : 0;
+      const bNext = b.active[0] ? b.active[0].linkExpiresAt || 0 : 0;
+      return aNext - bNext;
+    });
+
+    return groups;
+  })();
+
+  const inviteRow = (invite) => (
+    <Stack key={invite.tokenRef} space="space.050">
+      <Inline space="space.100" alignBlock="center">
+        <Lozenge appearance={STATUS_APPEARANCE[invite.status] || 'default'}>{invite.status}</Lozenge>
+        <Text>{(invite.canvases || []).join(', ') || 'No canvases'}</Text>
+        <Text>expires {formatWhen(invite.linkExpiresAt)}</Text>
+        <Text>{invite.pairings} of {invite.pairingsLimit} devices</Text>
+      </Inline>
+      {actionsFor(invite, false)}
+    </Stack>
+  );
+
   const actionsFor = (invite, isLegacy) => {
     const busy = busyRef === invite.tokenRef;
     const buttons = [];
@@ -302,24 +365,6 @@ const AdminApp = () => {
           }}
         >
           {confirmRef === invite.tokenRef ? 'Confirm revoke' : 'Revoke'}
-        </Button>,
-      );
-    }
-    if (!isLegacy && invite.status !== 'revoked') {
-      buttons.push(
-        <Button
-          key="revoke-guest"
-          appearance="subtle"
-          isDisabled={busy}
-          onClick={() => {
-            if (confirmGuestRef === invite.tokenRef) {
-              act(invite.tokenRef, 'revokeGuestInvites');
-            } else {
-              setConfirmGuestRef(invite.tokenRef);
-            }
-          }}
-        >
-          {confirmGuestRef === invite.tokenRef ? 'Confirm revoke all' : 'Revoke guest'}
         </Button>,
       );
     }
@@ -541,7 +586,7 @@ const AdminApp = () => {
 
       <Stack space="space.100">
         <Heading level="h4">Guest invitations</Heading>
-        <Text>One reviewer per invitation. Deactivating pauses access; revoking is permanent. Revoking a guest ends every invitation issued to that person.</Text>
+        <Text>One reviewer, one card. Deactivating pauses an invite; revoking it is permanent. Use Revoke all invites to end every invite for that person.</Text>
 
         {invitesError && (
           <SectionMessage appearance="error" title="Invitations">
@@ -549,11 +594,91 @@ const AdminApp = () => {
           </SectionMessage>
         )}
 
-        <DynamicTable
-          head={HEAD}
-          rows={rowsFor(named, false)}
-          emptyView={<Text>No guest invitations issued.</Text>}
-        />
+        {guestGroups.length === 0 ? (
+          <Text>No guest invitations issued.</Text>
+        ) : (
+          <Stack space="space.200">
+            {guestGroups.map((group) => {
+              const activeCount = group.active.length;
+              const total = group.invites.length;
+              const busy = busyRef ? group.invites.some((invite) => invite.tokenRef === busyRef) : false;
+              const showRevoked = Boolean(showRevokedFor[group.key]);
+              return (
+                <Box
+                  key={group.key}
+                  padding="space.200"
+                  xcss={{
+                    borderWidth: 'border.width',
+                    borderStyle: 'solid',
+                    borderColor: 'color.border',
+                    borderRadius: 'radius.medium',
+                    backgroundColor: 'elevation.surface',
+                  }}
+                >
+                  <Stack space="space.150">
+                    <Inline space="space.100" alignBlock="center" spread="space-between">
+                      <Inline space="space.100" alignBlock="center">
+                        <Text weight="medium">{group.name}</Text>
+                        <Text>{group.email}</Text>
+                        <Lozenge appearance={activeCount > 0 ? 'success' : 'removed'}>
+                          {activeCount > 0 ? `${activeCount} active` : 'none active'}
+                        </Lozenge>
+                        <Text>
+                          {total} {total === 1 ? 'invite' : 'invites'}
+                          {' · '}
+                          {group.pins} {group.pins === 1 ? 'pin' : 'pins'}
+                          {' · '}
+                          {group.sponsor}
+                        </Text>
+                      </Inline>
+                      {activeCount > 1 && (
+                        <Button
+                          appearance="subtle"
+                          isDisabled={busy}
+                          onClick={() => {
+                            if (confirmGuestRef === group.key) {
+                              act(group.active[0].tokenRef, 'revokeGuestInvites');
+                            } else {
+                              setConfirmGuestRef(group.key);
+                            }
+                          }}
+                        >
+                          {confirmGuestRef === group.key
+                            ? `Confirm revoke all invites for ${group.name}`
+                            : 'Revoke all invites'}
+                        </Button>
+                      )}
+                    </Inline>
+
+                    {group.active.length > 0 && (
+                      <Stack space="space.100">
+                        {group.active.map((invite) => inviteRow(invite))}
+                      </Stack>
+                    )}
+
+                    {group.revoked.length > 0 && (
+                      <Stack space="space.100">
+                        <Inline>
+                          <Button
+                            appearance="subtle"
+                            onClick={() => setShowRevokedFor((prev) => ({ ...prev, [group.key]: !prev[group.key] }))}
+                          >
+                            {showRevoked ? 'Hide' : 'Show'} {group.revoked.length} revoked {group.revoked.length === 1 ? 'invite' : 'invites'}
+                          </Button>
+                        </Inline>
+                        {showRevoked && (
+                          <Stack space="space.100">
+                            {group.revoked.map((invite) => inviteRow(invite))}
+                          </Stack>
+                        )}
+                      </Stack>
+                    )}
+                  </Stack>
+                </Box>
+              );
+            })}
+          </Stack>
+        )}
 
         {legacy.length > 0 && (
           <Stack space="space.100">
