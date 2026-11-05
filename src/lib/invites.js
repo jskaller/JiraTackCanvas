@@ -234,6 +234,34 @@ export async function revokeInvite({ ref, viewerAccountId, isAdmin, reason = 're
 }
 
 /**
+ * Revokes every invitation issued to one person. `bindingId` is HMAC(email), so
+ * this is the person-level control the invitations list otherwise lacks: one
+ * click, every canvas, every device. Legacy invitations predate bindings and
+ * have exactly one row, so they fall back to the single revoke.
+ */
+export async function revokeGuestByRef({ ref, viewerAccountId, isAdmin, reason = 'guest_revoked', now = Date.now() }) {
+  const entry = await findInviteByRef(ref);
+  if (!entry) return { ok: false, code: 'NOT_FOUND', message: 'Invitation not found.' };
+  if (!canManageInvite(viewerAccountId, isAdmin, entry.record)) {
+    return { ok: false, code: 'INSUFFICIENT_SCOPE', message: 'You cannot manage this invitation.' };
+  }
+
+  const bindingId = entry.record.bindingId;
+  if (!bindingId) {
+    return revokeInvite({ ref, viewerAccountId, isAdmin, reason, now });
+  }
+
+  const invites = await loadInvites();
+  const samePerson = invites.filter((row) => row.record.bindingId === bindingId && !row.record.revoked);
+
+  for (const row of samePerson) {
+    await revokeInvite({ ref: tokenReference(row.token), viewerAccountId, isAdmin, reason, now });
+  }
+
+  return { ok: true, data: { revoked: samePerson.length } };
+}
+
+/**
  * New link, same reviewer. The binding is reused, so the reviewer slot is not
  * consumed twice; the pairing cap resets because it is counted per invite.
  * The old invitation is tombstoned, which invalidates its pairings.

@@ -648,7 +648,7 @@ CanvasSummary: { canvasName, ticketCount, openCount, urlCount,
 - Sorted by `lastUpdated` descending, then canvas name.
 - Runs `asUser()`, so Jira enforces project permissions natively. No `permittedProjects` filtering here.
 - `hasAccess` reflects `context.userAccess.hasAccess !== false`; `isAdmin` is resolved per §4.0. Both drive UI affordances only.
-- `meter` (D47) counts **distinct identities** with a heartbeat inside a 20-minute window: `user:<accountId>` and `guest:<guestId>`. It is computed on every call rather than cached with the aggregate. `unavailable: true` means the scan failed — the UI must not render that as zero. **No ceiling is enforced anywhere.**
+- `meter` (D47) counts **distinct identities** with a heartbeat inside a 20-minute window: `user:<accountId>` and `guest:<bindingId>` (the person-level HMAC of their email, falling back to the per-invitation `guestId` on legacy invites). It is computed on every call rather than cached with the aggregate. `unavailable: true` means the scan failed — the UI must not render that as zero. **No ceiling is enforced anywhere.**
 
 ### 4.3 `epicPanelData`
 
@@ -716,6 +716,17 @@ Payload: { permittedCanvases: string[], guestName: string, guestEmail: string }
 - Record has **no KVS TTL**: it carries `guestName`, `guestEmail`, `bindingId`, `issuer`, `issuedByName`, `state` (`active`|`inactive`), `issuedAt`, `linkExpiresAt` (90 days, D43) and `revoked`. The link expiry gates new devices only (D29).
 - `code` is the short typed credential (`JT-XXXX-XXXX`); only `sha256(code)` is stored (`guestCodeHashes:<hash>`, D46). `installerUrl` = install web trigger with `?code=<code>`; `null` if URL resolution fails.
 - **Accepted trade-off (D19):** the guest session inherits the **issuer's** browse access for the selected canvases. Seat gating, canvas scoping, and the 90-day link expiry are the compensating controls.
+
+### 4.5d `revokeGuestInvites` — person-level (D48)
+
+```text
+revokeGuestInvites(context, { tokenRef }) → { ok, data: { revoked: number } }
+```
+
+- Same authorisation as `revokeGuestInvite`: an admin, or the invitation's sponsor with a seat.
+- Resolves the invitation from `tokenRef`, reads its `bindingId`, and revokes **every** invitation with the same binding (each through the normal single-revoke path, so typed codes are deleted too).
+- An invitation without a `bindingId` (pre-D27) falls back to the single revoke.
+- Returns how many invitations were revoked.
 
 ### 4.6 `recoverPinsFromDescriptions` — retired (D18)
 

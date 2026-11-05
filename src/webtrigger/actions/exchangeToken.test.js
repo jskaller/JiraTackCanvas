@@ -196,6 +196,7 @@ test('a guest heartbeat is keyed by the guest, not the sponsor', async () => {
       guestName: 'Guest Reviewer',
       guestEmail: 'guest@example.com',
       issuer: 'acc-issuer',
+      bindingId: 'binding-jane',
       installationId: 'inst-1',
       permittedProjectsJson: '*',
       permittedCanvases: ['Guarded canvas'],
@@ -211,6 +212,7 @@ test('a guest heartbeat is keyed by the guest, not the sponsor', async () => {
 
   const guestKey = kvsKeys().find((key) => key.startsWith('meterActive:guest:'));
   assert.ok(guestKey, kvsKeys().join(','));
-  assert.equal(readKvs(guestKey).id, result.data.guestId);
+  // One person, not one invitation: the binding is HMAC(email) (D47).
+  assert.equal(readKvs(guestKey).id, 'binding-jane');
   assert.equal(readKvs('meterActive:user:acc-issuer'), undefined);
 });

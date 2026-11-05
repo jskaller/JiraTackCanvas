@@ -750,7 +750,7 @@ Guests never receive QA-pack entitlements. Because a guest session's `sub` is th
 
 **Resolution:** measurement only, for now.
 
-1. **Unit: a distinct identity.** `user:<accountId>` for a Jira user, `guest:<guestId>` for a guest. One person with three windows is one identity. A guest counts as themselves rather than as the sponsor they report through — counting `sub` would merge every guest into their sponsor.
+1. **Unit: a distinct identity.** `user:<accountId>` for a Jira user, `guest:<bindingId>` for a guest (D48). One person with three windows is one identity. A guest counts as themselves rather than as the sponsor they report through — counting `sub` would merge every guest into their sponsor.
 2. **Window: 20 minutes.** "Currently open" is defined by a heartbeat inside the window, because an extension tab has no socket that closes.
 3. **Source: the credential exchange.** `exchangeToken` writes `meterActive:<kind>:<id>` (`{ kind, id, lastSeenAt }`, one-hour TTL) on every success, and `exchangeLoginCode` does the same. This is the one moment the server knows both the identity and that the client is running, so it costs no extra round trip and the client cannot spoof it.
 4. **Read: `dashboardAggregate`** returns `meter: { users, guests, total, windowMinutes, unavailable }`; the dashboard shows it to admins.
@@ -761,6 +761,24 @@ Guests never receive QA-pack entitlements. Because a guest session's `sub` is th
 **Known limitations:** an idle-but-open extension stops counting after 20 minutes — the intended reading of "currently open", but it under-counts someone who leaves it open and walks away; a user in two browsers counts once; the scan is bounded at 5,000 rows and reports `unavailable` rather than a wrong zero when it fails.
 
 **Applies to:** SPEC §8.1; CONTRACTS §3.1, §4.2; `src/lib/metering.js`, `src/webtrigger/actions/exchangeToken.js`, `src/resolvers/actions/dashboard.js`, `src/custom-ui/dashboard/App.jsx`.
+
+### D48 — The person, not the invitation, is the unit
+
+**Status:** Resolved (2026-11-05)
+
+**Question:** guest identity already has three layers — device pairing, invitation credential, and `bindingId` (HMAC of the guest's email). Which one should the meter count, and which one should revocation act on?
+
+**Resolution:** the binding.
+
+1. **Metering** counts `guest:<bindingId>` rather than the per-invitation `guestId`, so a guest invited to three canvases counts once. Legacy invitations without a binding fall back to `guestId`.
+2. **Revocation** gains a person-level action: **Revoke guest** on any invitation ends every invitation for the same binding, each through the normal single-revoke path so typed codes are deleted too. Single-invitation revoke stays.
+3. **No fourth concept.** A "guest account" would be a new name for `bindingId`, which is already written to every guest ticket. Nothing new is stored.
+
+**Rejected alternatives:** minting a guest account record (a fourth identity layer with no new capability); keying the meter by invitation (one person, several counts); eagerly deleting pairings on revoke (the invitation check already refuses the next write, so it adds work without changing the outcome).
+
+**Known limitations:** invitations issued before D27 have no binding; they remain single-invitation revokes and meter by `guestId` until reissued. Revocation acts on the invitation record, so an already-issued session keeps read access until it expires (8 h) while every write is refused immediately — the D29 behaviour, unchanged here.
+
+**Applies to:** SPEC §8.1; CONTRACTS §3.1, §4.2, §4.5d; `src/lib/invites.js`, `src/resolvers/actions/invites.js`, `src/ui-kit/admin/index.jsx`, `src/webtrigger/actions/exchangeToken.js`.
 
 ## How to update this file
 

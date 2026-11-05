@@ -611,7 +611,7 @@ The page separates its two jobs with an anchor nav: **Install JiraTack** and **C
 - **Connecting the extension (D46).** *Connect this browser* calls the resolver, which mints a single-use 120-second code bound to the signed-in user and returns it with `apiUrl`/`sdkUrl`. The dashboard posts that to the parent window; a content script declared for Jira origins relays it to the extension's background, which exchanges it (§CONTRACTS 3.1b) and stores the credential. The card then reads **Connected as …**, or **extension not detected** when nothing answers within the timeout. Nothing is typed or pasted, and the toolbar is not involved.
 Admin-only actions are hidden for non-admins **and** every privileged resolver re-checks server-side; hiding is not authorisation (D19).
 
-**Usage meter (D47).** Admins see *“N people active in the last 20 minutes”* under the page title, counting **distinct identities** — Jira users and guests separately — whose credential was exchanged inside the window. Measurement only: no limit is enforced, and a failed count renders as unavailable rather than as zero.
+**Usage meter (D47).** Admins see *“N people active in the last 20 minutes”* under the page title, counting **distinct identities** — Jira users by account, guests by reviewer binding (D48) — whose credential was exchanged inside the window. Measurement only: no limit is enforced, and a failed count renders as unavailable rather than as zero.
 
 **Canvases (`#canvases`)**
 - Search matches the canvas name **or key**. A **folder rail** (All, Unfiled, each folder with a count) filters the list; a canvas is moved into a folder from its page. A cards/list toggle (remembered in `localStorage`) switches between a card grid and a table; both show the name and the stable key, open/total counts, URL count, last updated and participants.
@@ -648,7 +648,7 @@ Admin-only actions are hidden for non-admins **and** every privileged resolver r
 
 ### 8.4 Admin page (`jira:adminPage`)
 
-- License status, `viewPermissionMode` (`per_user_projects` | `open`), **guest invitations** (reviewer, email, sponsor, status, pairings, pin count, link expiry, with Deactivate/Activate, New link, Revoke), archived/deleted canvas lists.
+- License status, `viewPermissionMode` (`per_user_projects` | `open`), **guest invitations** (reviewer, email, sponsor, status, pairings, pin count, link expiry, with Deactivate/Activate, New link, Revoke, and **Revoke guest** — every invitation for the same reviewer binding, D48), archived/deleted canvas lists.
 - **Canvas registry health** on demand: counts and samples for orphaned name-index rows, unindexed canvases, duplicate labels (both keys plus ticket counts), previews stored/missing, legacy preview keys, and tickets without a canvas key or without a canvas. **Repair index** restores missing index rows; it never edits tickets.
 
 - Admin-only via `requireAdmin`.

@@ -224,7 +224,7 @@ Admin status is resolved at issuance and frozen in the token. A demotion takes e
 | `userTokens:<token>` | `userId`, `scope`, `isAdmin`, `permittedProjectsJson`, `expiresAt` | 90 d |
 | `guestCodeHashes:<sha256>` | `inviteToken`, `installationId`, `expiresAt` — the hash of a typed guest code (D46) | 90 d |
 | `extensionLoginCodes:<code>` | One-time extension sign-in code: `accountId`, `installationId`, `isAdmin`, `permittedProjectsJson`, `expiresAt` (D46) | 10 min |
-| `meterActive:<user\|guest>:<id>` | `{ kind, id, lastSeenAt }` — usage meter, one row per active identity (D47) | 1 h |
+| `meterActive:<user\|guest>:<id>` | `{ kind, id, lastSeenAt }` — usage meter, one row per active identity; `id` is the account for a user and the reviewer binding for a guest (D47, D48) | 1 h |
 | `jiratack_licensed_users:<accountId>` | `true` — written whenever a seat holder uses a resolver | none |
 | `sessionSigningSecret` | 32-byte hex, HS256 key | none |
 | `screenshot:<uploadId>` + `:NNN` | Upload manifest and base64 chunks | 15 min |

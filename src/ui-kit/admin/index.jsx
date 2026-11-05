@@ -49,6 +49,7 @@ const AdminApp = () => {
   const [invitesError, setInvitesError] = useState(null);
   const [busyRef, setBusyRef] = useState(null);
   const [confirmRef, setConfirmRef] = useState(null);
+  const [confirmGuestRef, setConfirmGuestRef] = useState(null);
   const [showLegacy, setShowLegacy] = useState(false);
   const [textFields, setTextFields] = useState(null);
   const [fieldCatalogueError, setFieldCatalogueError] = useState(null);
@@ -237,6 +238,7 @@ const AdminApp = () => {
     } finally {
       setBusyRef(null);
       setConfirmRef(null);
+      setConfirmGuestRef(null);
     }
   };
 
@@ -300,6 +302,24 @@ const AdminApp = () => {
           }}
         >
           {confirmRef === invite.tokenRef ? 'Confirm revoke' : 'Revoke'}
+        </Button>,
+      );
+    }
+    if (!isLegacy && invite.status !== 'revoked') {
+      buttons.push(
+        <Button
+          key="revoke-guest"
+          appearance="subtle"
+          isDisabled={busy}
+          onClick={() => {
+            if (confirmGuestRef === invite.tokenRef) {
+              act(invite.tokenRef, 'revokeGuestInvites');
+            } else {
+              setConfirmGuestRef(invite.tokenRef);
+            }
+          }}
+        >
+          {confirmGuestRef === invite.tokenRef ? 'Confirm revoke all' : 'Revoke guest'}
         </Button>,
       );
     }
@@ -521,7 +541,7 @@ const AdminApp = () => {
 
       <Stack space="space.100">
         <Heading level="h4">Guest invitations</Heading>
-        <Text>One reviewer per invitation. Deactivating pauses access; revoking is permanent.</Text>
+        <Text>One reviewer per invitation. Deactivating pauses access; revoking is permanent. Revoking a guest ends every invitation issued to that person.</Text>
 
         {invitesError && (
           <SectionMessage appearance="error" title="Invitations">

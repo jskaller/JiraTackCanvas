@@ -270,7 +270,9 @@ export async function exchangeToken(payload, request) {
 
       const config = await getInstallationConfig();
       const displayName = await getDisplayName(invite.issuer);
-      await heartbeat({ kind: 'guest', id: guestId });
+      // Metered by `bindingId` — one person, even with several invitations —
+      // falling back to the per-invitation id on legacy invites (D47).
+      await heartbeat({ kind: 'guest', id: invite.bindingId || guestId });
       return commonResponse(config, {
         sessionJwt,
         expiresAt: exp * 1000,

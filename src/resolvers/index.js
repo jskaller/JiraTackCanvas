@@ -3,7 +3,7 @@ import { getInstallationConfig, mutateInstallationConfig } from '../lib/config.j
 import { requireAdmin } from '../lib/access.js';
 import { generateCanvasToken, generateGuestToken, generateUserToken, createExtensionLogin, listCanvasTokens, revokeCanvasToken, createCanvas, deleteCanvas, archiveCanvas, listTextFields, getCanvasConfig, setCanvasConfig, renameCanvas, listAvailableTextFields, assignCanvasFolder, clearCanvasPreview, registryHealth, repairCanvasIndex, deleteStrayCanvasRecord } from './actions/admin.js';
 import { getProjectConfig, setProjectConfig, getProjectStatuses } from './actions/config.js';
-import { listGuestInvites, setGuestInviteActive, revokeGuestInvite, regenerateGuestInvite } from './actions/invites.js';
+import { listGuestInvites, setGuestInviteActive, revokeGuestInvite, revokeGuestInvites, regenerateGuestInvite } from './actions/invites.js';
 import { dashboardAggregate } from './actions/dashboard.js';
 import { epicPanelData } from './actions/epic.js';
 import { issuePanelData } from './actions/issue.js';
@@ -255,6 +255,15 @@ resolver.define('setGuestInviteActive', async (req) => {
 resolver.define('revokeGuestInvite', async (req) => {
   try {
     return await revokeGuestInvite(req.context, req.payload);
+  } catch (e) {
+    return { ok: false, error: { code: 'INTERNAL', message: e && e.message ? e.message : String(e) } };
+  }
+});
+
+// Person-level revoke (D47): every invitation for this reviewer's binding.
+resolver.define('revokeGuestInvites', async (req) => {
+  try {
+    return await revokeGuestInvites(req.context, req.payload);
   } catch (e) {
     return { ok: false, error: { code: 'INTERNAL', message: e && e.message ? e.message : String(e) } };
   }
