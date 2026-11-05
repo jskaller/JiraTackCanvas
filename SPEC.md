@@ -39,7 +39,7 @@ JiraTack is a single-part product: an Atlassian Forge app, Marketplace listed, i
   | --- | --- | --- | --- |
   | Canvas bookmarklet | `generateCanvasToken` | One canvas | 30 days |
   | Personal bookmarklet | `generateUserToken` | The issuing user, launcher picks a canvas | 90 days |
-  | Guest link | `generateGuestToken` | One named reviewer, delegated by the issuer | link 72 h; access until revoked |
+  | Guest link | `generateGuestToken` | One named reviewer, delegated by the issuer | link 90 days; access until revoked |
 
 **What it explicitly is not:**
 
@@ -201,7 +201,7 @@ There is no backfill and no description marker. Tickets without `com.jiratack.me
 | --- | --- | --- | --- | --- |
 | Canvas token | 30 days | `create`, `view` | Embedded in the bookmarklet URL | `generateCanvasToken` |
 | Personal token | 90 days | `create`, `view` | Embedded in the bookmarklet URL | `generateUserToken` |
-| Guest token | Link 72 h; pairings until revoked | `guest_create` | Embedded in the installer URL | `generateGuestToken` |
+| Guest token | Link 90 days; pairings until revoked | `guest_create` | A short typed code; the invite token stays server-side | `generateGuestToken` |
 | Session JWT | 8 hours | Inherited | `sessionStorage` | `exchangeToken` web trigger |
 
 ### 5.2 Issuance rules
@@ -234,9 +234,9 @@ There is no backfill and no description marker. Tickets without `com.jiratack.me
 
 2. `permittedCanvases` must be 1–50 distinct names of 1–255 characters.
 
-3. Record is `scope: 'guest_create'`, `issuer`, `isAdmin: false`, `permittedCanvases`, `permittedProjectsJson`, `mintedAfterCutover: true`, 72-hour TTL.
+3. Record is `scope: 'guest_create'`, `issuer`, `isAdmin: false`, `permittedCanvases`, `permittedProjectsJson`, `mintedAfterCutover: true`, 90-day link expiry (D43).
 
-4. Returns `{ token, installerUrl, scope, permittedCanvases, permittedProjects, expiresAt }`. `installerUrl` is the install web trigger with `?token=…`.
+4. Returns `{ token, code, installerUrl, scope, permittedCanvases, permittedProjects, expiresAt }`. `code` is a short typed credential (`JT-4F9K-2XQ7`) and only its SHA-256 is stored (D46); `installerUrl` is the install web trigger with `?code=…`. The full invite token is never shown to the guest.
 
 ### 5.3 Exchange flow
 
@@ -607,7 +607,8 @@ The page separates its two jobs with an anchor nav: **Install JiraTack** and **C
 
 **Install JiraTack (`#install`)** — two cards, each with its own actions (D43):
 - **Bookmarklet:** *Get bookmark* (a scope drawer: selected canvases — the default — or all canvases, always current) and *Create a guest bookmark*.
-- **Browser extension:** *Chrome extension* (Web Store), *Firefox add-on* (direct signed `.xpi`) and *Create a guest extension link*. Publication URLs are constants; until a listing exists the button says so and points at the bookmarklet.
+- **Browser extension:** *Chrome extension* (Web Store), *Firefox add-on* (direct signed `.xpi`), **Connect this browser** and *Create a guest extension link*. Publication URLs are constants; until a listing exists the card shows the unpacked Developer-mode instructions under a **Temporary** note that is removed when the listings go live.
+- **Connecting the extension (D46).** *Connect this browser* calls the resolver, which mints a single-use 120-second code bound to the signed-in user and returns it with `apiUrl`/`sdkUrl`. The dashboard posts that to the parent window; a content script declared for Jira origins relays it to the extension's background, which exchanges it (§CONTRACTS 3.1b) and stores the credential. The card then reads **Connected as …**, or **extension not detected** when nothing answers within the timeout. Nothing is typed or pasted, and the toolbar is not involved.
 Admin-only actions are hidden for non-admins **and** every privileged resolver re-checks server-side; hiding is not authorisation (D19).
 
 **Canvases (`#canvases`)**
@@ -659,7 +660,7 @@ Admin-only actions are hidden for non-admins **and** every privileged resolver r
 
 ### 8.6 Guest installer page (`webtrigger-install`, public HTML)
 
-- The guest link carries the token; the page is the identity handoff and never asks for a login (D43).
+- The guest link carries a **short code** (`?code=JT-4F9K-2XQ7`), not the invite token (D46). The page exchanges the code once and continues through the token flow, so no visible token is ever shared.
 - Two cards: **Connect the extension** (install links, then *click the bookmarklet once → click the toolbar icon*; the page shows a 🟢 **Connected** dot when `window.__jiratackActiveCanvas` appears) and **Use the bookmarklet** (drag to the bookmarks bar).
 - `?mode=extension` puts the extension card first. `mode=bookmark` (default) puts the bookmarklet first.
 - The link is valid for **90 days**; pause, revoke and deactivation take effect immediately. Capacity is capped at 10 devices per invite.

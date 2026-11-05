@@ -1,5 +1,6 @@
 import api, { route } from '@forge/api';
-import { kvsGet, kvsSet } from '../../lib/kvs.js';
+import crypto from 'crypto';
+import { kvsGet, kvsSet, kvsDelete } from '../../lib/kvs.js';
 import { getInstallationConfig } from '../../lib/config.js';
 import { generateSessionJwt } from '../../lib/tokens.js';
 import { pairingService } from '../../lib/credentials.js';
@@ -11,6 +12,9 @@ import { resolveWebtriggerUrls } from '../../lib/webtriggerUrls.js';
 import { SDK_VERSION } from '../../lib/version.js';
 
 const SESSION_TTL_SECONDS = 8 * 60 * 60;
+// Matches USER_TOKEN_TTL_DAYS in the resolver: the credential the extension
+// stores after login is the same family the pasted link used to carry.
+const USER_TOKEN_TTL_DAYS = 90;
 let cachedJiraBaseUrl = null;
 const displayNameCache = new Map();
 
@@ -242,12 +246,18 @@ export async function exchangeToken(payload, request) {
       }
       const permittedCanvases = Array.isArray(invite.permittedCanvases) ? invite.permittedCanvases : [];
 
+      // Flow 2/4 (D46): one stable identity per guest, so an extension session
+      // and a bookmarklet session for the same person meter as one user rather
+      // than two. Derived from the invite, never from the sponsor.
+      const guestId = crypto.createHash('sha256').update(parsed.inviteToken).digest('hex').slice(0, 16);
+
       const sessionJwt = await generateSessionJwt({
         iss: 'jiratack',
         sub: invite.issuer,
         aud: invite.installationId,
         scope: 'guest_create',
         issuer: invite.issuer,
+        guestId,
         permittedCanvases,
         permittedProjects,
         pairingId,
@@ -265,6 +275,7 @@ export async function exchangeToken(payload, request) {
         canvasName: null,
         scope: 'guest_create',
         issuer: invite.issuer,
+        guestId,
         permittedCanvases,
         permittedProjects,
         isAdmin: false,
@@ -332,5 +343,71 @@ export async function exchangeToken(payload, request) {
     isAdmin: record.isAdmin === true,
     displayName,
     accountId: record.userId || null,
+  });
+}
+
+/**
+ * Flow 1 (D46): trade the one-time code a Jira tab minted for the credential the
+ * extension stores. The result has the same shape the pasted link used to carry,
+ * so the extension and the SDK keep working unchanged; only the delivery is new.
+ */
+export async function exchangeLoginCode(payload, request) {
+  const code = payload && typeof payload.code === 'string' ? payload.code : '';
+  if (!/^[a-f0-9]{64}$/.test(code)) {
+    return errorResult('TOKEN_INVALID', 'This login code is not valid.');
+  }
+
+  const key = `extensionLoginCodes:${code}`;
+  const record = await kvsGet(key);
+  if (!record) {
+    return errorResult('TOKEN_INVALID', 'This login code has expired or was already used. Sign in again from Jira.');
+  }
+  if (record.expiresAt && record.expiresAt < Date.now()) {
+    return errorResult('TOKEN_EXPIRED', 'This login code has expired. Sign in again from Jira.');
+  }
+
+  // Single-use, and removed before minting so a lost reply costs a second
+  // sign-in rather than leaving a live code behind.
+  await kvsDelete(key);
+
+  let permittedProjects = [];
+  try {
+    permittedProjects = JSON.parse(record.permittedProjectsJson || '[]');
+  } catch (e) {
+    permittedProjects = [];
+  }
+
+  const token = crypto.randomBytes(32).toString('hex');
+  const issuedAt = Date.now();
+  const expiresAt = issuedAt + USER_TOKEN_TTL_DAYS * 24 * 60 * 60 * 1000;
+
+  try {
+    await kvsSet(`userTokens:${token}`, {
+      userId: String(record.accountId || ''),
+      installationId: String(record.installationId || ''),
+      scope: 'create',
+      isAdmin: record.isAdmin === true,
+      issuedAt,
+      expiresAt,
+      revoked: false,
+      permittedProjectsJson: JSON.stringify(permittedProjects),
+      permittedCanvasesJson: JSON.stringify('all'),
+      issuedVia: 'extension_login',
+    }, { ttl: { value: USER_TOKEN_TTL_DAYS, unit: 'DAYS' } });
+  } catch (e) {
+    return errorResult('INTERNAL', `Failed to persist the extension credential: ${e && e.message ? e.message : e}`);
+  }
+
+  const config = await getInstallationConfig();
+  const displayName = await getDisplayName(record.accountId);
+
+  return commonResponse(config, {
+    token,
+    accountId: record.accountId || null,
+    isAdmin: record.isAdmin === true,
+    permittedProjects,
+    permittedCanvases: 'all',
+    displayName,
+    expiresAt,
   });
 }

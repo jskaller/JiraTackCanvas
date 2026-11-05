@@ -721,6 +721,27 @@ Firefox 159 accepts the package as a temporary add-on (`installTemporaryAddon` o
 
 **Applies to:** SPEC §10.2; `src/shared/pinOrder.js`, `src/bookmarklet/index.js`; `scripts/extension-harness/run.mjs`.
 
+### D46 — Login and install flows: four principals, two surfaces
+
+**Status:** Resolved (2026-11-05)
+
+**Question:** the extension connects by pasting a canvas link, and every credential is a long-lived bearer token carried in a URL. What do the four ways a person starts using JiraTack look like, and what identifies them?
+
+**Resolution:** four flows, signed off as a set.
+
+1. **User / extension — log in, do not paste.** `chrome.runtime.onInstalled` opens a first-run page (no `onInstalled` handler exists today). *Log in with Atlassian* opens the JiraTack dashboard in a Jira tab; the resolver runs with a real `context.accountId` and mints a single-use 120-second login code bound to that account. The extension reads the code from the tab with `chrome.scripting.executeScript` — the pattern already used for `__jiratackActiveCanvas` — and exchanges it for a 90-day user token plus `apiUrl`/`sdkUrl`. No password is ever collected, and no separate Atlassian OAuth app or external review is involved. The paste box survives only as *Repair connection*.
+2. **Guest / extension — a short qualifying code.** The sponsor issues the invitation per named person, exactly as today (name and email captured at issue time). The guest receives a short code (`JT-4F9K-2XQ7`); only `sha256(code)` is stored. The invitation link carries the code (`?code=…`), the installer page exchanges it and publishes the config the extension already consumes. The click-the-bookmarklet-first step disappears.
+3. **User / bookmarklet — the personal credential stays in the link.** `sessionStorage` and `localStorage` are per-origin, so a bookmark cannot carry a session between sites; a credential-free link would mean a login on every new site. The link keeps a 90-day per-user token, minted from the signed-in dashboard and dragged rather than pasted. The cached session key moves from per-canvas to per-account.
+4. **Guest / bookmarklet — the code is exchanged, never embedded.** The guest opens the invitation link and enters the short code once; the page hands back a bookmarklet carrying a strong guest credential, not the eight-character code, because that code would be visible in a bookmarks bar. Same scoping, revocation and 10-device cap as today.
+
+Guests never receive QA-pack entitlements. Because a guest session's `sub` is the sponsor, any entitlement check must exclude `scope === 'guest_create'` explicitly; otherwise every guest inherits the sponsor's seat.
+
+**Rejected alternatives:** a credential-free bookmarklet (a login popup on every new origin, because browser storage is per-origin); embedding the short guest code in the bookmarklet (a guessable eight-character credential in a bookmarks-bar URL); a separate Atlassian OAuth app for the extension (registration and external review for a flow a Jira tab already satisfies); collecting Jira credentials inside the extension (a phishing surface and a Web Store rejection).
+
+**Known limitations:** the extension needs a Jira tab for its first login; it cannot sign in while no Jira session exists. The login code is deleted before the token is minted, so two requests racing on one code can both succeed — both mint tokens for the same account, so the outcome is two valid tokens rather than a cross-account leak. The bookmarklet link remains a bearer credential for 90 days and must not be shared. Guest codes are only as strong as their length and the rate limit on exchange.
+
+**Applies to:** SPEC §6.5, §6.6, §8.1, §8.6; CONTRACTS §3.1, §4.7, Part 12; `src/extension/background.js`, `src/extension/options.*`, `src/resolvers/actions/admin.js`, `src/webtrigger/actions/exchangeToken.js`, `src/webtrigger/api.js`, `docs/EXTENSION-DISTRIBUTION.md`.
+
 ## How to update this file
 
 When a decision is resolved:

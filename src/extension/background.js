@@ -95,6 +95,96 @@ function readPageEnroll(tabId, cb) {
   });
 }
 
+// Flow 1 (D46). Only the Jira pages the relay runs on, plus the extension's own
+// pages (the options page may reconnect), may ask for a sign-in exchange.
+function trustedSender(sender) {
+  var url = sender && sender.url ? String(sender.url) : '';
+  if (/^(chrome-extension|moz-extension):\/\//i.test(url)) return true;
+  return /^https:\/\/([a-z0-9-]+\.)*(atlassian\.net|atlassian\.com|atlassian-dev\.net)(\/|$)/i.test(url);
+}
+
+// Trade the dashboard's one-time code for the credential the SDK already knows
+// how to use. The layout is identical to a pasted canvas link, so nothing
+// downstream changes — only how the credential arrives.
+function connectExtension(message, sendResponse) {
+  var apiUrl = typeof message.apiUrl === 'string' ? message.apiUrl : '';
+  var code = typeof message.code === 'string' ? message.code : '';
+  // Production endpoints are HTTPS. Loopback HTTP exists only so the extension
+  // harness can drive this path without a certificate.
+  var acceptable = /^https:\/\//i.test(apiUrl)
+    || /^http:\/\/(127\.0\.0\.1|localhost)(:\d+)?(\/|$)/i.test(apiUrl);
+
+  if (!acceptable || !/^[a-f0-9]{64}$/.test(code)) {
+    sendResponse({ ok: false, reason: 'That connection request was not valid.' });
+    return;
+  }
+
+  fetch(apiUrl, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ action: 'exchangeLoginCode', payload: { code: code } }),
+  }).then(function (response) {
+    return response.json().then(function (body) { return body; }, function () { return null; });
+  }).then(function (body) {
+    if (!body || body.ok !== true) {
+      sendResponse({
+        ok: false,
+        reason: (body && body.error && body.error.message) || 'JiraTack rejected the sign-in.',
+      });
+      return;
+    }
+    var data = body.data || {};
+    if (!data.token) {
+      sendResponse({ ok: false, reason: 'JiraTack did not return a credential.' });
+      return;
+    }
+    var config = {
+      token: data.token,
+      apiUrl: data.apiUrl || apiUrl,
+      sdkUrl: data.sdkUrl || '',
+      // The launcher: the signed-in user may reach every canvas the server
+      // permits, so the extension is not bound to one canvas.
+      canvasId: 'universal',
+      canvasName: 'JiraTack',
+      sdkVersion: data.currentSdkVersion || '',
+      accountId: data.accountId || null,
+      displayName: data.displayName || null,
+      connectedVia: 'extension_login',
+    };
+    chrome.storage.local.set({ jiratackConfig: config }, function () {
+      sendResponse({ ok: true, displayName: config.displayName, accountId: config.accountId });
+    });
+  }, function () {
+    sendResponse({ ok: false, reason: 'The JiraTack API could not be reached.' });
+  });
+}
+
+// A declared content script is not added to pages that were already open when
+// the extension was installed. The user is asked to return to the JiraTack tab
+// after installing, so inject the relay there now rather than making them
+// reload and wonder why nothing happened.
+function installRelayIntoOpenTabs() {
+  if (!chrome.scripting || !chrome.tabs) return;
+  chrome.tabs.query({
+    url: ['https://*.atlassian.net/*', 'https://*.hello.atlassian-dev.net/*'],
+  }, function (tabs) {
+    void chrome.runtime.lastError;
+    (tabs || []).forEach(function (tab) {
+      if (!tab || !tab.id) return;
+      chrome.scripting.executeScript({
+        target: { tabId: tab.id },
+        files: ['connect.js'],
+      }, function () {
+        void chrome.runtime.lastError;
+      });
+    });
+  });
+}
+
+chrome.runtime.onInstalled.addListener(function () {
+  installRelayIntoOpenTabs();
+});
+
 function isActive(tabId, cb) {
   chrome.scripting.executeScript({
     target: { tabId: tabId },
@@ -244,8 +334,19 @@ chrome.tabs.onUpdated.addListener(function (tabId, changeInfo) {
   });
 });
 
-chrome.runtime.onMessage.addListener(function (message, sender) {
+chrome.runtime.onMessage.addListener(function (message, sender, sendResponse) {
   if (!message) return;
+
+  // Flow 1 (D46): the Jira relay asks the background to sign this browser in.
+  // Returning true keeps the channel open for the async reply.
+  if (message.type === 'jiratack-connect') {
+    if (!trustedSender(sender)) {
+      sendResponse({ ok: false, reason: 'Untrusted origin.' });
+      return false;
+    }
+    connectExtension(message, sendResponse);
+    return true;
+  }
 
   if (message.type === 'jiratack-capture-tab' && sender && sender.tab) {
     // captureVisibleTab always captures the active tab; make sure it is the

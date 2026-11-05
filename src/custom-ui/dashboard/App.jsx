@@ -3,6 +3,7 @@ import { router } from '@forge/bridge';
 import {
   aggregate,
   buildJqlUrl,
+  createExtensionLogin,
   deleteCanvas,
   archiveCanvas,
 } from './api';
@@ -41,6 +42,49 @@ function readRouteKey() {
   }
 }
 
+/**
+ * Flow 1 (D46): the dashboard cannot call `chrome.*`, so it posts to the parent
+ * window where the extension's relay listens and waits for the matching answer.
+ * A null result means the extension is not installed (or did not answer).
+ */
+function askExtension(payload, expectedType, requestId, timeoutMs) {
+  return new Promise((resolve) => {
+    if (typeof window === 'undefined' || window.parent === window) {
+      resolve(null);
+      return;
+    }
+    let settled = false;
+    const timer = window.setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      window.removeEventListener('message', onMessage);
+      resolve(null);
+    }, timeoutMs);
+    function onMessage(event) {
+      const data = event.data;
+      if (!data || data.source !== 'jiratack' || data.type !== expectedType) return;
+      if (data.requestId !== requestId) return;
+      if (settled) return;
+      settled = true;
+      window.clearTimeout(timer);
+      window.removeEventListener('message', onMessage);
+      resolve(data);
+    }
+    window.addEventListener('message', onMessage);
+    try {
+      window.parent.postMessage(payload, '*');
+    } catch (e) {
+      window.clearTimeout(timer);
+      window.removeEventListener('message', onMessage);
+      resolve(null);
+    }
+  });
+}
+
+function requestId(prefix) {
+  return `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
 export default function App() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -57,6 +101,11 @@ export default function App() {
   const [viewArchived, setViewArchived] = useState(false);
   const [guestMode, setGuestMode] = useState(null);
   const [bookmarkOpen, setBookmarkOpen] = useState(false);
+  const [extension, setExtension] = useState({
+    status: 'unknown', // unknown | absent | present | connecting | connected | error
+    message: '',
+    displayName: null,
+  });
   const [view, setView] = useState(readView);
   const [folder, setFolder] = useState('');
   const [route, setRoute] = useState(readRouteKey);
@@ -95,6 +144,33 @@ export default function App() {
   useEffect(() => {
     load();
   }, [load]);
+
+  // Flow 1 (D46): ping the extension's Jira relay so the card can say whether
+  // this browser already has it. Stops once connected, and is harmless when the
+  // page is not embedded (askExtension resolves null immediately).
+  useEffect(() => {
+    let cancelled = false;
+    let timer = null;
+    async function ping() {
+      const id = requestId('ping');
+      const answer = await askExtension(
+        { source: 'jiratack', type: 'jiratack-extension-ping', requestId: id },
+        'jiratack-extension-pong',
+        id,
+        1200,
+      );
+      if (cancelled) return;
+      setExtension((prev) => (prev.status === 'connected'
+        ? prev
+        : { status: answer ? 'present' : 'absent', message: '', displayName: prev.displayName }));
+      timer = window.setTimeout(ping, 3000);
+    }
+    ping();
+    return () => {
+      cancelled = true;
+      if (timer) window.clearTimeout(timer);
+    };
+  }, []);
 
   function switchView(next) {
     setView(next);
@@ -135,6 +211,53 @@ export default function App() {
       return;
     }
     router.open(url);
+  }
+
+  async function handleConnectExtension() {
+    setExtension({ status: 'connecting', message: '', displayName: null });
+
+    const result = await createExtensionLogin();
+    if (!result || !result.ok) {
+      setExtension({
+        status: 'error',
+        message: (result && result.error && result.error.message) || 'Could not start the sign-in.',
+        displayName: null,
+      });
+      return;
+    }
+
+    const data = result.data || {};
+    const id = requestId('connect');
+    const answer = await askExtension(
+      {
+        source: 'jiratack',
+        type: 'jiratack-extension-connect',
+        requestId: id,
+        apiUrl: data.apiUrl,
+        code: data.code,
+      },
+      'jiratack-extension-connect-result',
+      id,
+      8000,
+    );
+
+    if (!answer) {
+      setExtension({
+        status: 'error',
+        message: 'The extension is not detected. Install it, then reload this page and try again.',
+        displayName: null,
+      });
+      return;
+    }
+    if (!answer.ok) {
+      setExtension({
+        status: 'error',
+        message: answer.error || 'The extension could not sign in.',
+        displayName: null,
+      });
+      return;
+    }
+    setExtension({ status: 'connected', message: '', displayName: answer.displayName || null });
   }
 
   function handleOpenJira(canvas) {
@@ -275,8 +398,8 @@ export default function App() {
           <article className="jt-install-card">
             <h3>Browser extension</h3>
             <p>
-              For sites that block the bookmarklet. Install once, then connect it from any page
-              where a JiraTack overlay is running.
+              For sites that block the bookmarklet. Install it, come back to this tab, then
+              connect this browser.
             </p>
             <div className="jt-install-actions">
               <button type="button" className="jt-button" onClick={() => openStore('chrome')}>
@@ -287,6 +410,14 @@ export default function App() {
               </button>
               <button
                 type="button"
+                className="jt-button jt-button-primary"
+                disabled={!hasAccess || extension.status === 'connecting'}
+                onClick={handleConnectExtension}
+              >
+                {extension.status === 'connected' ? 'Connected' : 'Connect this browser'}
+              </button>
+              <button
+                type="button"
                 className="jt-button"
                 disabled={!hasAccess}
                 onClick={() => openGuest('extension')}
@@ -294,6 +425,27 @@ export default function App() {
                 Create a guest extension link
               </button>
             </div>
+            <p className={`jt-connect-status jt-connect-${extension.status}`}>
+              {extension.status === 'connected'
+                ? `Connected${extension.displayName ? ` as ${extension.displayName}` : ''} — this browser is signed in.`
+                : extension.status === 'connecting'
+                  ? 'Connecting…'
+                  : extension.status === 'error'
+                    ? extension.message
+                    : extension.status === 'present'
+                      ? 'Extension detected — click Connect this browser.'
+                      : extension.status === 'absent'
+                        ? 'Extension not detected in this browser yet.'
+                        : 'Checking for the extension…'}
+            </p>
+            {/* TEMPORARY (D46): the unpacked fallback goes away with the store listing. */}
+            <p className="jt-temp-note">
+              <strong>Temporary while the store listing is pending:</strong> install with
+              Chrome&apos;s <em>Developer mode → Load unpacked</em> → <code>dist/extension-chrome</code>,
+              or Firefox&apos;s <em>about:debugging → Load Temporary Add-on</em> →
+              <code>dist/extension-firefox/manifest.json</code>. Remove this note when the
+              listings are live.
+            </p>
           </article>
         </div>
       </section>

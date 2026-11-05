@@ -10,6 +10,7 @@ export default function GuestLinkModal({ canvases, defaultCanvas, mode, onClose 
   const [error, setError] = useState(null);
   const [result, setResult] = useState(null);
   const [copied, setCopied] = useState(false);
+  const [codeCopied, setCodeCopied] = useState(false);
   const [filter, setFilter] = useState('');
 
   const allSelected = canvases.length > 0 && selected.size === canvases.length;
@@ -78,10 +79,22 @@ export default function GuestLinkModal({ canvases, defaultCanvas, mode, onClose 
     const name = result.guestName || guestName || 'there';
     const subject = 'Your JiraTack review link';
     const how = extension
-      ? 'Install the JiraTack extension, then open this link and click the JiraTack toolbar icon to connect it.'
-      : 'Open this link, then drag the JiraTack button to your bookmarks bar.';
-    const body = `Hi ${name},\n\nHere is your JiraTack review link. ${how}\n\n${linkFor(result)}\n\nThe link is valid for 90 days.`;
+      ? 'Install the JiraTack extension, come back to the link, and click Connect this browser. If the link does not fill it in, enter this guest code:'
+      : 'Open this link and drag the JiraTack button to your bookmarks bar. If the link does not fill it in, enter this guest code:';
+    const codeLine = result.code ? `\n\nGuest code: ${result.code}` : '';
+    const body = `Hi ${name},\n\nHere is your JiraTack review link. ${how}${codeLine}\n\n${linkFor(result)}\n\nThe link is valid for 90 days.`;
     window.location.href = `mailto:${encodeURIComponent(to)}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+  }
+
+  async function copyCode() {
+    if (!result || !result.code) return;
+    try {
+      await navigator.clipboard.writeText(result.code);
+      setCodeCopied(true);
+      window.setTimeout(() => setCodeCopied(false), 2000);
+    } catch (e) {
+      setCodeCopied(false);
+    }
   }
 
   async function copyUrl() {
@@ -110,10 +123,19 @@ export default function GuestLinkModal({ canvases, defaultCanvas, mode, onClose 
               Invited: {result.guestName || guestName} &lt;{result.guestEmail || guestEmail}&gt;
             </p>
             <p className="jt-modal-canvas">Guest canvases: {result.permittedCanvases.join(', ')}</p>
+            {result.code && (
+              <div className="jt-guest-code">
+                <span className="jt-form-label">Guest code</span>
+                <code>{result.code}</code>
+                <button type="button" className="jt-button" onClick={copyCode}>
+                  {codeCopied ? 'Copied' : 'Copy code'}
+                </button>
+              </div>
+            )}
             <p>
               {extension
-                ? 'Send this link to your client. They install the JiraTack extension, open the link, and click the JiraTack toolbar icon on that page to connect it.'
-                : 'Send this link to your client. They open it and drag the JiraTack button to their bookmarks bar.'}
+                ? 'Send this link to your client. They install the JiraTack extension, open the link and click Connect this browser. The link fills the code in; they can also type it.'
+                : 'Send this link to your client. They open it and drag the JiraTack button to their bookmarks bar. The link fills the code in; they can also type it.'}
             </p>
             <textarea
               className="jt-bookmarklet-url"

@@ -11,6 +11,11 @@ export function generateUserToken(permittedCanvases) {
   return invoke('generateUserToken', permittedCanvases ? { permittedCanvases } : {});
 }
 
+// Flow 1 (D46): mint the one-time code the extension trades for a credential.
+export function createExtensionLogin() {
+  return invoke('createExtensionLogin');
+}
+
 export function generateGuestToken({ permittedCanvases, guestName, guestEmail }) {
   return invoke('generateGuestToken', { permittedCanvases, guestName, guestEmail });
 }

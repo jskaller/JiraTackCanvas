@@ -31,19 +31,22 @@ route for organisations that manage browsers. Firefox has an equivalent
 
 ## How the extension binds to an installation
 
-There is no login inside the extension. On first use it copies a token from a
-JiraTack page:
+The extension is connected from the JiraTack dashboard (D46), not by pasting a
+link:
 
-1. The page exposes `window.__jiratackConfig` (`token`, `apiUrl`, `sdkUrl`,
-   `canvasId`, `canvasName`, `sdkVersion`).
-2. The reviewer clicks the toolbar icon.
-3. The background validates the token with a real `exchangeToken` against that
-   `apiUrl`, then stores it in `chrome.storage.local`.
+1. The dashboard's **Connect this browser** button calls `createExtensionLogin`;
+   the resolver mints a single-use 120-second code bound to the signed-in Jira
+   user and returns it with `apiUrl`/`sdkUrl`.
+2. The dashboard posts the code to its parent window. A content script declared
+   for Jira origins relays it to the background worker, which is the only part
+   allowed to make the network call and write storage.
+3. The background exchanges the code with `exchangeLoginCode` and stores the
+   resulting 90-day credential in `chrome.storage.local`.
 
-The token is the identity: it carries the installation, the user or guest, the
-permitted projects/canvases and (for guests) the bound name and email. The
-extension holds one connection at a time; a different installation triggers a
-confirmation on the options page rather than a silent replacement.
+The credential is still a personal token: it carries the installation, the user,
+the permitted projects/canvases and the admin claim resolved at issuance. The
+extension holds one connection at a time; connecting a different installation
+replaces it, and a stale `apiUrl` is repaired by connecting again.
 
 ## Host permissions
 
@@ -55,11 +58,14 @@ cross-navigation reopen and the rename/visibility guarantees that depend on it.
 
 ## Guests
 
-A guest installs the extension, opens the invitation link (which carries the
-guest token) and clicks the toolbar icon on that page. The installer page
-publishes `__jiratackConfig` itself, so no bookmarklet step is needed, and it
-shows a green dot once the overlay starts. Guest links last 90 days and can be
-revoked or paused at any time; each new link reconnects in one click.
+A guest installs the extension, opens the invitation link and accepts the
+pre-filled **short code** (`JT-4F9K-2XQ7`) — or types it. The page exchanges the
+code once for the guest credential and publishes `__jiratackConfig`, which is the
+extension's normal enrolment path. Only the SHA-256 of the code is stored
+(`guestCodeHashes:<hash>`), and the invitation is re-read on every exchange, so
+revoke and pause take effect immediately rather than when a session expires.
+Guest links last 90 days and pair up to 10 devices; each new link reconnects in
+one step.
 
 ## Zero-click enrollment
 

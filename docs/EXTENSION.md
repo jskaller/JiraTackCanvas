@@ -61,26 +61,28 @@ the bookmarklet and Safari has no extension here to fall back on.
 
 ## Configure
 
-1. In JiraTack, copy the bookmarklet link for the canvas (the same link you
-   would otherwise drag to the bookmarks bar).
-2. Open the extension's options page and paste it. It carries the token and
-   endpoints; the parser is `src/shared/extensionConfig.js` and rejects anything
-   that is not a JiraTack link.
-3. Click the toolbar icon on any page: overlay opens. Click again: it closes.
+1. Open the JiraTack dashboard in Jira and click **Connect this browser** in the
+   browser-extension card (D46). The dashboard mints a one-time code; the
+   extension trades it for a 90-day credential and stores it.
+2. Click the toolbar icon on any page: overlay opens. Click again: it closes.
 
-If the extension is not configured, the icon opens the options page instead.
+The options page keeps a paste box as **Repair connection** — the parser is
+`src/shared/extensionConfig.js`, which rejects anything that is not a JiraTack
+link. If the extension is not configured, the icon opens the options page.
 
 ## Permissions
 
 | Permission | Why |
 | --- | --- |
-| `storage` | Holds the canvas token and endpoints. |
-| `scripting` | Injects the SDK into the tab you clicked. |
-| `activeTab` | Grants access to that tab only, on your click. No `<all_urls>`. |
+| `storage` | Holds the credential and endpoints. |
+| `scripting` | Injects the SDK into the tab you clicked, and the connect relay into Jira tabs that were open before installation. |
+| `activeTab` | Grants access to the clicked tab. |
+| `<all_urls` | Deliberate (D40): re-injects the overlay after a navigation and keeps `captureVisibleTab` working outside the initial `activeTab` grant. This is the broad install prompt the Web Store listing must justify. |
+| content script (Jira origins) | `connect.js` relays the dashboard's one-time sign-in code to the background. It runs on `*.atlassian.net` and `*.hello.atlassian-dev.net` only, and cannot touch other origins. |
 
 The SDK is injected **on demand**, into the page's world, not declared as a
 content script: the bundle is ~290 KB and every open tab would pay for it while
-idle.
+idle. The only declared content script is the small sign-in relay above.
 
 ## Verified
 
@@ -93,9 +95,10 @@ Chromium 156, extension loaded, real pages (2026-11-02):
 | `linkedin.com` | Refused by CSP | SDK injected, overlay + sidebar rendered |
 
 The run used a verification build with `<all_urls>` because a headless browser
-cannot click a toolbar icon to earn `activeTab`; the shipped manifest uses
-`activeTab` only. Injection and DOM rendering were checked; ticket creation was
-not, because it needs a live token.
+cannot click a toolbar icon to earn `activeTab`. The shipped manifest also
+declares `<all_urls>` (D40) for the reasons in **Permissions** above. Injection
+and DOM rendering were checked; ticket creation was not, because it needs a live
+token.
 
 ## Browser status
 

@@ -1,6 +1,7 @@
 import { errorResponse, STATUS_BY_CODE } from '../lib/errors.js';
 import { authenticate } from './middleware/auth.js';
-import { exchangeToken } from './actions/exchangeToken.js';
+import { exchangeToken, exchangeLoginCode } from './actions/exchangeToken.js';
+import { exchangeGuestCode } from './actions/exchangeGuestCode.js';
 import { getPinsForCanvasAndUrl } from './actions/getPins.js';
 import { createIssue } from './actions/createIssue.js';
 import { getTransitions } from './actions/transitions.js';
@@ -65,6 +66,16 @@ export const handler = async (req, context) => {
   try {
     if (action === 'exchangeToken') {
       return envelope(await exchangeToken(payload, req));
+    }
+
+    // The code is the credential; there is no session to authenticate yet.
+    if (action === 'exchangeLoginCode') {
+      return envelope(await exchangeLoginCode(payload, req));
+    }
+
+    // Flow 2/4 (D46): a sponsor's short guest code for the same credential.
+    if (action === 'exchangeGuestCode') {
+      return envelope(await exchangeGuestCode(payload, req));
     }
 
     if (action === 'getPinsForCanvasAndUrl') {

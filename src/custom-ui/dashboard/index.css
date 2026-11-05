@@ -962,6 +962,51 @@ body {
   gap: 6px;
 }
 
+/* Flow 1 (D46): the connect button's live state. */
+.jt-connect-connected {
+  color: #216e4e !important;
+  font-weight: 600;
+}
+
+.jt-connect-error {
+  color: #ae2e24 !important;
+}
+
+/* TEMPORARY (D46): remove with the unpacked fallback once the store lists. */
+.jt-temp-note {
+  border-left: 3px solid #ffab00;
+  background: #fff7e6;
+  padding: 6px 8px;
+  border-radius: 4px;
+}
+
+.jt-temp-note code {
+  font-size: 11px;
+  background: #ffffff;
+  padding: 0 3px;
+  border-radius: 3px;
+}
+
+/* Flow 2/4 (D46): the guest code the sponsor hands over. */
+.jt-guest-code {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 10px;
+  padding: 8px 10px;
+  border: 1px solid #dfe1e6;
+  border-radius: 6px;
+  background: #fafbfc;
+}
+
+.jt-guest-code code {
+  flex: 1;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 16px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+}
+
 /* Folders (D43): an implicit label on each canvas, surfaced as a rail. */
 .jt-folder-rail {
   display: flex;

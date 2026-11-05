@@ -136,6 +136,53 @@ async function main() {
     const stored = await ext.evaluate('chrome.storage.local.get(["jiratackConfig"]).then((r) => Boolean(r.jiratackConfig))');
     record('config persists', stored === true, String(stored));
 
+    // Flow 1 (D46): the dashboard's relay message — not a pasted link — is what
+    // signs this browser in. Start from no config, as a fresh install would.
+    await ext.evaluate('chrome.storage.local.remove("jiratackConfig")');
+    const connectReply = JSON.parse(await ext.evaluate(`new Promise((resolve) => {
+      chrome.runtime.sendMessage({
+        type: 'jiratack-connect',
+        apiUrl: ${JSON.stringify(servers.apiUrl)},
+        code: ${JSON.stringify(servers.state.loginCode)},
+      }, (response) => resolve(JSON.stringify(response)));
+    })`) || 'null');
+    record(
+      'connect: the background accepts the dashboard code',
+      Boolean(connectReply && connectReply.ok === true),
+      JSON.stringify(connectReply),
+    );
+
+    const connectedConfig = JSON.parse(await ext.evaluate(
+      'chrome.storage.local.get(["jiratackConfig"]).then((r) => JSON.stringify(r.jiratackConfig || null))',
+    ) || 'null');
+    record(
+      'connect: a credential is stored',
+      Boolean(connectedConfig && typeof connectedConfig.token === 'string' && connectedConfig.token.length > 0),
+      JSON.stringify(connectedConfig && {
+        token: Boolean(connectedConfig.token),
+        accountId: connectedConfig.accountId,
+        connectedVia: connectedConfig.connectedVia,
+      }),
+    );
+    record(
+      'connect: the stored config is the launcher',
+      Boolean(connectedConfig && connectedConfig.canvasId === 'universal' && connectedConfig.apiUrl === servers.apiUrl),
+      JSON.stringify(connectedConfig && { canvasId: connectedConfig.canvasId, apiUrl: connectedConfig.apiUrl }),
+    );
+
+    // Single use: replaying the same code must not mint a second credential.
+    const replay = JSON.parse(await ext.evaluate(`new Promise((resolve) => {
+      chrome.runtime.sendMessage({
+        type: 'jiratack-connect',
+        apiUrl: ${JSON.stringify(servers.apiUrl)},
+        code: ${JSON.stringify(servers.state.loginCode)},
+      }, (response) => resolve(JSON.stringify(response)));
+    })`) || 'null');
+    record('connect: a used code is refused', Boolean(replay && replay.ok === false), JSON.stringify(replay));
+
+    // Restore the fixture config the rest of the harness runs against.
+    await ext.evaluate(`chrome.storage.local.set({ jiratackConfig: ${JSON.stringify(config)} })`);
+
     // 'universal' is launcher mode (lists canvases); a canvas id fetches pins.
     const fixtures = [
       { path: '/strict', canvasId: 'universal' },

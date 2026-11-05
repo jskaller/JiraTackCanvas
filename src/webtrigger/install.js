@@ -285,11 +285,93 @@ if (JT_EXTENSION_ID && typeof chrome !== 'undefined' && chrome.runtime && chrome
   return { statusCode: 200, headers: HTML_HEADERS, body: page('Get JiraTack', body) };
 }
 
+// Flow 2/4 (D46): a short typed code instead of a 64-character token in a URL.
+// The page exchanges it once and continues through the token flow below, so the
+// pairing and device-cap paths are the ones already tested.
+function codePage(code, urls, mode) {
+  const initial = typeof code === 'string' ? code : '';
+  const body = `<h1>Get JiraTack</h1>
+<p class="muted">Enter the guest code your sponsor sent you.</p>
+<form id="jt-code-form" autocomplete="off">
+  <input id="jt-code" name="code" value="${escapeHtml(initial)}" placeholder="JT-4F9K-2XQ7"
+    spellcheck="false" autocapitalize="characters"
+    style="font:600 18px/1.4 ui-monospace,SFMono-Regular,Menlo,monospace;letter-spacing:.08em;padding:10px 12px;border:1px solid #dfe1e6;border-radius:6px;width:100%;max-width:260px;text-transform:uppercase;">
+  <p><button type="submit" class="install-button" style="border:0;cursor:pointer;">Connect</button></p>
+</form>
+<p id="jt-code-status" class="muted"></p>
+<script>
+(function () {
+  var apiUrl = ${JSON.stringify(urls.apiUrl)};
+  var mode = ${JSON.stringify(mode)};
+  var INSTALL_KEY = ${JSON.stringify(INSTALL_ID_KEY)};
+
+  function installId() {
+    try {
+      var id = localStorage[INSTALL_KEY] || '';
+      if (!/${INSTALL_ID_RE.source}/.test(id)) {
+        var bytes = new Uint8Array(16);
+        crypto.getRandomValues(bytes);
+        id = Array.from(bytes, function (b) { return ('0' + b.toString(16)).slice(-2); }).join('');
+        localStorage[INSTALL_KEY] = id;
+      }
+      return id;
+    } catch (e) {
+      return '';
+    }
+  }
+
+  function submit(event) {
+    if (event) event.preventDefault();
+    var input = document.getElementById('jt-code');
+    var status = document.getElementById('jt-code-status');
+    var code = (input && input.value ? input.value : '').trim();
+    if (!code) { status.textContent = 'Enter the code from your sponsor.'; return; }
+    status.textContent = 'Checking\u2026';
+
+    var id = installId();
+    fetch(apiUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'exchangeGuestCode', payload: { code: code, installId: id } })
+    }).then(function (response) {
+      return response.json();
+    }).then(function (body) {
+      if (!body || body.ok !== true) {
+        status.textContent = (body && body.error && body.error.message) || 'That code could not be used.';
+        return;
+      }
+      var token = body.data && body.data.token;
+      if (!token) { status.textContent = 'That code could not be used.'; return; }
+      // inviteToken is the bare token; the page composes it with the device id
+      // itself, so a composite must not be passed back in.
+      var direct = body.data.inviteToken || token;
+      var next = '?token=' + encodeURIComponent(direct)
+        + '&installId=' + encodeURIComponent(body.data.installId || id);
+      if (mode === 'extension') next += '&mode=extension';
+      location.replace(next);
+    }).catch(function () {
+      status.textContent = 'JiraTack could not be reached. Check your connection and try again.';
+    });
+  }
+
+  document.getElementById('jt-code-form').addEventListener('submit', submit);
+  if (${initial ? 'true' : 'false'}) submit(null);
+})();
+</script>`;
+
+  return { statusCode: 200, headers: HTML_HEADERS, body: page('Get JiraTack', body) };
+}
+
 export const handler = async (req) => {
   const query = (req && req.queryParameters) || {};
   const rawToken = query.token;
   const token = Array.isArray(rawToken) ? rawToken[0] : rawToken;
-  if (typeof token !== 'string' || token.length === 0) return notFound();
+  const rawCode = query.code;
+  const code = Array.isArray(rawCode) ? rawCode[0] : rawCode;
+
+  const hasToken = typeof token === 'string' && token.length > 0;
+  const hasCode = typeof code === 'string' && code.length > 0;
+  if (!hasToken && !hasCode) return notFound();
 
   let urls;
   try {
@@ -302,6 +384,8 @@ export const handler = async (req) => {
 
   const rawModeQuery = query.mode;
   const requestedMode = (Array.isArray(rawModeQuery) ? rawModeQuery[0] : rawModeQuery) === 'extension' ? 'extension' : 'bookmark';
+
+  if (!hasToken) return codePage(code, urls, requestedMode);
 
   const hasInstallId = Object.prototype.hasOwnProperty.call(query, 'installId');
   if (!hasInstallId) return phaseOne(token, urls, requestedMode);

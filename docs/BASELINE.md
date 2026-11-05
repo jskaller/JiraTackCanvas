@@ -13,8 +13,8 @@
 | | Value | Source |
 | --- | --- | --- |
 | Tagged commit (pre-deploy snapshot) | `git rev-parse baseline/pre-pivot-2026-10-30` | git |
-| App version (deployed) | **5.93.0** | `forge deploy` output, `forge install list` |
-| Development last deployed | 2026-11-05T13:06Z (scopes unchanged unless stated) | `forge deploy list` |
+| App version (deployed) | **5.96.0** | `forge deploy` output, `forge install list` |
+| Development last deployed | 2026-11-05T20:04Z (scopes unchanged unless stated) | `forge deploy list` |
 | Installation | upgraded to major 5 | `forge install --upgrade` |
 | SDK hash (deployed) | `37801e0b3f88` | served `ETag`, `src/lib/version.js` |
 | SDK hash (tree) | `86da66a835c1` | `src/lib/version.js` |
@@ -27,7 +27,7 @@
 
 ## 2. Deployed vs tree
 
-**Deployed 2026-11-05.** Development runs the current tree as app **5.93.0**, SDK `37801e0b3f88`, four scopes. No `forge install --upgrade` was needed: scopes were unchanged since 5.0.0.
+**Deployed 2026-11-05.** Development runs the current tree as app **5.96.0**, SDK `37801e0b3f88`, four scopes. No `forge install --upgrade` was needed: scopes were unchanged since 5.0.0.
 
 | Change | Commits | Status |
 | --- | --- | --- |
@@ -85,6 +85,9 @@
 | Capture never hides the sidebar: tab captures keep it on screen and crop/mask it out (only the pin layer hides for the instant of the capture), removing the flash on Add to ticket and save; fixed the unimported `thumbnailFromDataUrl` fallback and a lost card encoder | working tree (uncommitted) | **Deployed** 2026-11-05 as 5.91.0 |
 | Optimistic save (D44): Create closes the form and the pin shows a pending card while uploads run concurrently and the Jira create completes; failure checks whether the ticket landed and otherwise reopens the form with the full draft; preview capture moved into the background save | working tree (uncommitted) | **Deployed** 2026-11-05 as 5.92.0 |
 | Sidebar lists tickets newest first (client-side sort, undated last), including within each URL group | working tree (uncommitted) | **Deployed** 2026-11-05 as 5.93.0 |
+| Extension sign-in (D46): Connect this browser mints a one-time code in the resolver, a Jira-origin relay hands it to the extension, and the background exchanges it for a 90-day credential; onInstalled injects the relay into tabs opened before install; install card marks the unpacked fallback as temporary. | working tree (uncommitted) | **Deployed** 2026-11-05 as 5.94.0 |
+| Guest codes (D46 Flow 2): generateGuestToken mints a short typed code (JT-XXXX-XXXX), stores only its SHA-256 under guestCodeHashes, and the installer link carries ?code=; the page exchanges it for the composite invite token; guests get a stable guestId claim; revocation deletes the hash. | working tree (uncommitted) | **Deployed** 2026-11-05 as 5.95.0 |
+| Guest code fix (D46 Flow 2/4): exchangeGuestCode also returns the bare invite token so the installer page composes it with its own device id exactly once; added install-page coverage for the code form. | working tree (uncommitted) | **Deployed** 2026-11-05 as 5.96.0 |
 
 **Deployed scopes are the four in `manifest.yml`.** Confirmed with `forge version details -e development --non-interactive --json`: `storage:app`, `read:jira-work`, `write:jira-work`, `read:jira-user`. The two `manage:jira-*` scopes were dropped before 5.0.0.
 

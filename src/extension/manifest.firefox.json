@@ -38,5 +38,15 @@
   },
   "host_permissions": [
     "<all_urls>"
+  ],
+  "content_scripts": [
+    {
+      "matches": [
+        "https://*.atlassian.net/*",
+        "https://*.hello.atlassian-dev.net/*"
+      ],
+      "js": ["connect.js"],
+      "run_at": "document_idle"
+    }
   ]
 }

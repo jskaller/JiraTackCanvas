@@ -9,6 +9,7 @@ import { pairingService } from './credentials.js';
 import { tokenReference } from './tokenRef.js';
 import { getInstallationConfig } from './config.js';
 import { resolveWebtriggerUrls } from './webtriggerUrls.js';
+import { generateGuestCode, hashGuestCode, storeGuestCode, deleteGuestCode } from './guestCodes.js';
 import {
   LINK_TTL_MS,
   invitationState,
@@ -52,6 +53,7 @@ export async function createInvite({
   });
 
   const token = crypto.randomBytes(32).toString('hex');
+  const code = generateGuestCode();
   const record = {
     scope: 'guest_create',
     issuer: String(issuer),
@@ -68,10 +70,20 @@ export async function createInvite({
     linkExpiresAt: now + LINK_TTL_MS,
     revoked: false,
     mintedAfterCutover: true,
+    // Flow 2/4 (D46): the typed credential. Only its hash is stored in the
+    // index; this field exists so revocation can delete that row.
+    codeHash: hashGuestCode(code),
   };
 
+  // Write the index first: a code that resolves to nothing is a clean refusal,
+  // whereas an invitation whose code was never indexed is a dead link.
+  await storeGuestCode(code, {
+    inviteToken: token,
+    installationId: record.installationId,
+    expiresAt: record.linkExpiresAt,
+  });
   await kvsSet(inviteKey(token), record);
-  return { token, record };
+  return { token, record, code };
 }
 
 async function loadInvites() {
@@ -211,6 +223,13 @@ export async function revokeInvite({ ref, viewerAccountId, isAdmin, reason = 're
     state: 'revoked',
   };
   await kvsSet(entry.key, updated);
+  // The typed code dies with the invitation it points at.
+  try {
+    await deleteGuestCode(entry.record.codeHash);
+  } catch (e) {
+    // The invitation is already revoked; a stale index row resolves to nothing
+    // usable because every exchange re-checks the record.
+  }
   return { ok: true, data: { tokenRef: ref, revoked: true } };
 }
 
@@ -252,5 +271,5 @@ export async function regenerateInvite({ ref, viewerAccountId, isAdmin, installa
     now,
   });
 
-  return { ok: true, data: { token: created.token, record: created.record } };
+  return { ok: true, data: { token: created.token, record: created.record, code: created.code } };
 }

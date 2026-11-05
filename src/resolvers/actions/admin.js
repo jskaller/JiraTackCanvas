@@ -35,6 +35,10 @@ import { SDK_VERSION } from '../../lib/version.js';
 const CANVAS_TOKEN_TTL_SECONDS = 2592000;
 const SESSION_TTL_SECONDS = 8 * 60 * 60;
 
+// Flow 1 (D46): the one-time code a Jira tab mints for the extension. Short
+// enough that a leaked code is useless, long enough to survive a slow tab.
+const LOGIN_CODE_TTL_SECONDS = 120;
+
 // Fields the app writes itself; mapping an auxiliary value onto them would
 // clobber the ticket's own data (D41).
 const MANAGED_FIELD_IDS = new Set([
@@ -805,13 +809,14 @@ export async function generateGuestToken(context, payload) {
     installUrl = null;
   }
   const installerUrl = installUrl
-    ? `${installUrl}${installUrl.includes('?') ? '&' : '?'}token=${encodeURIComponent(token)}`
+    ? `${installUrl}${installUrl.includes('?') ? '&' : '?'}code=${encodeURIComponent(created.code)}`
     : null;
 
   return {
     ok: true,
     data: {
       token,
+      code: created.code,
       installerUrl,
       scope: 'guest_create',
       permittedCanvases,
@@ -971,6 +976,61 @@ export async function generateUserToken(context, payload) {
       apiUrl,
       sdkUrl,
       sdkVersion: SDK_VERSION,
+    },
+  };
+}
+
+/**
+ * Flow 1 (D46): the extension has no link to paste, so a Jira tab mints a
+ * one-time code that the extension trades for a user token. The resolver is the
+ * only place that knows the real user, and the code carries nothing but the
+ * identity resolved here — it is not a session and cannot read or write.
+ */
+export async function createExtensionLogin(context) {
+  const accountId = (context && (context.accountId || context.userId)) || '';
+  if (!accountId) {
+    return errorResult('BAD_REQUEST', 'A signed-in Jira user is required to connect the extension.');
+  }
+
+  await trackLicensedUser(context);
+
+  const config = await getInstallationConfig();
+
+  let permitted;
+  try {
+    permitted = await computePermittedProjects(config.viewPermissionMode, null);
+  } catch (e) {
+    return errorResult('INTERNAL', e && e.message ? e.message : String(e));
+  }
+  if (!permitted.ok) return permitted;
+
+  const code = crypto.randomBytes(32).toString('hex');
+  const issuedAt = Date.now();
+  const expiresAt = issuedAt + LOGIN_CODE_TTL_SECONDS * 1000;
+
+  try {
+    await kvsSet(`extensionLoginCodes:${code}`, {
+      accountId: String(accountId),
+      installationId: String(resolveInstallationId(context)),
+      isAdmin: await isJiraAdmin(context),
+      permittedProjectsJson: JSON.stringify(permitted.permittedProjects),
+      issuedAt,
+      expiresAt,
+    }, { ttl: { value: 10, unit: 'MINUTES' } });
+  } catch (e) {
+    return errorResult('INTERNAL', `Failed to persist the login code: ${e && e.message ? e.message : e}`);
+  }
+
+  const { apiUrl, sdkUrl } = await resolveWebtriggerUrls(config);
+
+  return {
+    ok: true,
+    data: {
+      code,
+      apiUrl,
+      sdkUrl,
+      sdkVersion: SDK_VERSION,
+      expiresAt,
     },
   };
 }

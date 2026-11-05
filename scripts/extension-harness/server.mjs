@@ -152,6 +152,31 @@ function apiServer(state) {
         return;
       }
 
+      if (action === 'exchangeLoginCode') {
+        const code = (body.payload || {}).code;
+        if (state.loginCodeUsed || code !== state.loginCode) {
+          send({ ok: false, error: { code: 'TOKEN_INVALID', message: 'This login code has expired or was already used.' } });
+          return;
+        }
+        state.loginCodeUsed = true;
+        send({
+          ok: true,
+          data: {
+            token: 'd'.repeat(64),
+            accountId: 'fixture-account-1',
+            isAdmin: true,
+            permittedProjects: ['TEST'],
+            permittedCanvases: 'all',
+            displayName: 'Fixture user',
+            expiresAt: Date.now() + 90 * 24 * 60 * 60 * 1000,
+            apiUrl: state.apiUrl,
+            sdkUrl: state.sdkUrl,
+            currentSdkVersion: state.sdkVersion,
+          },
+        });
+        return;
+      }
+
       if (action === 'getPinsForCanvasAndUrl') {
         send({
           ok: true,
@@ -276,6 +301,10 @@ export async function startServers({ sdkVersion, sdkUrl }) {
     lastPinMove: null,
     lastPinMoveUploadBytes: 0,
     lastCreate: null,
+    // Flow 1 (D46): the one-time code the dashboard would mint. Single use, so
+    // a second exchange in the same run is refused.
+    loginCode: 'c'.repeat(64),
+    loginCodeUsed: false,
     // Simulate a slow or failing Jira so the optimistic save can be observed.
     createDelayMs: 0,
     createFailuresLeft: 0,

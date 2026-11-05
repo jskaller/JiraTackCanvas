@@ -138,6 +138,8 @@ Removed with custom fields. No resolver, no field registry, no screen manipulati
 
 Guest records have no `canvasName` and no `userId`. `listCanvasTokens` returns those fields as `undefined` for them.
 
+**Guest code index (Flow 2/4, D46).** `guestCodeHashes:<sha256(code)>` → `{ inviteToken, installationId, expiresAt }`, 90-day TTL. Only the hash is stored — the typed code never appears in the store. The invite record carries `codeHash` so revocation can delete the index row; a stale row is still refused because every exchange re-reads the invitation.
+
 `permittedProjects` is serialised as a JSON **string** in the record and parsed back at exchange time. Parsing failure yields `[]`, never `"*"`.
 
 ### 2.2 Session JWT
@@ -159,13 +161,14 @@ Guest records have no `canvasName` and no `userId`. `listCanvasTokens` returns t
   "permittedProjects": ["MM", "QA"] | "*",
   "permittedCanvases": ["Q3 Marketing"],
   "issuer": "accountId",
+  "guestId": "16 hex characters, derived from the invite token",
   "isAdmin": true,
   "iat": 1234567890,
   "exp": 1234596690
 }
 ```
 
-`permittedCanvases` and `issuer` appear only on guest tokens. `canvasId`/`canvasName` are absent for personal and guest tokens.
+`permittedCanvases`, `issuer` and `guestId` appear only on guest tokens. `canvasId`/`canvasName` are absent for personal and guest tokens. `guestId` is stable for the life of the invitation, so an extension session and a bookmarklet session for the same guest meter as one identity.
 
 **`isAdmin` (D21).** Resolved at issuance from resolver context (`userAccess.isAdmin`, falling back to `mypermissions?permissions=ADMINISTER`), persisted in the record and copied into every session JWT. Guests are always `false`. A missing claim is treated as `false`, so tokens minted before D21 cannot perform admin-only actions until re-issued.
 
@@ -200,7 +203,7 @@ Guest records have no `canvasName` and no `userId`. `listCanvasTokens` returns t
 
 ## Part 3 — Web trigger API contracts
 
-**Base:** `POST <apiUrl>`, `Content-Type: application/json`, `Authorization: Bearer <sessionJwt>` for everything except `exchangeToken`. Non-POST → `BAD_REQUEST`.
+**Base:** `POST <apiUrl>`, `Content-Type: application/json`, `Authorization: Bearer <sessionJwt>` for everything except `exchangeToken` and `exchangeLoginCode`. Non-POST → `BAD_REQUEST`.
 
 **Envelope:**
 
@@ -219,7 +222,7 @@ Auth:     none
 Success:  { sessionJwt, expiresAt, canvasId, canvasName, scope, permittedProjects,
             isAdmin, displayName, accountId, apiUrl, sdkUrl, installUrl,
             currentSdkVersion, jiraBaseUrl, configVersion }
-Guest:    … + { issuer, permittedCanvases, pairingId,
+Guest:    … + { issuer, guestId, permittedCanvases, pairingId,
                 guestName, guestEmail, issuerName, issuerEmail }
 ```
 
@@ -237,6 +240,47 @@ Guest:    … + { issuer, permittedCanvases, pairingId,
 `expiresAt` is returned in milliseconds. `displayName` is the issuing user's display name, resolved with `asApp()` and cached in-process. `accountId` is the authenticated or sponsoring user's account id; the client uses it to default the assignee to the current user when the previous ticket had none (D36). For a guest session it is the sponsor (`issuer`).
 
 Errors: `BAD_REQUEST` (no token), `TOKEN_INVALID`, `TOKEN_EXPIRED`.
+
+### 3.1b `exchangeLoginCode`
+
+Flow 1 (D46): the dashboard mints a one-time code in a Jira tab and the extension trades it for the credential it stores.
+
+```text
+Request:  { action: "exchangeLoginCode", payload: { code: string } }
+Auth:     none — the code is the credential
+Success:  { token, accountId, isAdmin, permittedProjects, permittedCanvases,
+            displayName, expiresAt, apiUrl, sdkUrl, currentSdkVersion,
+            jiraBaseUrl, installUrl, configVersion }
+```
+
+- `code` is 32 random bytes as 64 lowercase hex characters. Anything else → `TOKEN_INVALID` without a store read.
+- The record is `extensionLoginCodes:<code>` → `{ accountId, installationId, isAdmin, permittedProjectsJson, issuedAt, expiresAt }`, written by `createExtensionLogin` (§4.7b) with a 10-minute KVS TTL and a 120-second `expiresAt`.
+- **Single use:** the record is deleted before the token is minted. A second exchange → `TOKEN_INVALID`; an expired record → `TOKEN_EXPIRED`.
+- The returned `token` is an ordinary personal token: `userTokens:<token>` with `scope: "create"`, `permittedCanvasesJson: "\"all\""`, `issuedVia: "extension_login"`, TTL 90 days. Nothing downstream distinguishes it from a token minted by `generateUserToken`, so the SDK exchange path is unchanged.
+- `isAdmin` and the permitted projects are copied from the code record, which the resolver filled from the real Jira context — never from the client.
+
+Errors: `TOKEN_INVALID`, `TOKEN_EXPIRED`, `INTERNAL`.
+
+### 3.1c `exchangeGuestCode`
+
+Flow 2/4 (D46): the sponsor's short typed code becomes the guest credential.
+
+```text
+Request:  { action: "exchangeGuestCode", payload: { code: string, installId?: string } }
+Auth:     none — the code is the credential
+Success:  { token, installId, scope: "guest_create", guestName, guestEmail,
+            issuer, issuerName, issuerEmail, permittedCanvases, expiresAt,
+            apiUrl, sdkUrl, installUrl, sdkVersion, currentSdkVersion,
+            canvasId: "guest", canvasName: "Guest canvases" }
+```
+
+- `code` is normalised first (`JT-4F9K-2XQ7`, `jt4f9k2xq7` and `4F9K2XQ7` are the same code), then hashed. Malformed or unknown → `TOKEN_INVALID`.
+- `installId` is 32 lowercase hex or omitted (legacy/bare invite). The device is paired exactly as in §3.1, so the 10-device cap and revocation semantics are shared.
+- **`token` is the composite invite token** (`inviteToken.installId`). Everything downstream — session claims, pairing, revocation, the SDK exchange — is unchanged; the short code is only the way in.
+- The invitation is re-read on every exchange, so revoke and pause take effect immediately even while the index row survives.
+- Failed lookups increment one bounded per-installation hourly counter; above 1,000 the exchange refuses for the rest of the hour.
+
+Errors: `TOKEN_INVALID`, `TOKEN_EXPIRED`, `PAIRING_LIMIT`, `INTERNAL`.
 
 `permittedProjects` is returned for display only. The client must not treat it as an access check; the server filters results before returning them.
 
@@ -656,7 +700,7 @@ Payload: { tokenRef?: string, token?: string }
 
 ```text
 generateGuestToken(context, payload)
-  → { ok, data: { token, installerUrl, scope: "guest_create", permittedCanvases,
+  → { ok, data: { token, code, installerUrl, scope: "guest_create", permittedCanvases,
                   permittedProjects, expiresAt, guestName, guestEmail } }
 Payload: { permittedCanvases: string[], guestName: string, guestEmail: string }
          // 1–50 canvases (1–255 chars each); guestName 1–200; guestEmail valid
@@ -664,9 +708,9 @@ Payload: { permittedCanvases: string[], guestName: string, guestEmail: string }
 
 - Requires a **seat** (`hasAccess !== false`), not site-admin rights → else `LICENSE_INACTIVE`.
 - `permittedProjects` is frozen at issuance via `computePermittedProjects(mode, null)`.
-- Record has **no KVS TTL**: it carries `guestName`, `guestEmail`, `bindingId`, `issuer`, `issuedByName`, `state` (`active`|`inactive`), `issuedAt`, `linkExpiresAt` (72 h) and `revoked`. The link expiry gates new devices only (D29).
-- `installerUrl` = install web trigger with `?token=<guestToken>`; `null` if URL resolution fails.
-- **Accepted trade-off (D19):** the guest session inherits the **issuer's** browse access for the selected canvases. Seat gating, canvas scoping, and the 72-hour expiry are the compensating controls.
+- Record has **no KVS TTL**: it carries `guestName`, `guestEmail`, `bindingId`, `issuer`, `issuedByName`, `state` (`active`|`inactive`), `issuedAt`, `linkExpiresAt` (90 days, D43) and `revoked`. The link expiry gates new devices only (D29).
+- `code` is the short typed credential (`JT-XXXX-XXXX`); only `sha256(code)` is stored (`guestCodeHashes:<hash>`, D46). `installerUrl` = install web trigger with `?code=<code>`; `null` if URL resolution fails.
+- **Accepted trade-off (D19):** the guest session inherits the **issuer's** browse access for the selected canvases. Seat gating, canvas scoping, and the 90-day link expiry are the compensating controls.
 
 ### 4.6 `recoverPinsFromDescriptions` — retired (D18)
 
@@ -685,6 +729,23 @@ Payload: permittedCanvases?: string[]   // omit or [] = all canvases (D43)
 5. Return token plus `apiUrl`, `sdkUrl`, `sdkVersion`. An empty selection → `VALIDATION_ERROR`.
 
 The session JWT carries `permittedCanvases`; `listCanvasesForUser` filters to it when it is an array.
+
+### 4.7b `createExtensionLogin`
+
+Flow 1 (D46): the JiraTack dashboard mints the one-time code the extension relays (§3.1b). Runs in the resolver, so it is the only place that knows the real Jira user.
+
+```text
+createExtensionLogin(context) → { ok, data: { code, apiUrl, sdkUrl, sdkVersion, expiresAt } }
+```
+
+1. Requires a signed-in user (`context.accountId || context.userId`); otherwise `BAD_REQUEST`.
+2. `trackLicensedUser(context)` records the seat when present (best-effort).
+3. `isAdmin` via `isJiraAdmin(context)` — resolved at issuance (D21), never read from the client.
+4. `permittedProjects` via `computePermittedProjects(mode, null)`.
+5. Writes `extensionLoginCodes:<code>` (see §3.1b) with a 10-minute KVS TTL and a 120-second `expiresAt`.
+6. Returns the code plus `apiUrl`/`sdkUrl`, so the extension never needs a pasted link to learn its endpoints.
+
+No seat is required to call it: a user without a JiraTack seat still needs a working connection to be told that their seat is inactive.
 
 ### 4.8 `deleteCanvas` / `archiveCanvas`
 
