@@ -17,6 +17,7 @@ import {
   assignCanvasFolder,
   clearCanvasPreview,
   deleteCanvas,
+  deleteStrayCanvasRecord,
   getCanvasConfig,
   registryHealth,
   renameCanvas,
@@ -291,7 +292,8 @@ test('registryHealth names both sides of a duplicate label, with ticket counts',
     jiraIssue({
       key: 'TEST-50',
       metadata: pinMetadata({
-        canvas: 'Shopify + Example.com',
+        // An older label — the count must follow the key, not the label.
+        canvas: 'Old name',
         canvasId: healthy.key,
         url: 'https://example.com/',
       }),
@@ -335,6 +337,71 @@ test('repairCanvasIndex restores missing rows, is idempotent, and never steals a
 
 test('repairCanvasIndex is admin-only', async () => {
   const result = await repairCanvasIndex(USER_CONTEXT, {});
+
+  assert.equal(result.ok, false);
+  assert.equal(result.error.code, 'INSUFFICIENT_SCOPE');
+});
+
+async function seedStray({ label = 'Duplicate label' } = {}) {
+  const sibling = await seedCanvas({ name: label });
+  seedKvs({
+    'canvas:stray-record': {
+      version: 1,
+      key: 'stray-record',
+      name: label,
+      names: [label],
+      folder: null,
+      archived: false,
+    },
+  });
+  return sibling;
+}
+
+test('a stray duplicate record with no tickets can be removed by key', async () => {
+  const sibling = await seedStray();
+  onPath('/rest/api/3/search/jql', () => jsonResponse(200, searchPage([])));
+
+  const result = await deleteStrayCanvasRecord(ADMIN_CONTEXT, { canvasKey: 'stray-record' });
+
+  assert.equal(result.ok, true);
+  assert.equal(await readCanvasRecord('stray-record'), null);
+  assert.ok(await readCanvasRecord(sibling.key));
+  assert.equal(await findCanvasKeyForName('Duplicate label'), sibling.key);
+});
+
+test('a record that any ticket resolves to is refused', async () => {
+  await seedStray();
+  onPath('/rest/api/3/search/jql', () => jsonResponse(200, searchPage([
+    jiraIssue({
+      key: 'TEST-60',
+      metadata: pinMetadata({
+        canvas: 'Duplicate label',
+        canvasId: 'stray-record',
+        url: 'https://example.com/',
+      }),
+    }),
+  ])));
+
+  const result = await deleteStrayCanvasRecord(ADMIN_CONTEXT, { canvasKey: 'stray-record' });
+
+  assert.equal(result.ok, false);
+  assert.equal(result.error.code, 'CANVAS_NOT_EMPTY');
+  assert.ok(await readCanvasRecord('stray-record'));
+});
+
+test('a record without a duplicate label is refused, so the action cannot be used to delete a canvas', async () => {
+  const only = await seedCanvas({ name: 'Only canvas' });
+  onPath('/rest/api/3/search/jql', () => jsonResponse(200, searchPage([])));
+
+  const result = await deleteStrayCanvasRecord(ADMIN_CONTEXT, { canvasKey: only.key });
+
+  assert.equal(result.ok, false);
+  assert.equal(result.error.code, 'VALIDATION_ERROR');
+  assert.ok(await readCanvasRecord(only.key));
+});
+
+test('removing a stray record is admin-only', async () => {
+  const result = await deleteStrayCanvasRecord(USER_CONTEXT, { canvasKey: 'stray-record' });
 
   assert.equal(result.ok, false);
   assert.equal(result.error.code, 'INSUFFICIENT_SCOPE');

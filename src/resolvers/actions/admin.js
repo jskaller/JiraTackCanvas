@@ -15,6 +15,7 @@ import {
   canvasNameIndexKey,
   clearCanvasThumbnail,
   invalidateRegistrySnapshot,
+  legacyCanvasNameIndexKey,
   deleteCanvasRecord,
   loadCanvasNameIndex,
   loadCanvasRecords,
@@ -288,7 +289,7 @@ export async function registryHealth(context) {
 
     // Tickets: the ones the registry cannot place are the ones keeping the
     // name-based fallbacks alive.
-    const tickets = { scanned: 0, withoutCanvasId: 0, unresolved: 0, withoutCanvasIdSamples: [], unresolvedSamples: [] };
+    const tickets = { scanned: 0, withoutCanvasId: 0, unresolved: 0, withoutCanvasIdSamples: [], unresolvedSamples: [], counts: new Map() };
     const jql = 'labels = "jiratack" ORDER BY created DESC';
     const PAGE_SIZE = 100;
     const MAX_SCANNED = 2000;
@@ -334,12 +335,9 @@ export async function registryHealth(context) {
           nameIndex,
         );
         if (resolvedKey) {
-          const label = normaliseCanvasName(pin.canvas);
-          const duplicate = duplicateLabels.find((entry) => entry.label === label);
-          if (duplicate) {
-            const target = duplicate.records.find((recordEntry) => recordEntry.canvasKey === resolvedKey);
-            if (target) target.ticketCount += 1;
-          }
+          // Count by the resolved key, not by the label: a ticket can resolve
+          // here through `pin.canvasId` while its `pin.canvas` is an older name.
+          tickets.counts.set(resolvedKey, (tickets.counts.get(resolvedKey) || 0) + 1);
         }
         if (!resolvedKey) {
           tickets.unresolved += 1;
@@ -356,6 +354,12 @@ export async function registryHealth(context) {
       nextPageToken = data && !data.isLast ? data.nextPageToken : null;
       if (!nextPageToken || issues.length === 0) break;
     } while (tickets.scanned < MAX_SCANNED);
+
+    for (const entry of duplicateLabels) {
+      for (const recordEntry of entry.records) {
+        recordEntry.ticketCount = tickets.counts.get(recordEntry.canvasKey) || 0;
+      }
+    }
 
     return {
       ok: true,
@@ -420,6 +424,91 @@ export async function repairCanvasIndex(context) {
 
     if (repaired > 0) await invalidateRegistrySnapshot();
     return { ok: true, data: { canvases: records.size, repaired, skipped } };
+  } catch (e) {
+    return errorResult('INTERNAL', e && e.message ? e.message : String(e));
+  }
+}
+
+/**
+ * Remove a duplicate registry record that no ticket points at.
+ *
+ * Deleting by name is wrong here: `deleteCanvas` marks the *name* deleted, which
+ * would hide the real canvas too. This deletes one record by key, and only when
+ * it is a duplicate (another live record carries the same label) and nothing
+ * resolves to it.
+ */
+export async function deleteStrayCanvasRecord(context, payload) {
+  const denied = await requireAdmin(context, 'Only Jira admins can remove a stray canvas record.');
+  if (denied) return denied;
+
+  const canvasKey = payload && typeof payload.canvasKey === 'string' ? payload.canvasKey.trim() : '';
+  if (!canvasKey) return errorResult('BAD_REQUEST', 'canvasKey is required.');
+
+  try {
+    const records = await loadCanvasRecords();
+    const record = records.get(canvasKey);
+    if (!record) return errorResult('NOT_FOUND', 'That canvas is not known.');
+
+    const label = normaliseCanvasName(record.name);
+    const siblings = [...records.values()].filter((other) => other.key !== canvasKey
+      && normaliseCanvasName(other.name) === label);
+    if (siblings.length === 0) {
+      return errorResult('VALIDATION_ERROR', 'That record is not a duplicate; only a duplicate can be removed here.');
+    }
+
+    const nameIndex = await loadCanvasNameIndex();
+    let ticketCount = 0;
+    let scanned = 0;
+    const jql = 'labels = "jiratack" ORDER BY created DESC';
+    let nextPageToken = null;
+    do {
+      const body = { jql, fields: ['project'], properties: [METADATA_PROPERTY_KEY], maxResults: 100 };
+      if (nextPageToken) body.nextPageToken = nextPageToken;
+      const res = await api.asUser().requestJira(route`/rest/api/3/search/jql`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      if (!res.ok) return errorResult('INTERNAL', `Jira search failed with HTTP ${res.status}.`);
+      const data = await res.json();
+      const issues = (data && data.issues) || [];
+      for (const issue of issues) {
+        const metadata = metadataFromIssue(issue);
+        if (!metadata) continue;
+        const resolved = findCanvasKeyInMaps(
+          { canvasKey: metadata.pin && metadata.pin.canvasId, canvasName: metadata.pin && metadata.pin.canvas },
+          records,
+          nameIndex,
+        );
+        if (resolved === canvasKey) ticketCount += 1;
+      }
+      scanned += issues.length;
+      nextPageToken = data && !data.isLast ? data.nextPageToken : null;
+      if (!nextPageToken || issues.length === 0) break;
+    } while (ticketCount === 0 && scanned < 2000);
+
+    if (ticketCount > 0) {
+      return errorResult('CANVAS_NOT_EMPTY', 'Tickets still resolve to this record, so it is a canvas and cannot be removed here.', { ticketCount });
+    }
+
+    // Remove only the index rows this record owns; rows owned by the sibling stay.
+    for (const name of record.names || []) {
+      for (const key of [canvasNameIndexKey(name), legacyCanvasNameIndexKey(name)]) {
+        try {
+          const value = await kvsGet(key);
+          const owner = typeof value === 'string' ? value : (value && value.canvasKey);
+          if (owner === canvasKey) await kvsDelete(key);
+        } catch (e) {
+          // A leftover row is reported as orphaned, not fatal.
+        }
+      }
+    }
+
+    await kvsDelete(prefillConfigKey(canvasKey));
+    await deleteCanvasRecord(canvasKey);
+    await invalidateRegistrySnapshot();
+    await invalidateCanvasSummary(context && context.accountId);
+    return { ok: true, data: { canvasKey, canvasName: record.name } };
   } catch (e) {
     return errorResult('INTERNAL', e && e.message ? e.message : String(e));
   }

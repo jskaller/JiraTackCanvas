@@ -7,7 +7,7 @@ All notable changes to JiraTack.
 > the description marker, recovery). They are kept for history and are **not**
 > a description of current behaviour — see `SPEC.md` v3.0 for that. The
 > `0.9.0`-style headings track `package.json`, not the Forge app version
-> (currently 5.87.0 in development).
+> (currently 5.88.0 in development).
 
 ## [Unreleased]
 
@@ -27,6 +27,12 @@ All notable changes to JiraTack.
   the admin page as an installation-level setting.
 
 ### Install, guests and organisation
+
+- **A duplicate registry record can be removed safely.** The report lists both records with
+  their keys and ticket counts (counted by resolved canvas key, not by an old label), and
+  offers **Remove** for the one with no tickets. Removal is by key, refuses if any ticket
+  resolves to the record or if the label is not duplicated, and never uses the name-based
+  delete — which would hide the real canvas.
 
 - **Names that the store cannot key are indexed again.** `canvasName:` rows were written
   from the raw canvas name, and Forge rejects keys containing characters such as `+` —

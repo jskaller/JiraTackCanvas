@@ -747,6 +747,7 @@ registryHealth(context, {})
                   duplicateLabels, legacyPreviewKeys, previews: { captured, missing },
                   tickets: { scanned, withoutCanvasId, unresolved }, samples: {…} } }
 repairCanvasIndex(context, {}) → { ok, data: { canvases, repaired, skipped } }
+deleteStrayCanvasRecord(context, { canvasKey }) → { ok, data: { canvasKey, canvasName } }
 ```
 
 `resolveCanvas` is the only place that turns an id into a record. Order: the value as a
@@ -772,7 +773,13 @@ the raw name can never be the key — that is why an index write could fail sile
 had. It is idempotent, never overwrites a name owned by another live record (that is
 reported as `skipped`), invalidates the launcher snapshot, and does not touch tickets.
 `registryHealth`'s `samples.duplicateLabels` entries are `{ label, name, records: [{ canvasKey,
-name, ticketCount }] }` so the two records behind a duplicate can be told apart.
+name, ticketCount }] }`; the ticket count is by resolved canvas key, not by the label a
+ticket happened to be captured under.
+
+`deleteStrayCanvasRecord` removes one duplicate record by key. It refuses unless another
+live record carries the same normalised name, refuses when any ticket resolves to it
+(`CANVAS_NOT_EMPTY`), deletes only the index rows that record owns, and never touches
+`deletedCanvases` — deleting by name would hide the real canvas.
 
 `registryHealth` is read-only and admin-only. It reports orphaned index rows, records with
 an unindexed name, duplicate labels, previews stored versus missing, legacy

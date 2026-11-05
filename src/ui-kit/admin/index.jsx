@@ -59,6 +59,7 @@ const AdminApp = () => {
   const [healthError, setHealthError] = useState(null);
   const [healthBusy, setHealthBusy] = useState(false);
   const [repairNote, setRepairNote] = useState(null);
+  const [removeTarget, setRemoveTarget] = useState(null);
 
   const loadHealth = async () => {
     setHealthBusy(true);
@@ -90,6 +91,29 @@ const AdminApp = () => {
       }
     } catch (e) {
       setHealthError(e && e.message ? e.message : 'Could not repair the index.');
+    }
+    setHealthBusy(false);
+  };
+
+  const removeStray = async (canvasKey) => {
+    if (removeTarget !== canvasKey) {
+      setRemoveTarget(canvasKey);
+      return;
+    }
+    setHealthBusy(true);
+    setHealthError(null);
+    try {
+      const res = await invoke('deleteStrayCanvasRecord', { canvasKey });
+      if (res && res.ok) {
+        setRepairNote(`Removed the stray record ${canvasKey}.`);
+        setRemoveTarget(null);
+        const again = await invoke('registryHealth', {});
+        if (again && again.ok && again.data) setHealth(again.data);
+      } else {
+        setHealthError((res && res.error && res.error.message) || 'Could not remove that record.');
+      }
+    } catch (e) {
+      setHealthError(e && e.message ? e.message : 'Could not remove that record.');
     }
     setHealthBusy(false);
   };
@@ -445,15 +469,31 @@ const AdminApp = () => {
             )}
             {health.duplicateLabels > 0 && (
               <SectionMessage appearance="warning" title="Two canvases share a label">
+                {health.samples.duplicateLabels.map((entry) => (
+                  <Stack key={entry.label} space="space.100">
+                    <Text>{entry.name || entry.label}</Text>
+                    {entry.records.map((record) => (
+                      <Inline key={record.canvasKey} space="space.100" alignBlock="center">
+                        <Text>
+                          {record.canvasKey} — {record.ticketCount}{' '}
+                          {record.ticketCount === 1 ? 'ticket' : 'tickets'}
+                        </Text>
+                        {record.ticketCount === 0 && (
+                          <Button
+                            appearance="subtle"
+                            isDisabled={healthBusy}
+                            onClick={() => removeStray(record.canvasKey)}
+                          >
+                            {removeTarget === record.canvasKey ? 'Confirm remove' : 'Remove'}
+                          </Button>
+                        )}
+                      </Inline>
+                    ))}
+                  </Stack>
+                ))}
                 <Text>
-                  {health.samples.duplicateLabels
-                    .map((entry) => `${entry.name || entry.label}: ${entry.records
-                      .map((record) => `${record.canvasKey} (${record.ticketCount} tickets)`)
-                      .join(' vs ')}`)
-                    .join(' · ')}
-                </Text>
-                <Text>
-                  Only the canvas with tickets appears in the dashboard; the other record is invisible elsewhere.
+                  Only the canvas with tickets appears in the dashboard. Remove is offered for the
+                  record with none, and the real canvas is never affected.
                 </Text>
               </SectionMessage>
             )}
