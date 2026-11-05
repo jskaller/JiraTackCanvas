@@ -213,7 +213,7 @@ same shape as the existing `admin`/`getPins` tests.
 | **4** | Warm dashboard scans all records per view | Attach previews from the cached snapshot (already invalidated on write) or only for the visible page | Low | S | ~42 → ~2 KVS reads per view |
 | **5** | Name-based joins persist only for legacy tickets | One idempotent admin pass stamping `pin.canvasId` — **optional**: D42 records that legacy tickets are explicitly out of scope | Medium (writes to tickets) | M | Lets the name fallbacks die |
 | **6** | Launcher rebuilds the registry on every open | Cache `{records, index}` with write invalidation | Low | S/M | ~141 → a handful per open |
-| **7** | Five documents per behaviour change | Archive historical TEST_PLAN parts, generate CHANGELOG from commits, keep SPEC/CONTRACTS/DECISIONS | Low | S/M | Faster, less drift |
+| **7** | Five documents per behaviour change | Archive historical TEST_PLAN parts, generate CHANGELOG from commits, keep SPEC/CONTRACTS/DECISIONS. **Done (5.90 docs):** Parts 1/4/6 archived (1,723 → 1,280 lines), AGENTS.md owns a per-document table, `changelog:since` drafts notes | Low | S/M | Faster, less drift |
 | **8** | `exchangeToken` and upload paths untested | Add resolver-style tests with the new stubs | Low | S/M | Session/upload regressions caught |
 | **9** | `index.js` state object (2,071 lines) | Extract composer, pins/status, navigation into modules with own state | High | L | Fewer subtle overlay bugs — **defer** |
 | 10 | One dead identity resolver | Delete `resolveCanvasKey` after item 1 | Low | S | Stops reuse by mistake |
@@ -222,8 +222,9 @@ same shape as the existing `admin`/`getPins` tests.
 is covered for every server path: sessions, the chunked upload and attachment transport, pin
 moves (including the guest branch), the launcher, the dashboard aggregate and the admin
 actions. What remains untested is the presentation layer — the dashboard Custom UI and the
-UI Kit pages. Item **5** is optional per D42; item **7** (the documentation tax) needs a
-decision rather than code; item **9** stays deferred. `resolveCanvas` is the only identity resolver and repairs a lost name-index row on
+UI Kit pages. Item **5** is optional per D42; item **9** stays deferred. Item **7** is done:
+the historical TEST_PLAN parts are archived, AGENTS.md names the owner of each
+document, and `npm run changelog:since` drafts release notes from commits. `resolveCanvas` is the only identity resolver and repairs a lost name-index row on
 use; the registry report ships on the admin page; previews are cached under a stamp; and the
 launcher serves its canvas list from a stamped registry snapshot.
 

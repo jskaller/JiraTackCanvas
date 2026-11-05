@@ -104,7 +104,7 @@ Consequences: deployed scopes still include two unused `manage:jira-*` permissio
 | What does the product do? | `SPEC.md` v3.1 |
 | How is it built? | `ARCHITECTURE.md` v2.0 |
 | What exactly is on the wire? | `CONTRACTS.md` |
-| How is it verified? | `TEST_PLAN.md` (Parts 2, 3, 5, 7, 8 are current) |
+| How is it verified? | `TEST_PLAN.md` (Parts 0, 2, 3, 5, 7, 8, 9 are current; 1, 4, 6 archived) |
 | What is the state right now? | `docs/BASELINE.md` |
 | What was found and fixed? | `docs/SECURITY-REVIEW.md` |
 | How should an agent work here? | `AGENTS.md` |

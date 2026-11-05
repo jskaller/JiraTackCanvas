@@ -56,6 +56,24 @@ defined by SPEC.md v3.0 and ARCHITECTURE.md v2.0.
   (and `node scripts/baseline.mjs record …` after a deploy), which fails when a
   row is missing rather than silently writing nothing.
 
+## Documentation ownership
+
+Each document owns one question. Update the owner, not all of them.
+
+| Document | Owns | Update when |
+| --- | --- | --- |
+| `SPEC.md` | product behaviour of shipped code | behaviour changes |
+| `CONTRACTS.md` | wire shapes, signatures, error codes, manifest | a request, response or manifest changes |
+| `DECISIONS.md` | open and closed questions | a decision is made, amended or reversed |
+| `ARCHITECTURE.md` | channels, storage, authorisation | the system shape changes |
+| `docs/BASELINE.md` | what is deployed | every deploy — with `npm run baseline:record`, never by hand |
+| `CHANGELOG.md` | user-visible change | when cutting a release — draft with `npm run changelog:since -- --since <ref>` |
+| `TEST_PLAN.md` | how to verify | verification steps change (Parts 1, 4 and 6 are archived) |
+| `docs/ARCH-REVIEW-2026-11.md` | the complexity audit | an audit item closes |
+
+A wire-shape change must touch CONTRACTS in the same commit; a behaviour change must touch
+SPEC. Do not restate the same rule in two documents — link instead.
+
 ## Build commands
 
 - `npm run build` — bundle bookmarklet + dashboard
