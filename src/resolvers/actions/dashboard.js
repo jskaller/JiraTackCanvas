@@ -17,6 +17,7 @@ import {
 } from '../../lib/canvasRegistry.js';
 import { findCanvasKeyInMaps } from '../../lib/canvasIdentity.js';
 import { kvsGet, kvsSet, kvsDelete } from '../../lib/kvs.js';
+import { countActive } from '../../lib/metering.js';
 
 const PAGE_SIZE = 100;
 const MAX_TICKETS = 2000;
@@ -357,6 +358,9 @@ export async function dashboardAggregate(context, payload) {
         chrome: config.chromeStoreUrl || '',
         firefox: config.firefoxXpiUrl || '',
       },
+      // D47: distinct identities seen inside the activity window. Measurement
+      // only — no ceiling is applied here or anywhere else yet.
+      meter: await countActive(),
     },
   };
 }

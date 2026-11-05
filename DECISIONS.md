@@ -742,6 +742,26 @@ Guests never receive QA-pack entitlements. Because a guest session's `sub` is th
 
 **Applies to:** SPEC §6.5, §6.6, §8.1, §8.6; CONTRACTS §3.1, §4.7, Part 12; `src/extension/background.js`, `src/extension/options.*`, `src/resolvers/actions/admin.js`, `src/webtrigger/actions/exchangeToken.js`, `src/webtrigger/api.js`, `docs/EXTENSION-DISTRIBUTION.md`.
 
+### D47 — Usage is measured by distinct active identities
+
+**Status:** Resolved (2026-11-05)
+
+**Question:** if the QA pack is sold by concurrency rather than by seat, what exactly is counted, and where does the number come from?
+
+**Resolution:** measurement only, for now.
+
+1. **Unit: a distinct identity.** `user:<accountId>` for a Jira user, `guest:<guestId>` for a guest. One person with three windows is one identity. A guest counts as themselves rather than as the sponsor they report through — counting `sub` would merge every guest into their sponsor.
+2. **Window: 20 minutes.** "Currently open" is defined by a heartbeat inside the window, because an extension tab has no socket that closes.
+3. **Source: the credential exchange.** `exchangeToken` writes `meterActive:<kind>:<id>` (`{ kind, id, lastSeenAt }`, one-hour TTL) on every success, and `exchangeLoginCode` does the same. This is the one moment the server knows both the identity and that the client is running, so it costs no extra round trip and the client cannot spoof it.
+4. **Read: `dashboardAggregate`** returns `meter: { users, guests, total, windowMinutes, unavailable }`; the dashboard shows it to admins.
+5. **No enforcement.** No ceiling is applied anywhere. A cap needs a priced decision, and the number should exist before that decision is made.
+
+**Rejected alternatives:** counting sessions or tabs (one person with three windows would be three); counting tokens (a token is a credential, not a person, and renewal would inflate the count); a client-reported heartbeat endpoint (an extra round trip, and the client can lie); counting per action (a KVS write per ticket view).
+
+**Known limitations:** an idle-but-open extension stops counting after 20 minutes — the intended reading of "currently open", but it under-counts someone who leaves it open and walks away; a user in two browsers counts once; the scan is bounded at 5,000 rows and reports `unavailable` rather than a wrong zero when it fails.
+
+**Applies to:** SPEC §8.1; CONTRACTS §3.1, §4.2; `src/lib/metering.js`, `src/webtrigger/actions/exchangeToken.js`, `src/resolvers/actions/dashboard.js`, `src/custom-ui/dashboard/App.jsx`.
+
 ## How to update this file
 
 When a decision is resolved:

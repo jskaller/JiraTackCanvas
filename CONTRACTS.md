@@ -239,6 +239,8 @@ Guest:    … + { issuer, guestId, permittedCanvases, pairingId,
 
 `expiresAt` is returned in milliseconds. `displayName` is the issuing user's display name, resolved with `asApp()` and cached in-process. `accountId` is the authenticated or sponsoring user's account id; the client uses it to default the assignee to the current user when the previous ticket had none (D36). For a guest session it is the sponsor (`issuer`).
 
+- **Side effect (D47):** a successful exchange writes `meterActive:<user|guest>:<id>` (`{ kind, id, lastSeenAt }`, one-hour TTL) and a failure writes nothing. It is the usage meter's only input — see §4.2.
+
 Errors: `BAD_REQUEST` (no token), `TOKEN_INVALID`, `TOKEN_EXPIRED`.
 
 ### 3.1b `exchangeLoginCode`
@@ -629,7 +631,9 @@ Payload: { canvasName: string, scope: "create" | "view" }
 
 ```text
 dashboardAggregate(context) → { ok, data: {
-  canvases: [CanvasSummary], configVersion, hasAccess, isAdmin, jiraBaseUrl
+  canvases: [CanvasSummary], configVersion, hasAccess, isAdmin, jiraBaseUrl,
+  store: { chrome, firefox },
+  meter: { users, guests, total, windowMinutes, unavailable }
 } }
 CanvasSummary: { canvasName, ticketCount, openCount, urlCount,
                  urls: [{ url, ticketCount }], lastUpdated,
@@ -644,6 +648,7 @@ CanvasSummary: { canvasName, ticketCount, openCount, urlCount,
 - Sorted by `lastUpdated` descending, then canvas name.
 - Runs `asUser()`, so Jira enforces project permissions natively. No `permittedProjects` filtering here.
 - `hasAccess` reflects `context.userAccess.hasAccess !== false`; `isAdmin` is resolved per §4.0. Both drive UI affordances only.
+- `meter` (D47) counts **distinct identities** with a heartbeat inside a 20-minute window: `user:<accountId>` and `guest:<guestId>`. It is computed on every call rather than cached with the aggregate. `unavailable: true` means the scan failed — the UI must not render that as zero. **No ceiling is enforced anywhere.**
 
 ### 4.3 `epicPanelData`
 

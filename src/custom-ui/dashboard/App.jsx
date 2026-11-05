@@ -93,6 +93,8 @@ export default function App() {
   const [hasAccess, setHasAccess] = useState(true);
   const [jiraBaseUrl, setJiraBaseUrl] = useState(null);
   const [store, setStore] = useState({ chrome: '', firefox: '' });
+  const [isAdmin, setIsAdmin] = useState(false);
+  const [meter, setMeter] = useState(null);
   const [sdkVersion, setSdkVersion] = useState('');
   const [search, setSearch] = useState('');
   const [modal, setModal] = useState(null);
@@ -126,6 +128,8 @@ export default function App() {
         setHasAccess(aggregateResult.data.hasAccess !== false);
         setJiraBaseUrl(aggregateResult.data.jiraBaseUrl || null);
         setStore(aggregateResult.data.store || { chrome: '', firefox: '' });
+        setIsAdmin(aggregateResult.data.isAdmin === true);
+        setMeter(aggregateResult.data.meter || null);
         setSdkVersion(aggregateResult.data.sdkVersion || '');
       } else {
         setError(
@@ -355,6 +359,12 @@ export default function App() {
         <div>
           <h1>JiraTack</h1>
           <p className="jt-subtitle">Pin feedback on any page and turn it into Jira tickets.</p>
+          {isAdmin && meter && meter.total > 0 && (
+            <p className="jt-meter">
+              {meter.total} {meter.total === 1 ? 'person' : 'people'} active in the last {meter.windowMinutes} minutes
+              {meter.guests > 0 ? ` (${meter.guests} guest${meter.guests === 1 ? '' : 's'})` : ''}.
+            </p>
+          )}
         </div>
         <nav className="jt-anchors" aria-label="Sections">
           <a href="#install">Install</a>

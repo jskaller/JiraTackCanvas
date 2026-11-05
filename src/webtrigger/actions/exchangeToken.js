@@ -9,6 +9,7 @@ import { invitationState, canPairNewDevice } from '../../lib/inviteModel.js';
 import { pairingIdFor } from '../../lib/credentialsModel.js';
 import { errorResult } from '../../lib/errors.js';
 import { resolveWebtriggerUrls } from '../../lib/webtriggerUrls.js';
+import { heartbeat } from '../../lib/metering.js';
 import { SDK_VERSION } from '../../lib/version.js';
 
 const SESSION_TTL_SECONDS = 8 * 60 * 60;
@@ -153,6 +154,7 @@ export async function exchangeToken(payload, request) {
 
     const config = await getInstallationConfig();
     const displayName = await getDisplayName(userRecord.userId);
+    await heartbeat({ kind: 'user', id: userRecord.userId });
     return commonResponse(config, {
       sessionJwt,
       expiresAt: exp * 1000,
@@ -268,6 +270,7 @@ export async function exchangeToken(payload, request) {
 
       const config = await getInstallationConfig();
       const displayName = await getDisplayName(invite.issuer);
+      await heartbeat({ kind: 'guest', id: guestId });
       return commonResponse(config, {
         sessionJwt,
         expiresAt: exp * 1000,
@@ -333,6 +336,7 @@ export async function exchangeToken(payload, request) {
 
   const config = await getInstallationConfig();
   const displayName = await getDisplayName(record.userId);
+  await heartbeat({ kind: 'user', id: record.userId });
   return commonResponse(config, {
     sessionJwt,
     expiresAt: exp * 1000,
@@ -400,6 +404,7 @@ export async function exchangeLoginCode(payload, request) {
 
   const config = await getInstallationConfig();
   const displayName = await getDisplayName(record.accountId);
+  await heartbeat({ kind: 'user', id: record.accountId });
 
   return commonResponse(config, {
     token,

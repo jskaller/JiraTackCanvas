@@ -26,6 +26,13 @@ body {
   color: #5e6c84;
 }
 
+/* D47: measurement only — how many distinct people are using it right now. */
+.jt-meter {
+  margin: 0 0 12px;
+  font-size: 12px;
+  color: #44546f;
+}
+
 .jt-header-actions {
   display: flex;
   flex-wrap: wrap;
@@ -987,8 +994,7 @@ body {
   border-radius: 3px;
 }
 
-/* Flow 2/4 (D46): the guest code the sponsor hands over. */
-.jt-guest-code {
+/* Flow 2/4 (D46): the guest code the sponsor hands over. */.jt-guest-code {
   display: flex;
   align-items: center;
   gap: 8px;

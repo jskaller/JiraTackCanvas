@@ -2,7 +2,7 @@ import { beforeEach, test } from 'node:test';
 import assert from 'node:assert/strict';
 import jwt from 'jsonwebtoken';
 
-import { readKvs, resetKvs, seedKvs } from '../../../scripts/test-support/stubs/forge-kvs.mjs';
+import { readKvs, resetKvs, seedKvs, kvsKeys } from '../../../scripts/test-support/stubs/forge-kvs.mjs';
 import { resetApi, onPath, jsonResponse, unmatchedRequests } from '../../../scripts/test-support/stubs/forge-api.mjs';
 import { exchangeToken } from './exchangeToken.js';
 import { getSigningSecret } from '../../lib/tokens.js';
@@ -160,4 +160,57 @@ test('an unknown token is refused', async () => {
   assert.equal(result.ok, false);
   assert.equal(result.error.code, 'TOKEN_INVALID');
   assert.deepEqual(unmatchedRequests(), []);
+});
+
+// D47: the exchange is the only moment the server knows both who is present
+// and that they are still running, so it is where the usage meter is fed.
+test('a successful exchange records the user as active, and a failure does not', async () => {
+  seedKvs({
+    [`userTokens:${TOKEN}`]: {
+      userId: 'acc-2',
+      installationId: 'inst-1',
+      scope: 'create',
+      isAdmin: false,
+      issuedAt: NOW,
+      expiresAt: NOW + 24 * 60 * 60 * 1000,
+      revoked: false,
+      permittedProjectsJson: '*',
+      permittedCanvasesJson: '"all"',
+    },
+  });
+
+  const ok = await exchangeToken({ canvasToken: TOKEN }, { headers: {} });
+  assert.equal(ok.ok, true);
+  assert.ok(readKvs('meterActive:user:acc-2'));
+
+  resetKvs();
+  const refused = await exchangeToken({ canvasToken: TOKEN }, { headers: {} });
+  assert.equal(refused.ok, false);
+  assert.equal(readKvs('meterActive:user:acc-2'), undefined);
+});
+
+test('a guest heartbeat is keyed by the guest, not the sponsor', async () => {
+  seedKvs({
+    [`canvasTokens:${TOKEN}`]: {
+      scope: 'guest_create',
+      guestName: 'Guest Reviewer',
+      guestEmail: 'guest@example.com',
+      issuer: 'acc-issuer',
+      installationId: 'inst-1',
+      permittedProjectsJson: '*',
+      permittedCanvases: ['Guarded canvas'],
+      issuedAt: NOW,
+      linkExpiresAt: NOW + 24 * 60 * 60 * 1000,
+      revoked: false,
+    },
+  });
+
+  const result = await exchangeToken({ canvasToken: TOKEN }, { headers: { 'user-agent': 'test-agent' } });
+  assert.equal(result.ok, true);
+  assert.ok(result.data.guestId);
+
+  const guestKey = kvsKeys().find((key) => key.startsWith('meterActive:guest:'));
+  assert.ok(guestKey, kvsKeys().join(','));
+  assert.equal(readKvs(guestKey).id, result.data.guestId);
+  assert.equal(readKvs('meterActive:user:acc-issuer'), undefined);
 });
