@@ -49,6 +49,8 @@ export function renderTicketForm(container, options) {
     capture,
     onCancel,
     onCreated,
+    onStartSave,
+    onSaveFailed,
     defaultProject,
     defaultAssignee,
     defaultIssueTypeId,
@@ -486,9 +488,13 @@ export function renderTicketForm(container, options) {
     return `${(value / (1024 * 1024)).toFixed(1)} MB`;
   }
 
+  // The input's FileList cannot be rebuilt, so the form owns the list. A save
+  // that fails hands these back to a reopened form unchanged.
+  let selectedFiles = Array.isArray(options.initialFiles) ? options.initialFiles.slice() : [];
+
   function renderAttachmentList() {
     attachmentList.innerHTML = '';
-    Array.from(attachmentInput.files || []).forEach((file) => {
+    selectedFiles.forEach((file) => {
       const item = el('div', 'jiratack-attachment-item');
       const name = el('span', 'jiratack-attachment-name', file.name);
       name.title = file.name;
@@ -498,7 +504,12 @@ export function renderTicketForm(container, options) {
     });
   }
 
-  attachmentInput.addEventListener('change', renderAttachmentList);
+  attachmentInput.addEventListener('change', () => {
+    selectedFiles = selectedFiles.concat(Array.from(attachmentInput.files || []));
+    attachmentInput.value = '';
+    renderAttachmentList();
+  });
+  renderAttachmentList();
 
   // Screen recording (plan 6.5). WebM because Chrome and Firefox both produce
   // it; MP4 would fork the pipeline and Jira's previewer is not the only
@@ -530,6 +541,12 @@ export function renderTicketForm(container, options) {
     videoPreview.src = URL.createObjectURL(blob);
     videoPreview.style.display = 'block';
     videoStatus.textContent = `Recorded ${(blob.size / 1024 / 1024).toFixed(1)} MB`;
+  }
+
+  if (options.initialVideoDataUrl) {
+    setRecordedDataUrl(options.initialVideoDataUrl);
+  } else if (options.initialVideoBlob) {
+    setRecordedBlob(options.initialVideoBlob);
   }
 
   function setRecordButtonIdle() {
@@ -1004,66 +1021,58 @@ export function renderTicketForm(container, options) {
     submitButton.disabled = true;
     submitButton.textContent = 'Creating…';
 
+    let descriptionText = descriptionInput.value;
+    if (editOriginal && editReplacement) {
+      descriptionText = `Text change\nOriginal: ${editOriginal}\nSuggested: ${editReplacement}\n\n${descriptionText}`;
+    }
+    const descriptionAdf = descriptionToAdf(descriptionText);
+    const textChange = editOriginal && editReplacement
+      ? {
+        original: editOriginal,
+        suggested: editReplacement,
+        anchor: options.textSelection && options.textSelection.anchor
+          ? options.textSelection.anchor
+          : undefined,
+      }
+      : null;
+    const priorityId = prioritySelect.value || null;
+
+    // Everything a reopened form needs, captured before the overlay moves on.
+    const draft = {
+      summary,
+      descriptionText,
+      capture,
+      screenshotDataUrl,
+      files: selectedFiles.slice(),
+      videoBlob,
+      videoDataUrl,
+      textChange,
+      textSelection: options.textSelection || null,
+      projectKey,
+      issueTypeId,
+      priorityId,
+      assigneeAccountId: assigneeAccountId || null,
+      parentKey: parentKey || null,
+      consoleLog,
+    };
+
+    // The reviewer's part is done: hand off and let the overlay close. The
+    // uploads and the Jira call run behind a pending card (D44).
+    const saveId = onStartSave ? onStartSave(draft) : null;
+
     try {
-      let descriptionText = descriptionInput.value;
-      if (editOriginal && editReplacement) {
-        descriptionText = `Text change\nOriginal: ${editOriginal}\nSuggested: ${editReplacement}\n\n${descriptionText}`;
-      }
-      const descriptionAdf = descriptionToAdf(descriptionText);
+      const sizeError = validateAttachmentSizes(draft.files, videoDataUrl, videoBlob);
+      if (sizeError) throw new Error(sizeError);
 
-      let screenshotUploadId = null;
-      if (screenshotDataUrl) {
-        try {
-          screenshotUploadId = await uploadScreenshot(config, session, screenshotDataUrl);
-        } catch (e) {
-          // Screenshots are optional; never block the ticket on upload failure.
-          console.error('[JiraTack] Screenshot upload failed:', e);
-        }
-      }
-
-      const attachmentIds = [];
-      const files = Array.from(attachmentInput.files || []);
-      console.log(`[JiraTack] attachments selected: ${files.length}`);
-      for (const file of files) {
-        if (attachmentLimit && file.size > attachmentLimit) {
-          const mb = Math.round(attachmentLimit / (1024 * 1024));
-          throw new Error(`${file.name} is larger than Jira allows (${mb} MB).`);
-        }
-        const dataUrl = await readFileAsDataUrl(file);
-        const uploadId = await uploadAttachment(config, session, {
-          dataUrl,
-          filename: file.name,
-          mimeType: file.type || 'application/octet-stream',
-        });
-        console.log(`[JiraTack] attachment upload: ${file.name} ${file.type || '(no type)'} ${file.size}B -> ${uploadId || 'NO ID'}`);
-        if (uploadId) attachmentIds.push(uploadId);
-      }
-
-      if (videoDataUrl || videoBlob) {
-        const recordingDataUrl = videoDataUrl || await readFileAsDataUrl(videoBlob);
-        const bytes = Math.round((recordingDataUrl.length * 3) / 4);
-        if (attachmentLimit && bytes > attachmentLimit) {
-          const mb = Math.round(attachmentLimit / (1024 * 1024));
-          throw new Error(`The recording is larger than Jira allows (${mb} MB).`);
-        }
-        const videoUploadId = await uploadAttachment(config, session, {
-          dataUrl: recordingDataUrl,
-          filename: `jiratack-recording-${Date.now()}.webm`,
-          mimeType: 'video/webm',
-        });
-        if (videoUploadId) attachmentIds.push(videoUploadId);
-      }
+      // The uploads are independent; wait for the slowest, not the sum.
+      const [screenshotUploadId, videoUploadId, ...fileUploadIds] = await Promise.all([
+        uploadScreenshotIfAny(screenshotDataUrl),
+        uploadRecordingIfAny(videoDataUrl, videoBlob),
+        ...draft.files.map(uploadFileIfAny),
+      ]);
+      const attachmentIds = [...fileUploadIds, videoUploadId].filter(Boolean);
 
       console.log(`[JiraTack] sending ${attachmentIds.length} attachment id(s)`);
-      const textChange = editOriginal && editReplacement
-        ? {
-          original: editOriginal,
-          suggested: editReplacement,
-          anchor: options.textSelection && options.textSelection.anchor
-            ? options.textSelection.anchor
-            : undefined,
-        }
-        : null;
       // The first ticket on a canvas also supplies its card preview (D43).
       let canvasThumbnail = null;
       let canvasThumbnailNote = null;
@@ -1113,15 +1122,16 @@ export function renderTicketForm(container, options) {
         console.warn(`[JiraTack] Ticket ${result.key} created with warning: ${result.warning}`);
       }
 
-      destroy();
+      try { destroy(); } catch (e) { /* the host already closed the form */ }
       if (onCreated) {
         onCreated({
+          saveId,
           result,
           capture,
           summary,
           projectKey,
           issueTypeId,
-          priorityId: prioritySelect.value || null,
+          priorityId,
           textChange,
           parentKey: parentKey || null,
           assignee: assigneeAccountId
@@ -1134,20 +1144,76 @@ export function renderTicketForm(container, options) {
         });
       }
     } catch (err) {
-      submitting = false;
-      submitButton.disabled = false;
-      submitButton.textContent = 'Create ticket';
-      const code = err && err.code ? `${err.code}: ` : '';
-      let message = `${code}${(err && err.message) || 'Failed to create ticket.'}`;
-      if (err && err.details) {
-        try {
-          message += ` — ${JSON.stringify(err.details)}`;
-        } catch (e) {
-          message += ` — ${String(err.details)}`;
-        }
+      if (onSaveFailed) {
+        // The form is already closed; the overlay reopens it with this draft.
+        onSaveFailed({ saveId, error: describeError(err), draft });
+      } else {
+        // No optimistic host (older embed): report in place.
+        submitting = false;
+        submitButton.disabled = false;
+        submitButton.textContent = 'Create ticket';
+        showError(describeError(err).message);
       }
-      showError(message);
     }
+  }
+
+  function describeError(err) {
+    const code = err && err.code ? `${err.code}: ` : '';
+    let message = `${code}${(err && err.message) || 'Failed to create ticket.'}`;
+    if (err && err.details) {
+      try {
+        message += ` — ${JSON.stringify(err.details)}`;
+      } catch (e) {
+        message += ` — ${String(err.details)}`;
+      }
+    }
+    return { message, code: (err && err.code) || null };
+  }
+
+  function validateAttachmentSizes(files, recordingDataUrl, recordingBlob) {
+    if (attachmentLimit) {
+      const mb = Math.round(attachmentLimit / (1024 * 1024));
+      for (const file of files) {
+        if (file.size > attachmentLimit) return `${file.name} is larger than Jira allows (${mb} MB).`;
+      }
+      const bytes = recordingDataUrl
+        ? Math.round((recordingDataUrl.length * 3) / 4)
+        : (recordingBlob ? recordingBlob.size : 0);
+      if (bytes > attachmentLimit) return `The recording is larger than Jira allows (${mb} MB).`;
+    }
+    return null;
+  }
+
+  async function uploadScreenshotIfAny(dataUrl) {
+    if (!dataUrl) return null;
+    try {
+      return await uploadScreenshot(config, session, dataUrl);
+    } catch (e) {
+      // Screenshots are optional; never block the ticket on upload failure.
+      console.error('[JiraTack] Screenshot upload failed:', e);
+      return null;
+    }
+  }
+
+  async function uploadFileIfAny(file) {
+    const dataUrl = await readFileAsDataUrl(file);
+    const uploadId = await uploadAttachment(config, session, {
+      dataUrl,
+      filename: file.name,
+      mimeType: file.type || 'application/octet-stream',
+    });
+    console.log(`[JiraTack] attachment upload: ${file.name} ${file.type || '(no type)'} ${file.size}B -> ${uploadId || 'NO ID'}`);
+    return uploadId || null;
+  }
+
+  async function uploadRecordingIfAny(dataUrl, blob) {
+    if (!dataUrl && !blob) return null;
+    const recordingDataUrl = dataUrl || await readFileAsDataUrl(blob);
+    return uploadAttachment(config, session, {
+      dataUrl: recordingDataUrl,
+      filename: `jiratack-recording-${Date.now()}.webm`,
+      mimeType: 'video/webm',
+    });
   }
 
   form.addEventListener('submit', handleSubmit);
@@ -1157,6 +1223,8 @@ export function renderTicketForm(container, options) {
       handleSubmit(event);
     }
   });
+
+  if (options.initialError) showError(options.initialError);
 
   // Assignee is the key field, so it gets focus first. If no project is
   // resolved the ticket cannot be created, and that control is the honest

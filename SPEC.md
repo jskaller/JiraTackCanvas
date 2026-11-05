@@ -781,6 +781,8 @@ Move mode (write scopes): hold ~400 ms, **or move while held**, then drag to rep
 
 Compact vertical layout with a sticky top bar (`New ticket` / **Cancel**), a sticky footer (**Create ticket** / **Cancel**), and the Jira details first. The content was captured in the popover; the form carries it in and lets the reviewer complete the ticket.
 
+**Saving (D44).** Creating closes the form immediately: the pin becomes a **pending card** labelled *Saving…*, and the screenshot, attachments and recording upload concurrently while the Jira create runs. On success the pending card is replaced by the real ticket (key, status, links) and the reviewer carries on. On failure the overlay first checks whether the ticket actually landed (a create whose reply was lost), and otherwise reopens the form with the draft intact — summary, description, text change, captured screenshot, attached files and recording. Switching canvases waits while a save is in flight; closing the overlay does not cancel it.
+
 1. **Assignee** — typeahead, full width, first key field, focused when the form opens. Fallback: previous ticket's assignee → current licensed user → sponsor for guests. If no project is resolved, the project control is focused instead.
 
 2. **Reporter line** — muted `Reporting as …`, not an input; not rendered for guests.

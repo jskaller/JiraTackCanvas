@@ -935,6 +935,10 @@ function renderPinsAndSidebar() {
         onCreate: session && session.scope === 'view' ? undefined : handleCreateCanvas,
         onSwitch: () => {
           if (!current || current.composing) return;
+          if (current.pendingSaves && current.pendingSaves.size > 0) {
+            showToast('A ticket is still saving. One moment.');
+            return;
+          }
           cancelHydration();
           cancelPendingMoveIfAny();
           dismissTicketForm();
@@ -1019,6 +1023,10 @@ function renderPinsAndSidebar() {
 
 async function handleCanvasSelect(canvasName) {
   if (!current || !current.universal || current.composing) return;
+  if (current.pendingSaves && current.pendingSaves.size > 0) {
+    showToast('A ticket is still saving. One moment.');
+    return;
+  }
 
   cancelHydration();
   cancelPendingMoveIfAny();
@@ -1139,12 +1147,9 @@ function destroyCapturePopover() {
  * sidebar kept on screen and omitted from the raster.
  */
 async function captureThumbnailForTicket() {
-  if (current && supportsTabScreenshot(current.config)) {
-    const shot = await captureCanvasThumbnail({ captureTab: captureVisibleTab });
-    if (shot) return shot;
-  }
-  // The visible-tab capture can be refused (lost activeTab, restricted frame);
-  // fall back to an in-page render rather than leaving the canvas without one.
+  // In-page only: the preview runs inside the background save (D44), so there is
+  // no one to hide a tab capture for and no scroll to interrupt. Rendering the
+  // document from (0,0) needs neither.
   return captureCanvasThumbnail();
 }
 
@@ -1198,11 +1203,120 @@ function computeDefaults() {
   };
 }
 
+let pendingSaveSeq = 0;
+
+function pendingSaves() {
+  if (!current) return null;
+  if (!(current.pendingSaves instanceof Map)) current.pendingSaves = new Map();
+  return current.pendingSaves;
+}
+
+/**
+ * The reviewer pressed Create: close the form now, show the pin as pending and
+ * run the uploads and the Jira call in the background (D44). Returns the id the
+ * form uses to report the outcome.
+ */
+function startBackgroundSave(draft) {
+  if (!current) return null;
+  pendingSaveSeq += 1;
+  const saveId = `save-${Date.now()}-${pendingSaveSeq}`;
+  const tempKey = `pending-${saveId}`;
+  const displaySummary = draft.summary && draft.summary.startsWith('[JiraTack]')
+    ? draft.summary
+    : `[JiraTack] ${draft.summary || ''}`.trim();
+
+  const defaults = current.formDefaults || computeDefaults();
+  pendingSaves().set(saveId, { tempKey, draft, defaults });
+
+  // The form's own marker goes; the pending card takes over from here.
+  dismissTicketForm();
+  current.pins = (current.pins || []).concat([{
+    key: tempKey,
+    summary: displaySummary,
+    projectKey: draft.projectKey || null,
+    issueTypeId: draft.issueTypeId || null,
+    priorityId: draft.priorityId || null,
+    parentKey: draft.parentKey || null,
+    status: { name: '', category: '', colorName: '' },
+    priority: null,
+    assignee: draft.assigneeAccountId
+      ? { accountId: draft.assigneeAccountId, displayName: null, avatarUrl: null }
+      : null,
+    reporter: null,
+    pinPosition: draft.capture.pinPosition,
+    selector: draft.capture.selector || null,
+    textChange: draft.textChange || null,
+    issueType: null,
+    createdAt: new Date().toISOString(),
+    url: getPageUrl(),
+    pending: true,
+  }]);
+  renderPinsAndSidebar();
+  if (current.pinsController && current.pinsController.flash) current.pinsController.flash(tempKey);
+  return saveId;
+}
+
+function finishPendingSave(saveId) {
+  const map = pendingSaves();
+  const entry = map && saveId ? map.get(saveId) : null;
+  if (map && saveId) map.delete(saveId);
+  return entry;
+}
+
+function dropPendingPin(tempKey) {
+  if (!current || !tempKey) return;
+  current.pins = (current.pins || []).filter((pin) => pin.key !== tempKey);
+}
+
+/**
+ * A failed response does not prove the ticket was not created: the create may
+ * have succeeded and the reply been lost. Look before reopening the form, so a
+ * retry cannot produce a duplicate.
+ */
+async function findJustCreatedPin(draft) {
+  if (!current || !current.session) return null;
+  const wanted = draft.summary && draft.summary.startsWith('[JiraTack]')
+    ? draft.summary
+    : `[JiraTack] ${draft.summary || ''}`.trim();
+  try {
+    const data = await getPins(current.config, current.session, current.canvasName, getPageUrl(), true);
+    const now = Date.now();
+    return (data.pins || []).find((pin) => {
+      if (pin.summary !== wanted) return false;
+      const created = pin.createdAt ? Date.parse(pin.createdAt) : NaN;
+      return Number.isFinite(created) ? (now - created) < 120000 : true;
+    }) || null;
+  } catch (e) {
+    return null;
+  }
+}
+
+function reopenTicketFormAfterFailure(error, draft, defaults) {
+  if (!current) return;
+  clearPendingPin();
+  current.pendingPin = createPendingPin(current.overlay.overlayEl, draft.capture);
+  openTicketForm({
+    capture: draft.capture,
+    screenshotDataUrl: draft.screenshotDataUrl,
+    initialSummary: draft.summary,
+    initialDescription: draft.descriptionText,
+    textChange: draft.textChange,
+    textSelection: draft.textSelection,
+    defaults: defaults || computeDefaults(),
+    initialFiles: draft.files || [],
+    initialVideoBlob: draft.videoBlob || null,
+    initialVideoDataUrl: draft.videoDataUrl || null,
+    initialError: (error && error.message) || 'Could not save the ticket.',
+  });
+  showToast('Could not save the ticket — it is still here.');
+}
+
 function openTicketForm(options) {
   if (!current) return;
   const { config, session, overlay } = current;
   const { capture, screenshotDataUrl, initialSummary, initialDescription, textChange, textSelection, defaults } = options;
   current.composing = true;
+  current.formDefaults = defaults;
   current.composeListOpen = false;
   if (current.textSuggest) current.textSuggest.hide();
   renderPinsAndSidebar();
@@ -1216,6 +1330,10 @@ function openTicketForm(options) {
     capturePopoverHost: overlay.capturePopoverHostEl,
     initialSummary,
     initialDescription,
+    initialFiles: options.initialFiles,
+    initialVideoBlob: options.initialVideoBlob,
+    initialVideoDataUrl: options.initialVideoDataUrl,
+    initialError: options.initialError,
     screenshotDataUrl,
     screenshotFailed: !screenshotDataUrl,
     needsCanvasThumbnail: Boolean(current && !current.canvasHasThumbnail),
@@ -1228,9 +1346,28 @@ function openTicketForm(options) {
     onCancel: () => {
       dismissTicketForm();
     },
-    onCreated: ({ result, capture: createdCapture, summary, projectKey, issueTypeId, priorityId, textChange: createdTextChange, assignee, parentKey }) => {
+    onStartSave: (draft) => startBackgroundSave(draft),
+    onSaveFailed: async ({ saveId, error, draft }) => {
       if (!current) return;
-      dismissTicketForm();
+      const entry = finishPendingSave(saveId);
+      const recovered = await findJustCreatedPin(draft);
+      if (recovered) {
+        // It did land; the reply was lost. Show it instead of re-creating it.
+        current.pins = (current.pins || []).filter((pin) => pin.key !== (entry && entry.tempKey)).concat([recovered]);
+        renderPinsAndSidebar();
+        scheduleHydration(recovered.key);
+        if (current.pinsController && current.pinsController.flash) current.pinsController.flash(recovered.key);
+        showToast(`Created ${recovered.key}`);
+        return;
+      }
+      if (entry) dropPendingPin(entry.tempKey);
+      renderPinsAndSidebar();
+      reopenTicketFormAfterFailure(error, draft, entry && entry.defaults);
+    },
+    onCreated: ({ saveId, result, capture: createdCapture, summary, projectKey, issueTypeId, priorityId, textChange: createdTextChange, assignee, parentKey }) => {
+      if (!current) return;
+      const entry = finishPendingSave(saveId);
+      dropPendingPin(entry && entry.tempKey);
       const displaySummary = summary && summary.startsWith('[JiraTack]')
         ? summary
         : `[JiraTack] ${summary || ''}`.trim();
@@ -1581,8 +1718,13 @@ function startPolling() {
       const data = await getPins(current.config, current.session, current.canvasName, getPageUrl(), true);
       if (!current) return;
       const next = (data && data.pins) || [];
-      if (pinSignature(next) === pinSignature(current.pins)) return;
-      current.pins = next;
+      // Pending saves exist only locally: the server cannot return them yet.
+      const pending = (current.pins || []).filter((pin) => pin.pending);
+      if (pinSignature(next) === pinSignature((current.pins || []).filter((pin) => !pin.pending))) {
+        current.pins = next.concat(pending);
+        return;
+      }
+      current.pins = next.concat(pending);
       if (data && data.canvasHasThumbnail !== undefined) {
         current.canvasHasThumbnail = Boolean(data.canvasHasThumbnail);
       }

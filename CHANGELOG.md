@@ -7,7 +7,7 @@ All notable changes to JiraTack.
 > the description marker, recovery). They are kept for history and are **not**
 > a description of current behaviour — see `SPEC.md` v3.0 for that. The
 > `0.9.0`-style headings track `package.json`, not the Forge app version
-> (currently 5.91.0 in development).
+> (currently 5.92.0 in development).
 
 ## [Unreleased]
 
@@ -27,6 +27,14 @@ All notable changes to JiraTack.
   the admin page as an installation-level setting.
 
 ### Install, guests and organisation
+
+- **Creating a ticket closes the form immediately.** The pin appears as a **pending card**
+  labelled *Saving…* while the screenshot, attachments and recording upload concurrently and
+  the Jira create runs; the real card replaces it when the response arrives. A failed save
+  first checks whether the ticket actually landed, then reopens the form with the whole
+  draft — summary, description, text change, screenshot, files and recording. The card
+  preview is captured inside that background save, so it no longer delays the reviewer or
+  scrolls the page while they wait.
 
 - **The capture no longer hides the sidebar at all.** The tab-capture path used to
   hide the whole overlay for the shot; it now keeps the sidebar on screen and removes it

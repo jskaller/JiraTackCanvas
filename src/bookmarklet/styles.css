@@ -2242,3 +2242,29 @@ body.jiratack-pin-mode #jiratack-overlay .jiratack-pinmode * {
   font-size: 10px;
   color: #6b778c;
 }
+
+/* A ticket whose save is still in flight (D44): present, clearly not final. */
+.jiratack-ticket-pending {
+  border-style: dashed;
+}
+.jiratack-pending-key {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: #42526e;
+  font-family: inherit;
+  font-size: 11px;
+  font-weight: 600;
+}
+.jiratack-pending-key:before {
+  content: "";
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #0052cc;
+  animation: jiratack-status-pulse 1s ease-in-out infinite;
+}
+.jiratack-pending-chip {
+  background: #deebff;
+  color: #0747a6;
+}

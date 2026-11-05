@@ -1432,6 +1432,11 @@ async function main() {
           window.__jiratackSidebarObserver = observer;
         })()`);
 
+        // A slow Jira is the case the reviewer feels: the form must close before
+        // the response, not after it.
+        servers.state.createDelayMs = 900;
+        servers.state.lastCreate = null;
+
         await page.send('Input.dispatchKeyEvent', {
           type: 'keyDown',
           modifiers: 4,
@@ -1449,7 +1454,38 @@ async function main() {
           nativeVirtualKeyCode: 13,
         });
 
+        await sleep(200);
+        const duringSave = JSON.parse(await page.evaluate(`JSON.stringify({
+          form: !!document.querySelector('.jiratack-new-ticket-form .jiratack-form'),
+          pending: !!document.querySelector('.jiratack-ticket-pending'),
+          pendingKey: (document.querySelector('.jiratack-pending-key') || {}).textContent || null,
+          pendingChip: (document.querySelector('.jiratack-pending-chip') || {}).textContent || null,
+        })`));
+        record(
+          'save: the form closes before Jira answers',
+          duringSave.form === false && servers.state.lastCreate === null,
+          `form=${duringSave.form} answered=${servers.state.lastCreate !== null}`,
+        );
+        record(
+          'save: the pin shows a pending card while it saves',
+          duringSave.pending === true
+            && duringSave.pendingKey === 'Saving…'
+            && duringSave.pendingChip === 'Saving…',
+          JSON.stringify(duringSave),
+        );
+
         const created = await waitFor(() => servers.state.lastCreate, { timeout: 20000 });
+        servers.state.createDelayMs = 0;
+
+        const afterSave = JSON.parse(await page.evaluate(`JSON.stringify({
+          pending: !!document.querySelector('.jiratack-ticket-pending'),
+          real: !!document.querySelector('.jiratack-ticket-card[data-key="TEST-9"]'),
+        })`));
+        record(
+          'save: the pending card becomes the ticket',
+          afterSave.pending === false && afterSave.real === true,
+          JSON.stringify(afterSave),
+        );
         record(
           'form: create carries a canvas preview when the canvas has none',
           Boolean(created)
@@ -1992,8 +2028,38 @@ async function main() {
         record('text: issue types resolve for the create', typeReady === true, String(typeReady));
 
         servers.state.lastCreate = null;
+
+        // A failed background save must reopen the form with the draft intact.
+        servers.state.createFailuresLeft = 1;
+        servers.state.createDelayMs = 400;
         await page.evaluate("document.querySelector('.jiratack-form-actions .jiratack-button-primary').scrollIntoView({ block: 'nearest' })");
-        const createPoint = await pointFor('.jiratack-form-actions .jiratack-button-primary');
+        let createPoint = await pointFor('.jiratack-form-actions .jiratack-button-primary');
+        if (createPoint.ok) await clickAt(createPoint);
+
+        const reopened = await waitFor(() => page.evaluate(`(() => {
+          const form = document.querySelector('.jiratack-new-ticket-form .jiratack-form');
+          if (!form) return null;
+          const summary = document.getElementById('jiratack-summary');
+          const error = document.querySelector('.jiratack-form-error');
+          return summary && summary.value ? JSON.stringify({
+            summary: summary.value,
+            error: (error && error.textContent) || null,
+            pending: !!document.querySelector('.jiratack-ticket-pending'),
+          }) : null;
+        })()`), { timeout: 15000 });
+        const reopenedState = reopened ? JSON.parse(reopened) : null;
+        record(
+          'save: a failed save reopens the form with the draft',
+          Boolean(reopenedState)
+            && reopenedState.summary === 'Text change: Original'
+            && /Simulated Jira outage/.test(reopenedState.error || '')
+            && reopenedState.pending === false,
+          JSON.stringify(reopenedState),
+        );
+
+        servers.state.createDelayMs = 0;
+        await page.evaluate("document.querySelector('.jiratack-form-actions .jiratack-button-primary').scrollIntoView({ block: 'nearest' })");
+        createPoint = await pointFor('.jiratack-form-actions .jiratack-button-primary');
         if (createPoint.ok) await clickAt(createPoint);
         const created = await waitFor(() => servers.state.lastCreate, { timeout: 20000 });
         record(

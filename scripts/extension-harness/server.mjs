@@ -172,6 +172,15 @@ function apiServer(state) {
 
       if (action === 'createIssue') {
         const payload = body.payload || {};
+        state.lastCreateAttempt = payload;
+
+        const respond = () => {
+        if (state.createFailuresLeft > 0) {
+          state.createFailuresLeft -= 1;
+          send({ ok: false, error: { code: 'INTERNAL', message: 'Simulated Jira outage' } });
+          return;
+        }
+
         state.lastCreate = payload;
         state.pins = [
           ...state.pins,
@@ -194,6 +203,10 @@ function apiServer(state) {
           },
         ];
         send({ ok: true, data: { key: 'TEST-9', url: 'https://example.atlassian.net/browse/TEST-9' } });
+        };
+
+        if (state.createDelayMs > 0) setTimeout(respond, state.createDelayMs);
+        else respond();
         return;
       }
 
@@ -263,6 +276,9 @@ export async function startServers({ sdkVersion, sdkUrl }) {
     lastPinMove: null,
     lastPinMoveUploadBytes: 0,
     lastCreate: null,
+    // Simulate a slow or failing Jira so the optimistic save can be observed.
+    createDelayMs: 0,
+    createFailuresLeft: 0,
   };
 
   const api = apiServer(state);

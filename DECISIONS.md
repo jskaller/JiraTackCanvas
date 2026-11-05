@@ -689,6 +689,26 @@ Firefox 159 accepts the package as a temporary add-on (`installTemporaryAddon` o
 
 ---
 
+### D44 — Optimistic save: close first, save behind a pending card
+
+**Status:** Resolved (2026-11-05)
+
+**Question:** saving a ticket disabled the form for the whole upload plus the Jira round trip. On a slow Jira or a large screenshot the reviewer waited with nothing to do, even though their part was finished.
+
+**Resolution:**
+
+1. **Create closes the form.** The payload is snapshotted, the form is dismissed, and the pin appears at once as a pending card labelled **Saving…**. Uploads and the create run in the background.
+2. **Uploads are concurrent.** Screenshot, files and recording upload together; the save waits for the slowest, not the sum. Size validation still happens before anything is sent.
+3. **The card preview is captured inside the background save**, in-page only (no tab capture, no scroll, nothing hidden), with the ticket screenshot as the bounded fallback. It no longer delays the reviewer or moves the page under the form.
+4. **Failure never loses the draft.** Before reopening, the overlay looks for a ticket that actually landed (same summary, created within two minutes) so a lost reply cannot become a duplicate. Otherwise the form reopens with every value: summary, description, text change, screenshot, files, recording, assignee, parent.
+5. **Canvas switching waits** while a save is in flight; closing the overlay is allowed, and the ticket appears when the page is opened again.
+
+**Rejected alternatives:** a progress indicator on the disabled form (does not free the reviewer); an optimistic card without recovery (loses work on failure); splitting `createIssue` server-side so attachments attach after the response (a wire-contract change for marginal gain once the client stops waiting); cancelling the save on close (the reviewer loses a ticket they already wrote).
+
+**Known limitations:** if the reply is lost and the summary check misses (a different ticket with the same summary, or a create older than the window), a retry can duplicate; pending cards are local to the browser that made them; closing the overlay mid-save gives no warning, though the save continues.
+
+**Applies to:** SPEC §10.5, §8.1; `src/bookmarklet/{form,index,sidebar,screenshot}.js`; `scripts/extension-harness/run.mjs`, `server.mjs`.
+
 ## How to update this file
 
 When a decision is resolved:

@@ -52,31 +52,6 @@ function sidebarRect() {
   return rect;
 }
 
-/** CSS pixels of the page left of the sidebar. */
-function pageAreaWidth() {
-  const rect = sidebarRect();
-  const width = Math.max(1, window.innerWidth);
-  return rect ? Math.max(1, Math.min(width, rect.left)) : width;
-}
-
-/** The captured viewport, cropped to the page area (the sidebar removed). */
-async function cropToPageArea(dataUrl, widthCss) {
-  const image = await loadImage(dataUrl);
-  if (!image || !image.naturalWidth || !image.naturalHeight) return null;
-
-  const dprX = image.naturalWidth / Math.max(1, window.innerWidth);
-  const cut = Math.max(1, Math.min(image.naturalWidth, Math.round(widthCss * dprX)));
-
-  const output = document.createElement('canvas');
-  output.width = cut;
-  output.height = image.naturalHeight;
-  const context = output.getContext('2d');
-  if (!context) return null;
-
-  context.drawImage(image, 0, 0, cut, image.naturalHeight, 0, 0, cut, image.naturalHeight);
-  return output.toDataURL('image/png');
-}
-
 function nextPaint() {
   return new Promise((resolve) => {
     if (!window.requestAnimationFrame) {
@@ -281,52 +256,13 @@ export async function captureScreenshot(clientX, clientY, options = {}) {
  * captured locally at the first ticket of a canvas. No third-party image
  * service and no server-side browser: the bytes come from the page itself.
  */
-export async function captureCanvasThumbnail(options = {}) {
-  const painted = () => new Promise((resolve) => {
-    window.requestAnimationFrame(() => window.requestAnimationFrame(resolve));
-  });
-
+export async function captureCanvasThumbnail() {
   const viewportWidth = Math.max(320, document.documentElement.clientWidth || window.innerWidth);
   const viewportHeight = Math.max(200, window.innerHeight);
 
-  // A tab capture is the screen itself, so JiraTack's chrome has to be hidden
-  // for the shot — but only for the shot. The reviewer's scroll and their UI are
-  // restored the moment the bitmap is in hand, before the slower decode.
-  if (typeof options.captureTab === 'function') {
-    // The sidebar stays visible: the shot is cropped to the page area instead,
-    // which is also what keeps the preview at the page's full width.
-    const hidden = ['jiratack-pins', 'jiratack-text-preview-host', 'jiratack-viewport-bar']
-      .map((id) => document.getElementById(id))
-      .filter(Boolean);
-    const previous = hidden.map((element) => element.style.visibility);
-    const scrollX = window.scrollX;
-    const scrollY = window.scrollY;
-    const pageWidth = pageAreaWidth();
-
-    let dataUrl = null;
-    try {
-      hidden.forEach((element) => { element.style.visibility = 'hidden'; });
-      window.scrollTo(0, 0);
-      await painted();
-      dataUrl = await options.captureTab();
-    } catch (e) {
-      dataUrl = null;
-    } finally {
-      hidden.forEach((element, index) => {
-        element.style.visibility = previous[index] || '';
-      });
-      window.scrollTo(scrollX, scrollY);
-    }
-
-    if (!dataUrl) return null;
-    const pageOnly = await cropToPageArea(dataUrl, pageWidth);
-    return pageOnly ? downscaleDataUrl(pageOnly, 480) : null;
-  }
-
-  // In-page render (bookmarklet channel). The overlay stays on screen and is
-  // omitted from the raster instead: hiding it is what made the sidebar vanish
-  // for as long as the render took. `ignoreElements` is the same trick the pin
-  // screenshot uses to keep its composer visible without capturing it.
+  // The overlay stays on screen and is omitted from the raster: hiding it is
+  // what made the sidebar vanish for as long as the render took. `ignoreElements`
+  // is the same trick the pin screenshot uses to keep its composer visible.
   try {
     const scale = Math.min(1, 480 / viewportWidth);
     const render = html2canvas(document.documentElement, {

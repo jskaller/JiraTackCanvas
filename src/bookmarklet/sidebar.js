@@ -535,15 +535,23 @@ export function renderSidebar(container, options) {
     const card = make('div', 'jiratack-ticket-card');
     card.dataset.key = pin.key;
 
+    const isPending = Boolean(pin.pending);
+    if (isPending) card.classList.add('jiratack-ticket-pending');
+
     const pinUrlNorm = pin.url ? normalizeUrl(pin.url) : null;
     const pageUrlNorm = normalizeUrl(window.location.href);
     const isCrossPage = Boolean(pinUrlNorm && pinUrlNorm !== pageUrlNorm);
 
-    const keyEl = make('a', 'jiratack-ticket-key', pin.key);
-    keyEl.href = buildIssueUrl(config, session, pin.key);
-    keyEl.target = '_blank';
-    keyEl.rel = 'noopener noreferrer';
-    keyEl.addEventListener('click', (event) => event.stopPropagation());
+    // A pending save has no key yet: show the state, not a dead link.
+    const keyEl = isPending
+      ? make('span', 'jiratack-ticket-key jiratack-pending-key', 'Saving…')
+      : make('a', 'jiratack-ticket-key', pin.key);
+    if (!isPending) {
+      keyEl.href = buildIssueUrl(config, session, pin.key);
+      keyEl.target = '_blank';
+      keyEl.rel = 'noopener noreferrer';
+      keyEl.addEventListener('click', (event) => event.stopPropagation());
+    }
 
     card.addEventListener('mouseenter', () => {
       if (onHover) onHover(pin);
@@ -615,6 +623,11 @@ export function renderSidebar(container, options) {
       metaEl.innerHTML = '';
       peopleEl.innerHTML = '';
 
+      if (isPending) {
+        metaEl.appendChild(make('span', 'jiratack-chip jiratack-pending-chip', 'Saving…'));
+        return;
+      }
+
       if (pin.status && pin.status.name) {
         addChip(metaEl, 'jiratack-status', 'Status', pin.status.name);
       }
@@ -652,6 +665,7 @@ export function renderSidebar(container, options) {
     }
 
     card.addEventListener('click', (event) => {
+      if (isPending) return;
       if (event.target.closest && event.target.closest('.jiratack-inline-edit')) return;
 
       const pinUrl = pin.url ? normalizeUrl(pin.url) : null;
