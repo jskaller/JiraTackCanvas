@@ -1152,10 +1152,7 @@ async function captureForTicket(clientX, clientY) {
   if (current && supportsTabScreenshot(current.config)) {
     return captureScreenshot(clientX, clientY, { captureTab: captureVisibleTab });
   }
-  return captureScreenshot(clientX, clientY, {
-    scale: 1,
-    keepVisibleIds: ['jiratack-sidebar'],
-  });
+  return captureScreenshot(clientX, clientY, { scale: 1 });
 }
 
 /**

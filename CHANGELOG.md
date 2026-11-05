@@ -7,7 +7,7 @@ All notable changes to JiraTack.
 > the description marker, recovery). They are kept for history and are **not**
 > a description of current behaviour — see `SPEC.md` v3.0 for that. The
 > `0.9.0`-style headings track `package.json`, not the Forge app version
-> (currently 5.90.0 in development).
+> (currently 5.91.0 in development).
 
 ## [Unreleased]
 
@@ -27,6 +27,16 @@ All notable changes to JiraTack.
   the admin page as an installation-level setting.
 
 ### Install, guests and organisation
+
+- **The capture no longer hides the sidebar at all.** The tab-capture path used to
+  hide the whole overlay for the shot; it now keeps the sidebar on screen and removes it
+  from the result instead — cropped out of the card preview, masked out of the ticket
+  screenshot — and the pin layer alone is hidden for the instant of the capture. This
+  removes the flash on **Add to ticket** as well as on save.
+- **Two latent failures found while testing it.** The ticket-screenshot fallback for the
+  card preview used a function that was never imported, so any failed page capture aborted
+  the save with "thumbnailFromDataUrl is not defined"; the card encoder had also lost its
+  helper. Both are fixed, and the harness now exercises the fallback path.
 
 - **The sidebar no longer disappears while a preview is captured.** The in-page
   preview renderer hid the whole overlay for as long as it took (seconds on a heavy page);

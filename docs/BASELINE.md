@@ -13,10 +13,10 @@
 | | Value | Source |
 | --- | --- | --- |
 | Tagged commit (pre-deploy snapshot) | `git rev-parse baseline/pre-pivot-2026-10-30` | git |
-| App version (deployed) | **5.90.0** | `forge deploy` output, `forge install list` |
-| Development last deployed | 2026-11-05T10:58Z (scopes unchanged unless stated) | `forge deploy list` |
+| App version (deployed) | **5.91.0** | `forge deploy` output, `forge install list` |
+| Development last deployed | 2026-11-05T11:31Z (scopes unchanged unless stated) | `forge deploy list` |
 | Installation | upgraded to major 5 | `forge install --upgrade` |
-| SDK hash (deployed) | `4b1f26b85016` | served `ETag`, `src/lib/version.js` |
+| SDK hash (deployed) | `eb278f232418` | served `ETag`, `src/lib/version.js` |
 | SDK hash (tree) | `86da66a835c1` | `src/lib/version.js` |
 | Bookmarklet bundle (tree) | 362,911 bytes (`dist/bookmarklet/jiratack.js`) | `npm run build` (byte-identical across rebuilds; `SDK_VERSION` is its SHA-256 prefix) |
 | Bookmarklet URL length | ~3,500 chars with a 64-char token | `buildBookmarklet()` |
@@ -27,7 +27,7 @@
 
 ## 2. Deployed vs tree
 
-**Deployed 2026-11-05.** Development runs the current tree as app **5.90.0**, SDK `4b1f26b85016`, four scopes. No `forge install --upgrade` was needed: scopes were unchanged since 5.0.0.
+**Deployed 2026-11-05.** Development runs the current tree as app **5.91.0**, SDK `eb278f232418`, four scopes. No `forge install --upgrade` was needed: scopes were unchanged since 5.0.0.
 
 | Change | Commits | Status |
 | --- | --- | --- |
@@ -82,6 +82,7 @@
 | Duplicate ticket counts follow the resolved canvas key; `deleteStrayCanvasRecord` removes a duplicate record by key, refusing when tickets resolve to it or the label is unique | working tree (uncommitted) | **Deployed** 2026-11-05 as 5.88.0 |
 | Tests for the chunked upload path, multipart attachments and pin moves (guards, guest comment branch, failed-attachment behaviour) — 73 resolver tests | working tree (uncommitted) | **Deployed** 2026-11-05 as 5.89.0 |
 | Preview capture no longer hides the reviewer's UI: in-page renders omit JiraTack chrome, tab captures restore before cropping, and a render past 2.5 s falls back to the ticket screenshot; harness asserts the sidebar is never hidden | working tree (uncommitted) | **Deployed** 2026-11-05 as 5.90.0 |
+| Capture never hides the sidebar: tab captures keep it on screen and crop/mask it out (only the pin layer hides for the instant of the capture), removing the flash on Add to ticket and save; fixed the unimported `thumbnailFromDataUrl` fallback and a lost card encoder | working tree (uncommitted) | **Deployed** 2026-11-05 as 5.91.0 |
 
 **Deployed scopes are the four in `manifest.yml`.** Confirmed with `forge version details -e development --non-interactive --json`: `storage:app`, `read:jira-work`, `write:jira-work`, `read:jira-user`. The two `manage:jira-*` scopes were dropped before 5.0.0.
 

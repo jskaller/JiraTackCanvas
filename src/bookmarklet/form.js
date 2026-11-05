@@ -19,6 +19,7 @@ import {
 import { createTextPreview } from './textPreview.js';
 import { openTextPopover } from './capturePopover.js';
 import { supportsTabRecording, recordCurrentTab } from './recording.js';
+import { thumbnailFromDataUrl } from './screenshot.js';
 import { serializeToAdf } from '../shared/adfSerializer.js';
 import { normalizeUrl, stripDeepLinkParams } from '../shared/urlNormalize.js';
 import { formatConsoleLog } from './consoleProxy.js';

@@ -254,10 +254,13 @@ cause, and the cause was a one-line assumption nobody could see.
 
 The capture hardening hid the whole overlay for the duration of an in-page render, so the
 sidebar vanished for seconds while a ticket saved, and a tab capture stayed hidden through
-the decode. The UI is now never hidden for a raster: the in-page path ignores JiraTack's
-chrome (`ignoreElements`), a tab capture restores the UI before cropping, and a render past
+the decode. The UI is now never hidden for a raster: the in-page path ignores JiraTack's chrome
+(`ignoreElements`), and a tab capture keeps the sidebar on screen and crops or masks it out
+of the bitmap (only the pin layer is hidden, for the instant of the capture). A render past
 2.5 s is abandoned. The harness asserts the sidebar is never hidden during a save, and the
-assertion was verified against the old behaviour (it fails).
+assertion was verified against the old behaviour (it fails). The same pass caught two latent
+bugs in the fallback chain: a missing import (`thumbnailFromDataUrl`) that aborted any save
+whose page capture failed, and a lost encoder helper.
 
 ## 9. Considered and rejected
 

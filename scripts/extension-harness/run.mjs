@@ -798,8 +798,8 @@ async function main() {
 
           const bar = JSON.parse(await page.evaluate('JSON.stringify(window.__jtBarVisibility)'));
           record(
-            'move: viewport bar is hidden for the capture and restored',
-            Boolean(bar) && bar.seen.includes('hidden') && bar.current === '',
+            'move: the viewport bar stays on screen during the capture',
+            Boolean(bar) && !bar.seen.includes('hidden') && bar.current === '',
             JSON.stringify(bar),
           );
 
@@ -1455,7 +1455,9 @@ async function main() {
           Boolean(created)
             && typeof created.canvasThumbnail === 'string'
             && created.canvasThumbnail.indexOf('data:image/jpeg') === 0,
-          created && created.canvasThumbnail ? `${created.canvasThumbnail.length} chars` : 'no thumbnail',
+          created && created.canvasThumbnail
+            ? `${created.canvasThumbnail.length} chars`
+            : `no thumbnail (note=${created && created.canvasThumbnailNote}, shot=${Boolean(created && created.screenshotUploadId)})`,
         );
         record(
           'form: Cmd/Ctrl+Enter creates the ticket',
@@ -1994,7 +1996,6 @@ async function main() {
         const createPoint = await pointFor('.jiratack-form-actions .jiratack-button-primary');
         if (createPoint.ok) await clickAt(createPoint);
         const created = await waitFor(() => servers.state.lastCreate, { timeout: 20000 });
-
         record(
           'text: create stores the edited text change',
           Boolean(created)
