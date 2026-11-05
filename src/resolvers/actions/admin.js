@@ -12,7 +12,9 @@ import { invalidateCanvasSummary } from './dashboard.js';
 import { prefillConfigKey, normalizePrefillFields, readCanvasPrefill } from '../../lib/fieldPrefill.js';
 import {
   adoptLegacyThumbnail,
+  canvasNameIndexKey,
   clearCanvasThumbnail,
+  invalidateRegistrySnapshot,
   deleteCanvasRecord,
   loadCanvasNameIndex,
   loadCanvasRecords,
@@ -258,7 +260,17 @@ export async function registryHealth(context) {
 
       const label = normaliseCanvasName(record.name);
       if (labelsSeen.has(label)) {
-        duplicateLabels.push({ label: record.name, canvasKeys: [labelsSeen.get(label), record.key] });
+        const first = labelsSeen.get(label);
+        const existing = duplicateLabels.find((entry) => entry.label === label);
+        const recordEntry = { canvasKey: record.key, name: record.name, ticketCount: 0 };
+        if (existing) existing.records.push(recordEntry);
+        else {
+          duplicateLabels.push({
+            label,
+            name: record.name,
+            records: [{ canvasKey: first, name: record.name, ticketCount: 0 }, recordEntry],
+          });
+        }
       } else {
         labelsSeen.set(label, record.key);
       }
@@ -321,6 +333,14 @@ export async function registryHealth(context) {
           records,
           nameIndex,
         );
+        if (resolvedKey) {
+          const label = normaliseCanvasName(pin.canvas);
+          const duplicate = duplicateLabels.find((entry) => entry.label === label);
+          if (duplicate) {
+            const target = duplicate.records.find((recordEntry) => recordEntry.canvasKey === resolvedKey);
+            if (target) target.ticketCount += 1;
+          }
+        }
         if (!resolvedKey) {
           tickets.unresolved += 1;
           if (tickets.unresolvedSamples.length < 5) {
@@ -361,6 +381,45 @@ export async function registryHealth(context) {
         },
       },
     };
+  } catch (e) {
+    return errorResult('INTERNAL', e && e.message ? e.message : String(e));
+  }
+}
+
+/**
+ * Index every name a record has ever had. Only missing rows are written, and a
+ * name already owned by a different existing record is left alone, so this is
+ * safe to run repeatedly. It cannot repair a ticket that has no canvas key —
+ * that needs the metadata pass, not the index.
+ */
+export async function repairCanvasIndex(context) {
+  const denied = await requireAdmin(context, 'Only Jira admins can repair the canvas registry.');
+  if (denied) return denied;
+
+  try {
+    const records = await loadCanvasRecords();
+    const nameIndex = await loadCanvasNameIndex();
+    let repaired = 0;
+    let skipped = 0;
+
+    for (const record of records.values()) {
+      for (const name of record.names || []) {
+        const lookup = normaliseCanvasName(name);
+        if (nameIndex.get(lookup) === record.key) continue;
+        const owner = nameIndex.get(lookup);
+        if (owner && owner !== record.key && records.has(owner)) {
+          // Another live record owns this name; do not steal it.
+          skipped += 1;
+          continue;
+        }
+        await kvsSet(canvasNameIndexKey(name), record.key);
+        nameIndex.set(lookup, record.key);
+        repaired += 1;
+      }
+    }
+
+    if (repaired > 0) await invalidateRegistrySnapshot();
+    return { ok: true, data: { canvases: records.size, repaired, skipped } };
   } catch (e) {
     return errorResult('INTERNAL', e && e.message ? e.message : String(e));
   }

@@ -20,6 +20,7 @@ import {
   getCanvasConfig,
   registryHealth,
   renameCanvas,
+  repairCanvasIndex,
 } from './admin.js';
 import {
   ADMIN_CONTEXT,
@@ -267,6 +268,71 @@ test('registryHealth reports the legacy data that keeps the fallbacks alive', as
 
 test('registryHealth is admin-only', async () => {
   const result = await registryHealth(USER_CONTEXT, {});
+
+  assert.equal(result.ok, false);
+  assert.equal(result.error.code, 'INSUFFICIENT_SCOPE');
+});
+
+test('registryHealth names both sides of a duplicate label, with ticket counts', async () => {
+  const healthy = await seedCanvas({ name: 'Shopify + Example.com' });
+  // A second record with the same label but a different key: what the pre-D42
+  // key handling could leave behind.
+  seedKvs({
+    'canvas:orphan-record': {
+      version: 1,
+      key: 'orphan-record',
+      name: 'Shopify + Example.com',
+      names: ['Shopify + Example.com'],
+      folder: null,
+      archived: false,
+    },
+  });
+  onPath('/rest/api/3/search/jql', () => jsonResponse(200, searchPage([
+    jiraIssue({
+      key: 'TEST-50',
+      metadata: pinMetadata({
+        canvas: 'Shopify + Example.com',
+        canvasId: healthy.key,
+        url: 'https://example.com/',
+      }),
+    }),
+  ])));
+
+  const result = await registryHealth(ADMIN_CONTEXT, {});
+
+  assert.equal(result.data.duplicateLabels, 1);
+  const entry = result.data.samples.duplicateLabels[0];
+  assert.equal(entry.name, 'Shopify + Example.com');
+  const counts = Object.fromEntries(entry.records.map((record) => [record.canvasKey, record.ticketCount]));
+  assert.equal(counts[healthy.key], 1);
+  assert.equal(counts['orphan-record'], 0);
+});
+
+test('repairCanvasIndex restores missing rows, is idempotent, and never steals a name', async () => {
+  const first = await seedCanvas({ name: 'First canvas' });
+  const second = await seedCanvas({ name: 'Second canvas', seedKey: 'KAN-55' });
+  await kvs.delete(canvasNameIndexKey('Second canvas'));
+
+  const repaired = await repairCanvasIndex(ADMIN_CONTEXT, {});
+
+  assert.equal(repaired.ok, true);
+  assert.equal(repaired.data.repaired, 1);
+  assert.equal(await findCanvasKeyForName('Second canvas'), 'KAN-55');
+
+  const again = await repairCanvasIndex(ADMIN_CONTEXT, {});
+  assert.equal(again.data.repaired, 0);
+
+  // A name already owned by a different live record is left alone.
+  seedKvs({ 'canvasName:first canvas': second.key });
+  const third = await repairCanvasIndex(ADMIN_CONTEXT, {});
+  assert.equal(third.data.repaired, 0);
+  assert.equal(third.data.skipped >= 1, true);
+  assert.equal(await findCanvasKeyForName('First canvas'), second.key);
+  assert.ok(first.key);
+});
+
+test('repairCanvasIndex is admin-only', async () => {
+  const result = await repairCanvasIndex(USER_CONTEXT, {});
 
   assert.equal(result.ok, false);
   assert.equal(result.error.code, 'INSUFFICIENT_SCOPE');

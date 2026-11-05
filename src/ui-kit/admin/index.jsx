@@ -58,6 +58,7 @@ const AdminApp = () => {
   const [health, setHealth] = useState(null);
   const [healthError, setHealthError] = useState(null);
   const [healthBusy, setHealthBusy] = useState(false);
+  const [repairNote, setRepairNote] = useState(null);
 
   const loadHealth = async () => {
     setHealthBusy(true);
@@ -68,6 +69,27 @@ const AdminApp = () => {
       else setHealthError((res && res.error && res.error.message) || 'Could not read the registry.');
     } catch (e) {
       setHealthError(e && e.message ? e.message : 'Could not read the registry.');
+    }
+    setHealthBusy(false);
+  };
+
+  const repairIndex = async () => {
+    setHealthBusy(true);
+    setHealthError(null);
+    setRepairNote(null);
+    try {
+      const res = await invoke('repairCanvasIndex', {});
+      if (res && res.ok && res.data) {
+        setRepairNote(
+          `Indexed ${res.data.repaired} name(s); ${res.data.skipped} left alone because another canvas owns them.`,
+        );
+        const again = await invoke('registryHealth', {});
+        if (again && again.ok && again.data) setHealth(again.data);
+      } else {
+        setHealthError((res && res.error && res.error.message) || 'Could not repair the index.');
+      }
+    } catch (e) {
+      setHealthError(e && e.message ? e.message : 'Could not repair the index.');
     }
     setHealthBusy(false);
   };
@@ -388,7 +410,11 @@ const AdminApp = () => {
           <Button onClick={loadHealth} isDisabled={healthBusy}>
             {healthBusy ? 'Checking…' : 'Check registry'}
           </Button>
+          <Button appearance="subtle" onClick={repairIndex} isDisabled={healthBusy}>
+            Repair index
+          </Button>
         </Inline>
+        {repairNote && <Text>{repairNote}</Text>}
         {health && (
           <Stack space="space.100">
             <Text>
@@ -407,6 +433,30 @@ const AdminApp = () => {
               Tickets scanned: {health.tickets.scanned} · without a canvas key:{' '}
               {health.tickets.withoutCanvasId} · unresolvable: {health.tickets.unresolved}
             </Text>
+            {health.unindexedCanvases > 0 && (
+              <SectionMessage appearance="warning" title="Canvases with an unindexed name">
+                <Text>
+                  {health.samples.unindexedCanvases
+                    .map((row) => `${row.canvasKey}: ${row.names.join(', ')}`)
+                    .join(' · ')}
+                </Text>
+                <Text>Repair index restores these; no ticket is changed.</Text>
+              </SectionMessage>
+            )}
+            {health.duplicateLabels > 0 && (
+              <SectionMessage appearance="warning" title="Two canvases share a label">
+                <Text>
+                  {health.samples.duplicateLabels
+                    .map((entry) => `${entry.name || entry.label}: ${entry.records
+                      .map((record) => `${record.canvasKey} (${record.ticketCount} tickets)`)
+                      .join(' vs ')}`)
+                    .join(' · ')}
+                </Text>
+                <Text>
+                  Only the canvas with tickets appears in the dashboard; the other record is invisible elsewhere.
+                </Text>
+              </SectionMessage>
+            )}
             {health.orphanIndexRows > 0 && (
               <SectionMessage appearance="warning" title="Orphaned name-index rows">
                 <Text>

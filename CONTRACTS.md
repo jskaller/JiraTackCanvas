@@ -746,6 +746,7 @@ registryHealth(context, {})
   → { ok, data: { canvases, nameIndexRows, orphanIndexRows, unindexedCanvases,
                   duplicateLabels, legacyPreviewKeys, previews: { captured, missing },
                   tickets: { scanned, withoutCanvasId, unresolved }, samples: {…} } }
+repairCanvasIndex(context, {}) → { ok, data: { canvases, repaired, skipped } }
 ```
 
 `resolveCanvas` is the only place that turns an id into a record. Order: the value as a
@@ -761,6 +762,12 @@ Card previews are cached separately from the dashboard summary
 (`canvasPreviewCache` + `canvasPreviewStamp`, ≤ 120k characters; absent when too large),
 because data URLs would exceed the KVS document limit. A write or clear bumps the stamp and
 the next dashboard read rebuilds the map once.
+
+`repairCanvasIndex` writes the missing `canvasName:` rows for every name a record has
+had. It is idempotent, never overwrites a name owned by another live record (that is
+reported as `skipped`), invalidates the launcher snapshot, and does not touch tickets.
+`registryHealth`'s `samples.duplicateLabels` entries are `{ label, name, records: [{ canvasKey,
+name, ticketCount }] }` so the two records behind a duplicate can be told apart.
 
 `registryHealth` is read-only and admin-only. It reports orphaned index rows, records with
 an unindexed name, duplicate labels, previews stored versus missing, legacy

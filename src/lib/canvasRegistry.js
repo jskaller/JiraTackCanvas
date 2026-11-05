@@ -47,6 +47,14 @@ export async function readRegistryStamp() {
   }
 }
 
+/**
+ * Force the launcher snapshot to rebuild. Registry writes bump the stamp
+ * themselves; this exists for repairs that touch the name index only.
+ */
+export async function invalidateRegistrySnapshot() {
+  await bumpRegistryStamp();
+}
+
 async function bumpRegistryStamp() {
   try {
     await kvsSet(REGISTRY_STAMP_KEY, Date.now());
