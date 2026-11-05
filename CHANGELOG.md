@@ -7,7 +7,7 @@ All notable changes to JiraTack.
 > the description marker, recovery). They are kept for history and are **not**
 > a description of current behaviour — see `SPEC.md` v3.0 for that. The
 > `0.9.0`-style headings track `package.json`, not the Forge app version
-> (currently 5.89.0 in development).
+> (currently 5.90.0 in development).
 
 ## [Unreleased]
 
@@ -27,6 +27,13 @@ All notable changes to JiraTack.
   the admin page as an installation-level setting.
 
 ### Install, guests and organisation
+
+- **The sidebar no longer disappears while a preview is captured.** The in-page
+  preview renderer hid the whole overlay for as long as it took (seconds on a heavy page);
+  it now omits JiraTack's chrome from the raster while leaving the UI on screen, restores a
+  tab capture as soon as the bitmap is in hand rather than after the decode, and abandons a
+  render that exceeds ~2.5 s so a save falls back to the ticket screenshot instead of
+  waiting.
 
 - **A duplicate registry record can be removed safely.** The report lists both records with
   their keys and ticket counts (counted by resolved canvas key, not by an old label), and

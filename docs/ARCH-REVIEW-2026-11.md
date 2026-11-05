@@ -250,6 +250,15 @@ loss was invisible. Index keys are now a KVS-safe slug plus a digest, holding
 This is the useful shape of an audit: the report surfaced a count, the repair surfaced the
 cause, and the cause was a one-line assumption nobody could see.
 
+## 8c. Post-audit regression (5.90.0)
+
+The capture hardening hid the whole overlay for the duration of an in-page render, so the
+sidebar vanished for seconds while a ticket saved, and a tab capture stayed hidden through
+the decode. The UI is now never hidden for a raster: the in-page path ignores JiraTack's
+chrome (`ignoreElements`), a tab capture restores the UI before cropping, and a render past
+2.5 s is abandoned. The harness asserts the sidebar is never hidden during a save, and the
+assertion was verified against the old behaviour (it fails).
+
 ## 9. Considered and rejected
 
 - **Rewrite the overlay in React.** Shadow-DOM and CSP constraints, contract churn across

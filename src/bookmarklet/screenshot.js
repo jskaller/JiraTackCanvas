@@ -1,6 +1,25 @@
 import html2canvas from 'html2canvas';
 
 const CROP_SIZE = 800;
+
+/** JiraTack's own chrome: excluded from every raster, never hidden from the reviewer. */
+function isJiraTackChrome(element) {
+  if (!element || typeof element.id !== 'string') return false;
+  return element.id === 'jiratack-overlay' || element.id === 'jiratack-viewport-bar';
+}
+
+// A full-page raster of a heavy page can take many seconds. A card preview is
+// nice to have; holding the save for it is not. Past this budget the caller
+// falls back to the ticket's own screenshot.
+const THUMBNAIL_RENDER_BUDGET_MS = 2500;
+
+function withinBudget(promise, ms) {
+  let timer = null;
+  const timeout = new Promise((resolve) => {
+    timer = window.setTimeout(() => resolve(null), ms);
+  });
+  return Promise.race([promise, timeout]).finally(() => window.clearTimeout(timer));
+}
 const WEBP_QUALITY = 0.85;
 const PIN_RADIUS = 9;
 const PIN_COLOR = '#ff6b6b';
@@ -85,6 +104,16 @@ async function captureTabScreenshot(clientX, clientY, options) {
     .map((id) => document.getElementById(id))
     .filter(Boolean);
   const previousVisibility = hidden.map((element) => element.style.visibility);
+
+  let restored = false;
+  const restore = () => {
+    if (restored) return;
+    restored = true;
+    hidden.forEach((element, index) => {
+      element.style.visibility = previousVisibility[index] || '';
+    });
+  };
+
   hidden.forEach((element) => {
     element.style.visibility = 'hidden';
   });
@@ -93,14 +122,16 @@ async function captureTabScreenshot(clientX, clientY, options) {
     // Let the browser paint the chrome-free frame before the tab is captured.
     await nextPaint();
     const dataUrl = await options.captureTab();
+    // The bitmap is what needed the UI gone. Decoding and cropping it are
+    // slower than the capture, and the reviewer should not watch an empty
+    // screen while they happen.
+    restore();
     if (!dataUrl) return null;
     return await cropVisibleTab(dataUrl, clientX, clientY, options);
   } catch (e) {
     return null;
   } finally {
-    hidden.forEach((element, index) => {
-      element.style.visibility = previousVisibility[index] || '';
-    });
+    restore();
   }
 }
 
@@ -280,63 +311,72 @@ async function downscaleDataUrl(dataUrl, maxWidth) {
  * service and no server-side browser: the bytes come from the page itself.
  */
 export async function captureCanvasThumbnail(options = {}) {
-  const hidden = ['jiratack-overlay', 'jiratack-viewport-bar']
-    .map((id) => document.getElementById(id))
-    .filter(Boolean);
-  const previous = hidden.map((element) => element.style.visibility);
-  hidden.forEach((element) => { element.style.visibility = 'hidden'; });
-
   const painted = () => new Promise((resolve) => {
     window.requestAnimationFrame(() => window.requestAnimationFrame(resolve));
   });
 
-  // The preview is the TOP of the page, not the viewport at the pin (D43).
-  // Remember where the reviewer was and put them back afterwards.
-  const scrollX = window.scrollX;
-  const scrollY = window.scrollY;
-
-  // A tab capture is always the visible viewport, so both renderers start from
-  // the top-left; html2canvas otherwise renders from wherever the reviewer had
-  // scrolled, which produced an offset — and an offset image clipped by the card
-  // looked like a cropped page.
   const viewportWidth = Math.max(320, document.documentElement.clientWidth || window.innerWidth);
   const viewportHeight = Math.max(200, window.innerHeight);
 
-  try {
-    window.scrollTo(0, 0);
-    await painted();
+  // A tab capture is the screen itself, so JiraTack's chrome has to be hidden
+  // for the shot — but only for the shot. The reviewer's scroll and their UI are
+  // restored the moment the bitmap is in hand, before the slower decode.
+  if (typeof options.captureTab === 'function') {
+    const hidden = ['jiratack-overlay', 'jiratack-viewport-bar']
+      .map((id) => document.getElementById(id))
+      .filter(Boolean);
+    const previous = hidden.map((element) => element.style.visibility);
+    const scrollX = window.scrollX;
+    const scrollY = window.scrollY;
 
     let dataUrl = null;
-    if (typeof options.captureTab === 'function') {
+    try {
+      hidden.forEach((element) => { element.style.visibility = 'hidden'; });
+      window.scrollTo(0, 0);
+      await painted();
       dataUrl = await options.captureTab();
-    }
-    if (!dataUrl) {
-      // Full window width, exactly scaled to the stored width: no horizontal
-      // clipping and nothing off-screen.
-      const scale = Math.min(1, 480 / viewportWidth);
-      const canvas = await html2canvas(document.documentElement, {
-        scale,
-        useCORS: true,
-        logging: false,
-        x: 0,
-        y: 0,
-        width: viewportWidth,
-        height: viewportHeight,
-        scrollX: 0,
-        scrollY: 0,
-        windowWidth: viewportWidth,
-        windowHeight: viewportHeight,
+    } catch (e) {
+      dataUrl = null;
+    } finally {
+      hidden.forEach((element, index) => {
+        element.style.visibility = previous[index] || '';
       });
-      dataUrl = canvas && canvas.width > 0 ? canvas.toDataURL('image/jpeg', 0.6) : null;
+      window.scrollTo(scrollX, scrollY);
     }
-    return await downscaleDataUrl(dataUrl, 480);
+
+    return dataUrl ? downscaleDataUrl(dataUrl, 480) : null;
+  }
+
+  // In-page render (bookmarklet channel). The overlay stays on screen and is
+  // omitted from the raster instead: hiding it is what made the sidebar vanish
+  // for as long as the render took. `ignoreElements` is the same trick the pin
+  // screenshot uses to keep its composer visible without capturing it.
+  try {
+    const scale = Math.min(1, 480 / viewportWidth);
+    const render = html2canvas(document.documentElement, {
+      scale,
+      useCORS: true,
+      logging: false,
+      x: 0,
+      y: 0,
+      width: viewportWidth,
+      height: viewportHeight,
+      scrollX: 0,
+      scrollY: 0,
+      windowWidth: viewportWidth,
+      windowHeight: viewportHeight,
+      ignoreElements: isJiraTackChrome,
+    });
+
+    const canvas = await withinBudget(render, THUMBNAIL_RENDER_BUDGET_MS);
+    if (!canvas) {
+      console.warn('[JiraTack] Canvas preview render took too long; using the ticket screenshot.');
+      return null;
+    }
+    const dataUrl = canvas.width > 0 ? canvas.toDataURL('image/jpeg', 0.6) : null;
+    return downscaleDataUrl(dataUrl, 480);
   } catch (e) {
     return null;
-  } finally {
-    hidden.forEach((element, index) => {
-      element.style.visibility = previous[index] || '';
-    });
-    window.scrollTo(scrollX, scrollY);
   }
 }
 

@@ -1415,6 +1415,23 @@ async function main() {
         })()`), { timeout: 8000 });
         record('form: issue types resolve', typeReady === true, String(typeReady));
 
+        // The preview capture must never hide the reviewer's UI. Sampling the
+        // computed visibility of the sidebar cannot catch a synchronous render,
+        // so watch the overlay's style mutations and count hidden states.
+        await page.evaluate(`(() => {
+          window.__jiratackSidebarHides = 0;
+          const overlay = document.getElementById('jiratack-overlay');
+          const sidebar = document.getElementById('jiratack-sidebar');
+          if (!overlay || !sidebar) return;
+          const observer = new MutationObserver(() => {
+            if (window.getComputedStyle(sidebar).visibility === 'hidden') {
+              window.__jiratackSidebarHides += 1;
+            }
+          });
+          observer.observe(overlay, { attributes: true, subtree: true, attributeFilter: ['style'] });
+          window.__jiratackSidebarObserver = observer;
+        })()`);
+
         await page.send('Input.dispatchKeyEvent', {
           type: 'keyDown',
           modifiers: 4,
@@ -1444,6 +1461,16 @@ async function main() {
           'form: Cmd/Ctrl+Enter creates the ticket',
           Boolean(created) && created.summary === 'MVP bug',
           created ? String(created.summary) : 'no call',
+        );
+
+        const sidebarHides = await page.evaluate(`(() => {
+          if (window.__jiratackSidebarObserver) window.__jiratackSidebarObserver.disconnect();
+          return window.__jiratackSidebarHides || 0;
+        })()`);
+        record(
+          'form: the sidebar is never hidden while the preview is captured',
+          sidebarHides === 0,
+          `${sidebarHides} hidden state(s)`,
         );
         record(
           'form: create carries project, type, assignee, parent and screenshot',
