@@ -57,7 +57,7 @@ async function repairNameIndex(record, extraNames) {
   for (const name of names) {
     if (!name) continue;
     try {
-      await kvsSet(canvasNameIndexKey(name), record.key);
+      await kvsSet(canvasNameIndexKey(name), { name, canvasKey: record.key });
     } catch (e) {
       // A failed repair only costs the next caller a scan.
     }

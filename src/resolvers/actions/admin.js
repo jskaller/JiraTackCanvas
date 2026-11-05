@@ -412,7 +412,7 @@ export async function repairCanvasIndex(context) {
           skipped += 1;
           continue;
         }
-        await kvsSet(canvasNameIndexKey(name), record.key);
+        await kvsSet(canvasNameIndexKey(name), { name, canvasKey: record.key });
         nameIndex.set(lookup, record.key);
         repaired += 1;
       }

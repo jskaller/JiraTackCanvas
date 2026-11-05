@@ -322,8 +322,10 @@ test('repairCanvasIndex restores missing rows, is idempotent, and never steals a
   const again = await repairCanvasIndex(ADMIN_CONTEXT, {});
   assert.equal(again.data.repaired, 0);
 
-  // A name already owned by a different live record is left alone.
+  // A name already owned by a different live record is left alone: the legacy
+  // row is the only one pointing at "First canvas", and it names the other key.
   seedKvs({ 'canvasName:first canvas': second.key });
+  await kvs.delete(canvasNameIndexKey('First canvas'));
   const third = await repairCanvasIndex(ADMIN_CONTEXT, {});
   assert.equal(third.data.repaired, 0);
   assert.equal(third.data.skipped >= 1, true);

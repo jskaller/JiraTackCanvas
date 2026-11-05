@@ -7,7 +7,7 @@ All notable changes to JiraTack.
 > the description marker, recovery). They are kept for history and are **not**
 > a description of current behaviour — see `SPEC.md` v3.0 for that. The
 > `0.9.0`-style headings track `package.json`, not the Forge app version
-> (currently 5.86.0 in development).
+> (currently 5.87.0 in development).
 
 ## [Unreleased]
 
@@ -27,6 +27,13 @@ All notable changes to JiraTack.
   the admin page as an installation-level setting.
 
 ### Install, guests and organisation
+
+- **Names that the store cannot key are indexed again.** `canvasName:` rows were written
+  from the raw canvas name, and Forge rejects keys containing characters such as `+` —
+  which `Shopify + Example.com` has. The write failed silently, so the canvas had no index
+  row and every lookup fell back to scanning. Index keys are now a KVS-safe slug plus a
+  short digest holding `{ name, canvasKey }`; existing rows in the old shape are still read,
+  and **Repair index** restores the missing ones.
 
 - **The registry report now says which records, and can repair the index.** A duplicate
   label lists both keys with their ticket counts, unindexed canvases list the affected

@@ -763,7 +763,12 @@ Card previews are cached separately from the dashboard summary
 because data URLs would exceed the KVS document limit. A write or clear bumps the stamp and
 the next dashboard read rebuilds the map once.
 
-`repairCanvasIndex` writes the missing `canvasName:` rows for every name a record has
+The name index key is a KVS-safe suffix (`canvasName:<slug>-<sha1[0:8]>`) holding
+`{ name, canvasKey }`; the legacy shape (`canvasName:<normalised>` → key string) is still
+read. Canvas names are free text and characters such as `+` are rejected by the store, so
+the raw name can never be the key — that is why an index write could fail silently.
+
+`repairCanvasIndex` writes the missing rows (in the new shape) for every name a record has
 had. It is idempotent, never overwrites a name owned by another live record (that is
 reported as `skipped`), invalidates the launcher snapshot, and does not touch tickets.
 `registryHealth`'s `samples.duplicateLabels` entries are `{ label, name, records: [{ canvasKey,

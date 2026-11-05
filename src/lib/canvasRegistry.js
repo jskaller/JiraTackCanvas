@@ -1,6 +1,6 @@
 import crypto from 'node:crypto';
 import { kvsGet, kvsSet, kvsQueryAll, kvsDelete } from './kvs.js';
-import { normaliseCanvasName, findRecordByName } from './canvasNames.js';
+import { canvasNameKeySuffix, normaliseCanvasName, findRecordByName } from './canvasNames.js';
 
 /**
  * Canvas registry (D42).
@@ -169,8 +169,43 @@ export function canvasRecordKey(key) {
   return `${RECORD_PREFIX}${key}`;
 }
 
+/**
+ * The index key is built from a KVS-safe suffix, not the raw name: names are
+ * free text and characters such as `+` are rejected by the store, which is how
+ * a canvas silently ended up with no index row.
+ */
 export function canvasNameIndexKey(name) {
+  return `${NAME_PREFIX}${canvasNameKeySuffix(name)}`;
+}
+
+/** The pre-5.87 shape (`canvasName:<normalised name>`), read-only now. */
+export function legacyCanvasNameIndexKey(name) {
   return `${NAME_PREFIX}${normaliseCanvasName(name)}`;
+}
+
+const LEGACY_INDEX_KEY = /^canvasName:[a-zA-Z0-9:._\s#-]+$/;
+
+/**
+ * Read an index entry in either shape. New rows hold `{ name, canvasKey }`;
+ * legacy rows hold the key string under the raw name.
+ */
+async function readNameIndexEntry(name) {
+  const keys = [canvasNameIndexKey(name)];
+  const legacy = legacyCanvasNameIndexKey(name);
+  if (legacy !== keys[0] && LEGACY_INDEX_KEY.test(legacy)) keys.push(legacy);
+
+  for (const key of keys) {
+    let value;
+    try {
+      value = await kvsGet(key);
+    } catch (e) {
+      continue;
+    }
+    if (!value) continue;
+    if (typeof value === 'string') return { canvasKey: value, via: key };
+    if (value && typeof value.canvasKey === 'string') return { canvasKey: value.canvasKey, via: key };
+  }
+  return null;
 }
 
 export async function readCanvasRecord(key) {
@@ -205,9 +240,11 @@ async function writeCanvasRecord(record) {
   // the tickets written before it.
   for (const name of names) {
     try {
-      await kvsSet(canvasNameIndexKey(name), next.key);
+      await kvsSet(canvasNameIndexKey(name), { name, canvasKey: next.key });
     } catch (e) {
-      // A failed index write is repaired on the next ensure/aggregate pass.
+      // Previously swallowed: a rejected key (a name containing `+`) left the
+      // canvas unindexed with no trace. Log it; the repair action fixes it.
+      console.error('[JiraTack] Canvas name index write failed for', next.key, e && e.message ? e.message : e);
     }
   }
   return next;
@@ -228,9 +265,9 @@ export async function ensureCanvasRecord({ name, seedKey, createdBy, folder } = 
   }
 
   try {
-    const existingKey = await kvsGet(canvasNameIndexKey(trimmed));
-    if (existingKey) {
-      const existing = await readCanvasRecord(existingKey);
+    const entry = await readNameIndexEntry(trimmed);
+    if (entry) {
+      const existing = await readCanvasRecord(entry.canvasKey);
       if (existing) return { record: existing, created: false };
     }
   } catch (e) {
@@ -246,9 +283,9 @@ export async function ensureCanvasRecord({ name, seedKey, createdBy, folder } = 
   const existingAtKey = await readCanvasRecord(key);
   if (existingAtKey) {
     try {
-      await kvsSet(canvasNameIndexKey(trimmed), existingAtKey.key);
+      await kvsSet(canvasNameIndexKey(trimmed), { name: trimmed, canvasKey: existingAtKey.key });
     } catch (e) {
-      // The index is repaired by the next aggregate pass.
+      // The index is repaired by the repair action or the next aggregate pass.
     }
     return { record: existingAtKey, created: false };
   }
@@ -274,12 +311,8 @@ export async function ensureCanvasRecord({ name, seedKey, createdBy, folder } = 
 export async function findCanvasKeyForName(name) {
   const trimmed = String(name || '').trim();
   if (!trimmed) return null;
-  try {
-    const key = await kvsGet(canvasNameIndexKey(trimmed));
-    if (typeof key === 'string' && key) return key;
-  } catch (e) {
-    // Fall through to the key check.
-  }
+  const entry = await readNameIndexEntry(trimmed);
+  if (entry && entry.canvasKey) return entry.canvasKey;
   // Callers pass whichever id they hold: a label or a stable key.
   if (/^c-[a-f0-9]{6,}$/i.test(trimmed)) {
     const record = await readCanvasRecord(trimmed);
@@ -297,8 +330,8 @@ export async function renameCanvasRecord(key, newName) {
   if (!trimmed) return { ok: false, reason: 'BAD_NAME' };
 
   try {
-    const owner = await kvsGet(canvasNameIndexKey(trimmed));
-    if (owner && owner !== key) return { ok: false, reason: 'NAME_TAKEN', owner };
+    const entry = await readNameIndexEntry(trimmed);
+    if (entry && entry.canvasKey !== key) return { ok: false, reason: 'NAME_TAKEN', owner: entry.canvasKey };
   } catch (e) {
     // Proceed; a duplicate label is recoverable, a failed rename is not.
   }
@@ -442,8 +475,15 @@ export async function loadCanvasNameIndex({ max = 5000 } = {}) {
   try {
     const entries = await kvsQueryAll(NAME_PREFIX, { max, pageSize: 50 });
     entries.forEach((row) => {
-      if (!row || !row.key || typeof row.value !== 'string') return;
-      map.set(String(row.key).slice(NAME_PREFIX.length), row.value);
+      if (!row || !row.key) return;
+      const suffix = String(row.key).slice(NAME_PREFIX.length);
+      const value = row.value;
+      if (typeof value === 'string') {
+        // Legacy row: the suffix is the normalised name.
+        map.set(suffix, value);
+      } else if (value && typeof value.canvasKey === 'string' && typeof value.name === 'string') {
+        map.set(normaliseCanvasName(value.name), value.canvasKey);
+      }
     });
   } catch (e) {
     // ignore

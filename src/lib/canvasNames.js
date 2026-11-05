@@ -1,3 +1,5 @@
+import crypto from 'node:crypto';
+
 /**
  * Canvas naming helpers (D42).
  *
@@ -29,4 +31,25 @@ export function findRecordByName(records, name) {
     }
   }
   return null;
+}
+
+/** Characters KVS accepts in a key. A canvas name is free text, so it cannot be used raw. */
+const UNSAFE_KEY_CHARS = /[^a-zA-Z0-9:._\s#-]/g;
+
+/**
+ * A KVS-safe, deterministic suffix for a canvas name.
+ *
+ * Names are free text — `Shopify + Example.com` contains `+`, which the store
+ * rejects, and the index write failed silently for exactly that reason. The
+ * suffix keeps the readable part (truncated) and appends a digest so two names
+ * that slug the same cannot collide.
+ */
+export function canvasNameKeySuffix(name) {
+  const normalised = normaliseCanvasName(name);
+  const slug = normalised
+    .replace(UNSAFE_KEY_CHARS, '-')
+    .replace(/-+/g, '-')
+    .slice(0, 60);
+  const digest = crypto.createHash('sha1').update(normalised).digest('hex').slice(0, 8);
+  return slug ? `${slug}-${digest}` : digest;
 }

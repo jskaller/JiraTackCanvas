@@ -6,6 +6,7 @@ import {
   generatedCanvasKey,
   canvasNameIndexKey,
   ensureCanvasRecord,
+  legacyCanvasNameIndexKey,
   setCanvasFolder,
 } from './canvasRegistry.js';
 import {
@@ -141,10 +142,29 @@ test('a resolution that bypasses the index repairs it, once', async () => {
   const generated = await seed({ name: 'Generated' });
   await kvs.delete(canvasNameIndexKey('Generated'));
   await resolveCanvas({ canvasName: 'Generated' });
-  assert.equal(await kvs.get(canvasNameIndexKey('Generated')), generated.key);
+  assert.equal((await kvs.get(canvasNameIndexKey('Generated'))).canvasKey, generated.key);
 
   const seeded = await seed({ name: 'Seeded', seedKey: 'KAN-12' });
   await kvs.delete(canvasNameIndexKey('Seeded'));
   await resolveCanvas({ canvasName: 'Seeded' }, { scan: true });
-  assert.equal(await kvs.get(canvasNameIndexKey('Seeded')), seeded.key);
+  assert.equal((await kvs.get(canvasNameIndexKey('Seeded'))).canvasKey, seeded.key);
+});
+
+/**
+ * The name that started this: `+` is legal in a canvas name and illegal in a KVS
+ * key, so its index row could never be written. The name must still resolve.
+ */
+test('a name the store cannot key still resolves', async () => {
+  const record = await seed({ name: 'Shopify + Example.com' });
+  await kvs.delete(canvasNameIndexKey('Shopify + Example.com'));
+
+  assert.equal((await resolveCanvas({ canvasName: 'Shopify + Example.com' })).key, record.key);
+});
+
+test('a legacy index row is still read', async () => {
+  const record = await seed({ name: 'Legacy row canvas' });
+  await kvs.delete(canvasNameIndexKey('Legacy row canvas'));
+  await kvs.set(legacyCanvasNameIndexKey('Legacy row canvas'), record.key);
+
+  assert.equal((await resolveCanvas({ canvasName: 'Legacy row canvas' })).key, record.key);
 });

@@ -293,7 +293,8 @@ userTokens:<token>  → { userId, installationId, scope, isAdmin, permittedProje
 jiratack_licensed_users:<accountId> → true
 sessionSigningSecret → string
 canvas:<key> → { key, name, names, folder, archived, thumbnail?, thumbnailAt?, thumbnailVersion?, thumbnailNote? }
-canvasName:<normalised> → <key>            // every name the canvas has ever had
+canvasName:<safe-suffix> → { name, canvasKey }  // every name the canvas has ever had
+canvasName:<normalised> → <key>            // pre-5.87 shape, still read
 canvasPreviewStamp → number                // changes whenever a preview is written or cleared
 canvasPreviewCache → { stamp, previews: { <key>: dataUrl } }   // ≤ 120k chars, else absent
 canvasRegistryStamp → number               // changes whenever a record is written or deleted

@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { normaliseCanvasName, findRecordByName } from './canvasNames.js';
+import { canvasNameKeySuffix, normaliseCanvasName, findRecordByName } from './canvasNames.js';
 
 assert.equal(normaliseCanvasName('  Shopify +  Example.com '), 'shopify + example.com');
 assert.equal(normaliseCanvasName('A\u00a0B'), 'a b');
@@ -29,3 +29,30 @@ assert.equal(
 );
 
 console.log('PASS  canvas name resolution');
+
+/**
+ * Names are free text; KVS keys are not. `Shopify + Example.com` contains `+`,
+ * which the store rejects — the index write failed silently for that reason and
+ * the canvas looked unindexed. Every suffix must be a legal key.
+ */
+const KVS_KEY = /^[a-zA-Z0-9:._\s#-]+$/;
+for (const name of [
+  'Shopify + Example.com',
+  "Bob's / QA & co",
+  '50% off (2026)',
+  '🎯 test',
+  'a+b',
+]) {
+  const key = `canvasName:${canvasNameKeySuffix(name)}`;
+  assert.match(key, KVS_KEY, `key for ${JSON.stringify(name)} is not KVS-safe`);
+  assert.ok(key.length <= 200, 'key stays well under the store limit');
+}
+
+// Deterministic: the same name always finds its row, whatever the spacing.
+assert.equal(
+  canvasNameKeySuffix('Shopify + Example.com'),
+  canvasNameKeySuffix('  shopify   + example.com '),
+);
+
+// Two names that slug the same still get different rows.
+assert.notEqual(canvasNameKeySuffix('a+b'), canvasNameKeySuffix('a-b'));

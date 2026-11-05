@@ -207,7 +207,7 @@ test('a lost index row is repaired so polling stops scanning every record', asyn
     CREATE_CLAIMS,
   );
   assert.equal(first.data.canvasKey, record.key);
-  assert.equal(await kvs.get(canvasNameIndexKey('Cancer Pages')), record.key);
+  assert.equal((await kvs.get(canvasNameIndexKey('Cancer Pages'))).canvasKey, record.key);
 
   const before = kvsStats();
   const second = await getPinsForCanvasAndUrl(

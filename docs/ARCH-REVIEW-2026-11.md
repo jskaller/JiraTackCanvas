@@ -232,6 +232,22 @@ pay back the cost of this review.
 
 ---
 
+## 8b. What the first health report found (5.87.0)
+
+The report was run against the development install: 13 canvases, 12 name-index rows,
+3 unindexed canvases, 1 duplicate label, 4 previews stored / 9 missing, 60 tickets of which
+45 carry no canvas key, 0 unresolvable.
+
+**Repair index then failed** with `Field 'key' must match pattern …`. That error explained
+the unindexed count and the original mystery: `canvasName:` keys were built from the raw
+canvas name, and the store rejects characters such as `+` — which `Shopify + Example.com`
+contains. `writeCanvasRecord` wrapped the write in a catch that ignored the error, so the
+loss was invisible. Index keys are now a KVS-safe slug plus a digest, holding
+`{ name, canvasKey }`; legacy rows are still read and the repair writes the new shape.
+
+This is the useful shape of an audit: the report surfaced a count, the repair surfaced the
+cause, and the cause was a one-line assumption nobody could see.
+
 ## 9. Considered and rejected
 
 - **Rewrite the overlay in React.** Shadow-DOM and CSP constraints, contract churn across
