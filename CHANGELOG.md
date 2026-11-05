@@ -7,7 +7,7 @@ All notable changes to JiraTack.
 > the description marker, recovery). They are kept for history and are **not**
 > a description of current behaviour — see `SPEC.md` v3.0 for that. The
 > `0.9.0`-style headings track `package.json`, not the Forge app version
-> (currently 5.92.0 in development).
+> (currently 5.93.0 in development).
 
 ## [Unreleased]
 
@@ -27,6 +27,10 @@ All notable changes to JiraTack.
   the admin page as an installation-level setting.
 
 ### Install, guests and organisation
+
+- **The sidebar lists the newest ticket first.** The scan is oldest-first, so a ticket
+  created a moment ago appeared at the bottom. The list (and each URL group) is now sorted
+  by creation time descending, with undated tickets last.
 
 - **Creating a ticket closes the form immediately.** The pin appears as a **pending card**
   labelled *Saving…* while the screenshot, attachments and recording upload concurrently and

@@ -198,6 +198,8 @@ async function main() {
         issueTypeId: '10001',
         parentKey: 'TEST-100',
         assignee: { accountId: 'fixture-account-9', displayName: 'Previous Assignee' },
+        // Older than the ticket the harness creates, so ordering is provable.
+        createdAt: '2026-11-01T10:00:00.000+0000',
       }];
 
       // The real extension injects the isolated-world bridge before the SDK;
@@ -1485,6 +1487,16 @@ async function main() {
           'save: the pending card becomes the ticket',
           afterSave.pending === false && afterSave.real === true,
           JSON.stringify(afterSave),
+        );
+
+        const firstCard = await page.evaluate(`(() => {
+          const card = document.querySelector('.jiratack-ticket-card');
+          return card ? card.dataset.key || null : null;
+        })()`);
+        record(
+          'sidebar: the newest ticket is at the top',
+          firstCard === 'TEST-9',
+          `first=${firstCard}`,
         );
         record(
           'form: create carries a canvas preview when the canvas has none',

@@ -709,6 +709,18 @@ Firefox 159 accepts the package as a temporary add-on (`installTemporaryAddon` o
 
 **Applies to:** SPEC §10.5, §8.1; `src/bookmarklet/{form,index,sidebar,screenshot}.js`; `scripts/extension-harness/run.mjs`, `server.mjs`.
 
+### D45 — Sidebar order: newest ticket first
+
+**Status:** Resolved (2026-11-05)
+
+**Question:** the ticket scan is `ORDER BY created ASC`, so the sidebar listed the oldest ticket at the top and a ticket the reviewer had just created landed at the bottom — often out of sight.
+
+**Resolution:** the sidebar sorts tickets by `createdAt` descending before rendering. The sort is client-side (`src/shared/pinOrder.js`), so it does not depend on the server's scan order; ties keep their incoming order, and a ticket with no usable date sorts last rather than jumping to the top. URL groups keep their existing order; cards within a group are newest-first like the flat list.
+
+**Rejected alternatives:** flipping the JQL to `DESC` (only one consumer wants it, and it would also reorder pagination inputs); sorting in the sidebar component alone (the pin layer, counts and defaults share the list).
+
+**Applies to:** SPEC §10.2; `src/shared/pinOrder.js`, `src/bookmarklet/index.js`; `scripts/extension-harness/run.mjs`.
+
 ## How to update this file
 
 When a decision is resolved:

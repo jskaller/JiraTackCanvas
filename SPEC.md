@@ -737,6 +737,7 @@ click bookmarklet
 
 - When the status rule leaves nothing on the page (§17), the empty state offers "Show N filtered tickets".
 
+- Tickets are listed **newest first** (D45): the ticket just created is at the top of the sidebar, and within a URL group the same order holds.
 - Ticket card collapsed: key, summary (truncated), status chip, priority, assignee, reporter. A ticket created with a text change also shows `Original → Suggested` with a preview switch (D35).
 
 - Clicking a card selects the pin/card pair and scrolls both into view. Exactly one pair is selected at a time.

@@ -21,6 +21,7 @@ import { installConsoleProxy, restoreConsoleProxy, clearConsoleBuffer } from './
 import { normalizeUrl, stripDeepLinkParams } from '../shared/urlNormalize.js';
 import { screenshotFilename } from '../shared/pinMove.js';
 import { isSeedPin } from '../shared/seedPin.js';
+import { sortPinsNewestFirst } from '../shared/pinOrder.js';
 import { buildRefreshUrl, isSdkOutdated } from '../shared/bookmarklet.js';
 import { toSafeHttpUrl } from '../shared/safeUrl.js';
 import styles from './styles.css?inline';
@@ -897,8 +898,9 @@ function renderPinsAndSidebar() {
   // Status filter (D38, amended): the project rule is the DEFAULT, the reviewer
   // owns a per-canvas choice, and View All is a temporary peek at everything.
   const statusState = resolveStatusState(withSeedRemoved);
-  const displayPins = withSeedRemoved.filter(
-    (pin) => !statusState.hidden.has(statusNameOf(pin)),
+  // The API scans oldest-first; the sidebar reads newest-first (D45).
+  const displayPins = sortPinsNewestFirst(
+    withSeedRemoved.filter((pin) => !statusState.hidden.has(statusNameOf(pin))),
   );
 
   if (current.activeTextChangeKey) {
