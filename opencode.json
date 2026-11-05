@@ -1,42 +1,46 @@
 {
   "$schema": "https://opencode.ai",
-  "plugins": [
+  "schema": [
     {
-      "package": "opencode-free-fleet",
-      "options": {
-        "orchestrator": {
-          "enabled": true,
-          "engine": "opencode::router::jev-1.13-free",
-          "strategy": "complexity-based"
-        },
-        "routes": [
-          {
-            "condition": "jev_score <= 0.2",
-            "target_model": "opencode::model::mimo-v2.5"
-          },
-          {
-            "condition": "jev_score > 0.2 && jev_score <= 0.55",
-            "target_model": "opencode::model::beam-free"
-          },
-          {
-            "condition": "jev_score > 0.55 && jev_score <= 0.8",
-            "target_model": "opencode::model::deepseek-v4.1-flash"
-          },
-          {
-            "condition": "jev_score > 0.8",
-            "target_model": "opencode::model::deepseek-v4-pro"
+      "plugins": [
+        {
+          "package": "opencode-free-fleet",
+          "options": {
+            "orchestrator": {
+              "enabled": true,
+              "engine": "opencode::router::jev-1.13-free",
+              "strategy": "complexity-based"
+            },
+            "routes": [
+              {
+                "condition": "jev_score <= 0.2",
+                "target_model": "opencode::model::mimo-v2.5"
+              },
+              {
+                "condition": "jev_score > 0.2 && jev_score <= 0.55",
+                "target_model": "opencode::model::beam-free"
+              },
+              {
+                "condition": "jev_score > 0.55 && jev_score <= 0.8",
+                "target_model": "opencode::model::deepseek-v4.1-flash"
+              },
+              {
+                "condition": "jev_score > 0.8",
+                "target_model": "opencode::model::deepseek-v4-pro"
+              }
+            ]
           }
-        ]
-      }
-    },
-    {
-      "package": "@smart-coders-hq/opencode-model-fallback",
-      "options": {
-        "fallback_chain": [
-          "opencode::model::deepseek-v4.1-flash",
-          "opencode::model::deepseek-v4-pro"
-        ]
-      }
+        },
+        {
+          "package": "@smart-coders-hq/opencode-model-fallback",
+          "options": {
+            "fallback_chain": [
+              "opencode::model::deepseek-v4.1-flash",
+              "opencode::model::deepseek-v4-pro"
+            ]
+          }
+        }
+      ]
     }
   ]
 }

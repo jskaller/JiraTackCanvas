@@ -13,8 +13,8 @@
 | | Value | Source |
 | --- | --- | --- |
 | Tagged commit (pre-deploy snapshot) | `git rev-parse baseline/pre-pivot-2026-10-30` | git |
-| App version (deployed) | **5.88.0** | `forge deploy` output, `forge install list` |
-| Development last deployed | 2026-11-05T10:28Z (scopes unchanged unless stated) | `forge deploy list` |
+| App version (deployed) | **5.89.0** | `forge deploy` output, `forge install list` |
+| Development last deployed | 2026-11-05T10:47Z (scopes unchanged unless stated) | `forge deploy list` |
 | Installation | upgraded to major 5 | `forge install --upgrade` |
 | SDK hash (deployed) | `86da66a835c1` | served `ETag`, `src/lib/version.js` |
 | SDK hash (tree) | `86da66a835c1` | `src/lib/version.js` |
@@ -27,7 +27,7 @@
 
 ## 2. Deployed vs tree
 
-**Deployed 2026-11-05.** Development runs the current tree as app **5.88.0**, SDK `86da66a835c1`, four scopes. No `forge install --upgrade` was needed: scopes were unchanged since 5.0.0.
+**Deployed 2026-11-05.** Development runs the current tree as app **5.89.0**, SDK `86da66a835c1`, four scopes. No `forge install --upgrade` was needed: scopes were unchanged since 5.0.0.
 
 | Change | Commits | Status |
 | --- | --- | --- |
@@ -80,6 +80,7 @@
 | Registry report names both records behind a duplicate label (with ticket counts) and lists unindexed names; `repairCanvasIndex` restores missing name-index rows idempotently without touching tickets | working tree (uncommitted) | **Deployed** 2026-11-05 as 5.86.0 |
 | Name-index keys are KVS-safe (slug + digest, `{ name, canvasKey }`); raw names containing `+` could never be keyed and failed silently, which is why canvases were unindexed; legacy rows still read | working tree (uncommitted) | **Deployed** 2026-11-05 as 5.87.0 |
 | Duplicate ticket counts follow the resolved canvas key; `deleteStrayCanvasRecord` removes a duplicate record by key, refusing when tickets resolve to it or the label is unique | working tree (uncommitted) | **Deployed** 2026-11-05 as 5.88.0 |
+| Tests for the chunked upload path, multipart attachments and pin moves (guards, guest comment branch, failed-attachment behaviour) — 73 resolver tests | working tree (uncommitted) | **Deployed** 2026-11-05 as 5.89.0 |
 
 **Deployed scopes are the four in `manifest.yml`.** Confirmed with `forge version details -e development --non-interactive --json`: `storage:app`, `read:jira-work`, `write:jira-work`, `read:jira-user`. The two `manage:jira-*` scopes were dropped before 5.0.0.
 

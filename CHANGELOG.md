@@ -7,7 +7,7 @@ All notable changes to JiraTack.
 > the description marker, recovery). They are kept for history and are **not**
 > a description of current behaviour — see `SPEC.md` v3.0 for that. The
 > `0.9.0`-style headings track `package.json`, not the Forge app version
-> (currently 5.88.0 in development).
+> (currently 5.89.0 in development).
 
 ## [Unreleased]
 
@@ -216,6 +216,11 @@ All notable changes to JiraTack.
   refused size reports a toast instead of failing silently.
 
 ### Delivery and platform
+
+- **The upload and pin-move paths are covered.** Chunked upload validation, owner scoping,
+  incomplete reads, hostile filenames, multipart attachment headers, pin moves with and
+  without a screenshot, the guest comment branch, and the rules that refuse a move on an
+  unlabelled issue or an out-of-scope project now have tests (18 new).
 
 - **Session exchange is covered by tests.** The path that turns a canvas, user or guest
   token into a signed session — scope, permitted projects/canvases, admin claim, revocation,
