@@ -799,6 +799,8 @@ Guests never receive QA-pack entitlements. Because a guest session's `sub` is th
 
 **Known limitations:** none of the tools exist yet; the pack cannot reach a customer before the extension is published; `editionsEnabled` is irreversible once set, so it must not be flipped until the tools ship.
 
+The tool list, per-tool rules and build notes are kept in `docs/QA-PACK.md`.
+
 **Applies to:** DECISIONS D46 (flows), D47/D48 (identity); ALIGNMENT PR-21; `docs/EXTENSION.md`, `docs/EXTENSION-DISTRIBUTION.md`; `src/extension/*`, `src/bookmarklet/*`.
 
 ### D50 — Pricing: per Jira user, guests free, QA as an edition

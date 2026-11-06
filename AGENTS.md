@@ -70,6 +70,7 @@ Each document owns one question. Update the owner, not all of them.
 | `CHANGELOG.md` | user-visible change | when cutting a release — draft with `npm run changelog:since -- --since <ref>` |
 | `TEST_PLAN.md` | how to verify | verification steps change (Parts 1, 4 and 6 are archived) |
 | `docs/ARCH-REVIEW-2026-11.md` | the complexity audit | an audit item closes |
+| `docs/QA-PACK.md` | QA pack tool list, per-tool rules and build notes | a tool is scoped, built or dropped |
 
 A wire-shape change must touch CONTRACTS in the same commit; a behaviour change must touch
 SPEC. Do not restate the same rule in two documents — link instead.
