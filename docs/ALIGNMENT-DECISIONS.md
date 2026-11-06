@@ -47,6 +47,7 @@
 | B-03 | **User-Based Billing is not publishable** — EAP only; pricing setup and Marketplace publishing unreleased. | H |
 | B-04 | Pricing decouples headline price from instance size; plan value gated at the application layer. | H |
 | B-05 | Listing copy states: "Flat platform fee. Not charged per Jira user. External reviewers free up to monthly capacity." | H |
+| B-06 | **The listing is priced per user; the "flat platform fee" claim is withdrawn (supersedes B-05).** Cloud apps are billed per user, so a flat fee cannot be honoured at checkout. Listing copy must not promise it. | H |
 
 ## Pricing
 
@@ -70,6 +71,16 @@
 | PR-16 | Position on **total cost and workflow, not lowest headline price.** Cheap pricing reads as unproven in a trust-sensitive category. | H |
 | PR-17 | **Team = volume engine; Business = ARR-efficiency engine.** Procurement approval thresholds are a first-class tier-design constraint. $150/mo is immaterial against Jira spend but crosses a department-head boundary — that friction is the constraint, not budget magnitude. | H |
 | PR-18 | **Design-partner terms:** capped 5–10 accounts, 12-month agreement, contractual conversion date and price step, feedback cadence commitment, reference/logo consent. | H |
+
+## Pricing
+
+> **2026-11-05:** PR-19 onward replaces the platform-fee + reviewer-capacity model. PR-01–PR-13 are kept unedited for traceability (rule 4) and are superseded.
+
+| PR-19 | **Pricing model replaced (2026-11-05). Supersedes PR-01–PR-13.** The listing is priced **per Jira user**, in bands, like every Cloud app: **$6.00/user** (1–10), **$5.00** (11–50), **$4.00** (51–250), **$2.50–3.00** (250+). The platform fee + reviewer-capacity meter is retired: Atlassian cannot bill a flat fee (B-02), and guests must not be charged for (PR-20). | H |
+| PR-20 | **Guests are free and unlimited.** Reviewer caps, first-pin enforcement, consumed slots and month-boundary drop-off (PR-09, PR-11, PR-12) are retired. Every competitor gives external reporters away (BugHerd: unlimited clients from $42; Marker.io: unlimited reporters from $39); charging for them is a positioning loss. Guest counting survives as telemetry and abuse control only — never as a paywall. | H |
+| PR-21 | **The QA pack is an edition, not a seat.** A QA edition prices at **+30–33% per band** ($8.00 / $6.50 / $5.20 / $3.25–3.90 per user). Availability is gated by the installation's edition; per-browser enablement is a user preference; guests never receive it. Contents and staging are recorded in DECISIONS D49. | H |
+| PR-22 | **Undercut at entry, never everywhere (amends PR-16).** At equal team size the Standard rate sits just under the standalone tools at the entry band (5 users: $30 vs BugHerd $50 / Marker.io $59 monthly) and widens only where the Jira-native position is strongest. Being visibly the cheapest at every band reads as unproven, per PR-16. | H |
+| PR-23 | **Business gates must be enforceable (amends PR-13).** SSO belongs to Atlassian and cannot be gated. Replace it with: audit retention of JiraTack's own events, per-project policy, bulk export, and cross-project reporting. | H |
 
 ## Support
 
@@ -107,6 +118,7 @@
 | A-22 | **Pairing rows carry:** installId, userAgent (captured server-side at first exchange — audit label only, spoofable, not a fingerprint), firstSeenAt, lastSeenAt. pinCount is **computed on demand** by joining tickets whose metadata `pairingId` matches the row; it is not stored. Individual pairing revocation is deferred; `state: "revoked"` exists on the schema but no setter ships. *Amendment 2026-11-02: the invitation list also shows the sponsor (issuer + display name) so admins can follow up with the delegator.* | H |
 | A-23 | **Guest email is a bound record**, not per-ticket free text. *Amendment 2026-11-02: the sponsor supplies guest name and email when issuing the link; the guest no longer enters them. The binding is created at issuance and the client cannot supply identity.* Prerequisite for PR-03. | H |
 | A-24 | Per-pairing credential tokens referencing the binding. | H |
+| A-25 | **Reviewer slots are retired (supersedes the capacity copy in A-13/A-14).** Guests are unlimited and free (PR-20), so the admin screen shows who is reviewing and what they filed — not "18 of 25 slots used". The one-sentence test becomes: Reviewer — "your delegator sends you a link and you start pinning"; Admin — "here's who is reviewing and what they filed." The 10-pairing-per-invite blast-radius cap (A-20) is unaffected. | H |
 
 ## Open questions
 
@@ -115,15 +127,15 @@
 | O-01 | Extension pairing mechanism. | † resolved A-07 |
 | O-02 | Token dead-end path. | † resolved A-15 / A-17; remaining states per S4 |
 | O-03 | Jira Software vs. JSM first. | † resolved M-08 / M-09 |
-| O-04 | Exact price points within ranges. | Open — recommendation: mid-point of each band |
+| O-04 | Exact price points within ranges. | † resolved PR-19 — per-user bands set |
 | O-05 | Pursue User-Based Billing EAP? | Open — not a launch dependency |
 | O-06 | Trial length and trial-to-paid optimization. | Open — recommendation: 30 days, optimize to first pin |
 | O-07 | Support model per tier. | † resolved SU-01 |
 | O-08 | GTM/messaging plan. | Open — partially resolved M-16 / M-17 |
 | O-09 | "Lite delegation" as a Business-tier feature. | Open |
-| O-10 | Primary in-app upgrade trigger: pin volume or reviewer count. | Open |
+| O-10 | Primary in-app upgrade trigger: pin volume or reviewer count. | † resolved PR-19/PR-20 — neither; the upgrade path is the QA edition |
 | O-11 | Annual discount magnitude (~15/20/25%) and Business annual-only question. | Open |
-| O-12 | Price-signaling story in listing copy. | Open |
+| O-12 | Price-signaling story in listing copy. | Open — position set by PR-22; copy outstanding |
 | O-13 | Which 5–10 design partners. | Open — recommendation: agencies with design-review workflows, plus 2–3 mid-market Jira Software installations |
 | O-14 | Self-diagnostic tooling scope. | † resolved SU-02 specifics |
 | O-15 | Pairing success rate threshold for promoting tabs listener to default. | Open |

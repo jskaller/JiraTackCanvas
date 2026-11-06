@@ -780,6 +780,46 @@ Guests never receive QA-pack entitlements. Because a guest session's `sub` is th
 
 **Applies to:** SPEC §8.1; CONTRACTS §3.1, §4.2, §4.5d; `src/lib/invites.js`, `src/resolvers/actions/invites.js`, `src/ui-kit/admin/index.jsx`, `src/webtrigger/actions/exchangeToken.js`.
 
+### D49 — The QA pack: what it is, who gets it, where it runs
+
+**Status:** Resolved (2026-11-05)
+
+**Question:** the QA pack is a set of extension-only tools. What is in it, how is it enabled, and where does the enablement live?
+
+**Resolution:**
+
+1. **Contents, staged by risk.** Stage 1 is observation only and cannot break a customer's site: capture context (viewport, DPR, browser, OS on every pin), passive network capture (`PerformanceObserver` over resource entries; `responseStatus`; a cross-origin `0` renders **unknown**, never "fine"), and static link lint (empty/`#`/`javascript:` hrefs, empty anchor text, `target=_blank` without `rel`, mixed content). Stage 2 is fail-a-pin (transition to a configured status, re-capture, attach, comment). Stage 3 is a page-versus-expected-document diff. **The active recursive link checker is not planned**: cross-origin truth needs the extension service worker, which then lacks the site's cookies, so it produces false 404s and reads as an attack. None of this is built.
+2. **Findings become pins.** A tool produces findings that the reviewer raises as a ticket through the existing pin flow, so there is no second data model and no parallel notification path.
+3. **Enablement is an edition; the preference is per browser.** Availability comes from the installation's edition (PR-21); the extension's toggle is a stored preference, because the pack is clutter for someone who only files the occasional pin. There is **no per-user admin grant** — the site has already paid, and an approval round trip to use what you bought is the friction that kills adoption.
+4. **The client toggle is not the gate.** `qaAvailable` is resolved server-side at exchange and re-checked on every QA action, returning `UPGRADE_REQUIRED` rather than a generic failure. A tampered toggle gets a clear upgrade message; a downgrade takes effect at the next session.
+5. **Guests never receive it.** A guest session's `sub` is the sponsor, so the check must exclude `scope === 'guest_create'` explicitly or every guest inherits the sponsor's licence.
+6. **Tools run in the extension because they must.** They inspect the page under test; the Jira app can only see Jira. The Jira side owns availability and the upgrade surface.
+
+**Rejected alternatives:** a per-user admin grant (friction, and the extension cannot authorise itself anyway); a concurrency paywall (the tools are almost entirely client-side, so there is no marginal cost to gate); hiding the pack entirely on a non-QA edition (it removes the upgrade surface, which is the point of showing it).
+
+**Known limitations:** none of the tools exist yet; the pack cannot reach a customer before the extension is published; `editionsEnabled` is irreversible once set, so it must not be flipped until the tools ship.
+
+**Applies to:** DECISIONS D46 (flows), D47/D48 (identity); ALIGNMENT PR-21; `docs/EXTENSION.md`, `docs/EXTENSION-DISTRIBUTION.md`; `src/extension/*`, `src/bookmarklet/*`.
+
+### D50 — Pricing: per Jira user, guests free, QA as an edition
+
+**Status:** Resolved (2026-11-05)
+
+**Question:** the plan priced a flat platform fee plus a monthly meter of external reviewers. Atlassian cannot bill a flat fee, and the meter caps the one thing every competitor gives away. What replaces it?
+
+**Resolution:** the numbers live in `docs/ALIGNMENT-DECISIONS.md` PR-19…PR-23; this entry records the decision and the reasoning.
+
+1. **Price per Jira user, in bands.** Cloud billing is per user, so revenue scales with the instance automatically; a large site cannot buy an entry-level package. The "flat platform fee" claim (B-05) is withdrawn (B-06).
+2. **Guests are free and unlimited.** Reviewer caps, first-pin enforcement, consumed slots and month-boundary drop-off are retired. Measuring them survives as telemetry and abuse control only.
+3. **QA is an edition** at +30–33% per band (PR-21), not a seat and not a concurrency meter.
+4. **Undercut at entry, not everywhere** (PR-22): just under BugHerd/Marker.io for a five-person team, and no further.
+
+**Rejected alternatives:** a flat platform fee (unbillable); per-seat licensing (B-03: user-based billing is EAP); a concurrency paywall (no marginal cost, and it punishes tabs); capping guest reviewers (charging for what competitors give away); gating SSO (Atlassian owns it — PR-23).
+
+**Known limitations:** exact listing prices are still unset; nothing is published; the QA edition waits on the pack and the store listing.
+
+**Applies to:** `docs/ALIGNMENT-DECISIONS.md` PR-19…PR-23, B-06; `docs/MARKETPLACE.md`.
+
 ## How to update this file
 
 When a decision is resolved:

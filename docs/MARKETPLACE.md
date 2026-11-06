@@ -66,4 +66,15 @@ See [PRIVACY.md](./PRIVACY.md).
 
 ## Pricing
 
-- [TODO: free / paid model]
+Per Jira user, per month — not per app user, and guests are free.
+
+| Jira users | Standard | With the QA edition |
+|---|---|---|
+| 1–10 | $6.00 / user | $8.00 / user |
+| 11–50 | $5.00 / user | $6.50 / user |
+| 51–250 | $4.00 / user | $5.20 / user |
+| 250+ | $2.50–3.00 / user | $3.25–3.90 / user |
+
+Annual billing is discounted. External reviewers — clients and guests — are unlimited and free on every tier.
+
+The QA edition adds the QA toolset to every user on the site; a Jira admin decides nothing per person, and each person turns the tools on or off in their own browser.
