@@ -96,7 +96,7 @@ No package is added without approval (AGENTS.md).
 | 11 | Capture context | **Already built** | page | — |
 | 12 | Passive network capture | Yes | page | 0.5–1 d |
 | 13 | Large asset identifier | Yes, tiered | page + SW + offscreen | 2–3 d (+2–3 for re-encode) |
-| 14 | Colour checker | Partial — contrast is covered by #8; palette needs a configured set | page | 0.5–1 d (palette) |
+| 14 | Style guide checker | Yes — colours, fonts, type scale; config from `:root` or a list | page | 2.5–3.5 d |
 | 15 | Page syntax / hygiene linter | Partial | page | ~1 d |
 
 ---
@@ -151,7 +151,7 @@ No package is added without approval (AGENTS.md).
   page-world `no-cors` fetch returns an opaque response with no status.
 - **Probe:** `HEAD` with a 5 s `AbortController` timeout, concurrency 5, total cap ~500 URLs.
   On 405/501 retry once with `GET`, read the status and **cancel the body**.
-- **Recursion:** depth 1–2 (default to be set), page cap ~50, hard bail-out. Every link found
+- **Recursion:** **depth 2 by default** (configurable 1–2), page cap ~50, hard bail-out. Every link found
   is checked regardless of origin; only pages on the site under review are followed.
 - **Dedupe** by normalised URL using `src/shared/urlNormalize.js`.
 - **HTML parsing** happens in the offscreen document (`DOM_PARSER`) on Chrome and in the
@@ -223,7 +223,12 @@ No package is added without approval (AGENTS.md).
   the issue property.
 - Records element `tag`/`htmlSnippet`/`styles`, `viewport {width, height, devicePixelRatio}`
   and `environment {browser, os, userAgent}`, on create and on pin move.
-- Nothing to build. Optional follow-up: surface it on the ticket card and the issue panel.
+- **The viewport is the one at the moment the pin was dropped**, not the viewport at the
+  time someone opens the ticket.
+- **Display:** one compact line in the ticket description, alongside the page link —
+  `Viewport 1440 × 900 @ 2× · Chrome on macOS`. **No separate issue-panel section:** the
+  property already holds it machine-readably, and repeating it in the panel is duplication.
+- Nothing else to build; the description line is an addition to `buildIssueDescription`.
 
 ### 12. Passive network capture
 
@@ -267,24 +272,33 @@ Tiered, cheapest first:
   document); one codec (mozjpeg for JPEG, WebP for the rest).
 - **Every finding names the fix:** "serve WebP", "render at 640 px", "compress at q75".
 
-### 14. Colour checker
+### 14. Style guide checker
 
-Two unrelated things share this name, and only one of them is accessibility:
+Renamed from "colour checker": it checks **brand consistency**, not accessibility. Contrast
+stays with tool #8.
 
-- **Contrast** — the WCAG ratio between foreground and background (1.4.3 text, 1.4.11
-  non-text). **axe-core already checks this** as part of tool #8. A standalone contrast
-  checker would duplicate it; it is only worth building for what axe cannot see — hover,
-  focus, active and disabled states, and selection-based spot checks while editing.
-- **Palette compliance** — every colour on the page matching an approved brand or
-  design-system set (e.g. primary `#0052CC`, secondary `#FFAB00`, a fixed neutral ramp).
-  **This is not an accessibility check**; WCAG has no opinion about whether a colour is
-  on-brand. It is a design-consistency check, and it needs a configured palette (per canvas
-  or per installation) plus an exact/near-match policy.
-
-Recommendation: **drop the standalone contrast checker** (axe covers it), and build palette
-compliance only if brand drift is a real defect for your reviewers. If the answer is "we
-want both", contrast can be a thin readout over the same colour sampling the palette check
-already performs — the sampling is the work, not the maths.
+- **Checks:** colours (text, background, border), font families, and the type scale
+  (size / weight / line-height) against a configured style guide.
+- **Config, per canvas** — brands are per client, not per installation. Two input forms:
+  1. **Paste the `:root` block.** Design tokens as CSS custom properties; colours and font
+     stacks are parsed out. Lowest friction, and most teams already have tokens.
+  2. **Paste a plain list.** Hexes one per line, font families one per line.
+- **Fonts:** computed `font-family` is the declared stack, not the rendered font. Match the
+  first family, allow the guide's family anywhere in the stack, and use
+  `document.fonts.check()` to report a brand font that failed to load and is rendering a
+  fallback — that finding is often worth more than the colour drift.
+- **Report the element that sets a value, not its descendants.** Compare against the parent's
+  computed value and flag only where it changes, or one off-brand colour becomes two hundred
+  findings.
+- **Skip:** transparent and `currentColor` values, UA-styled form controls, and colours inside
+  raster images or external SVGs (canvas taint — only inline SVG `fill`/`stroke` is readable).
+- **Alpha:** v1 compares raw values and allows alpha entries in the guide. Dark mode changes
+  the rendering, so state which scheme was checked.
+- **Deep scan (toggle, off by default):** pseudo-elements, gradients, spacing and radii.
+  Pseudo-elements double the style-read cost; spacing is context-dependent noise.
+- **Cost:** one `getComputedStyle` pass over the DOM — fine for a few thousand elements, so
+  cap and skip invisible nodes.
+- **Effort:** 2.5–3.5 days.
 
 ### 15. Page syntax / hygiene linter
 
@@ -316,12 +330,18 @@ already performs — the sampling is the work, not the maths.
 | Findings UI | Filters (broken / unverified / ok), "raise as pin", per-tool Run and Cancel |
 | Config | Per-canvas ignore lists, thresholds, rework status, optional palette |
 
-## Open decisions
+## Decisions settled (2026-11-06)
 
-1. **Colour checker** — palette compliance, a contrast spot-check beyond axe, or drop it.
-2. **Default crawl depth** — 1 or 2.
-3. **Harper artifact size** — measure before committing to packaging.
-4. **Capture-context display** — surface viewport/environment on the card and issue panel.
+| Question | Decision |
+| --- | --- |
+| Accessibility engine | `axe-core` 4.14.0 (MPL-2.0). Sa11y rejected on licence |
+| Colour checker | Renamed **Style guide checker**; v1 checks colours, font families and type scale, configured from a `:root` paste or a plain list |
+| Default crawl depth | **2**, configurable 1–2 |
+| Capture-context display | One line in the ticket **description** (viewport at pin-drop time); **no** issue-panel section |
+| Harper packaging | **Gate:** measure the shipped WASM artifact before any packaging or listing decision |
+| DOCX import | Not in v1 |
+
+Nothing is waiting on a decision now; what remains is build order.
 
 ## Explicitly not planned
 
