@@ -70,10 +70,12 @@ stale findings.
 | `harper.js` v3.0.0 (Apache-2.0) + `fflate` | Spelling and grammar | **approved** |
 | Squoosh codec WASM (one codec: mozjpeg for JPEG, WebP for the rest) | Large-asset re-encode tier | **approved** |
 | `wasm-unsafe-eval` in `content_security_policy.extension_pages` | Instantiating the WASM engines | **approved** |
-| `axe-core` | Accessibility scan | **pending** |
+| `axe-core` 4.14.0 (MPL-2.0) | Accessibility scan — WCAG 2.2 A/AA. File-level copyleft: bundle it, keep the notice, do not modify its files | **approved** |
 | `mammoth` | DOCX import for copy-doc review | not needed for v1 |
 
 No package is added without approval (AGENTS.md).
+
+**Rejected:** `sa11y` (GPL-2.0-or-later — bundling it would oblige the extension to be GPL). It is also a content-author UI rather than an engine. Worth borrowing its plain-language fix copy, not its code.
 
 ---
 
@@ -94,7 +96,7 @@ No package is added without approval (AGENTS.md).
 | 11 | Capture context | **Already built** | page | — |
 | 12 | Passive network capture | Yes | page | 0.5–1 d |
 | 13 | Large asset identifier | Yes, tiered | page + SW + offscreen | 2–3 d (+2–3 for re-encode) |
-| 14 | Colour checker | Yes (contrast) / partial (palette) | page | 0.5–1 d |
+| 14 | Colour checker | Partial — contrast is covered by #8; palette needs a configured set | page | 0.5–1 d (palette) |
 | 15 | Page syntax / hygiene linter | Partial | page | ~1 d |
 
 ---
@@ -183,12 +185,14 @@ No package is added without approval (AGENTS.md).
 
 ### 8. Accessibility (WCAG 2.2)
 
-- **Blocked on `axe-core` approval.**
+- **Engine:** `axe-core` 4.14.0 (MPL-2.0), approved.
 - axe-core is plain JS, not WASM, so the CSP entry is irrelevant to it; unlike Harper it
   needs a live DOM with computed styles, so it runs in the extension's content script
   (isolated world), not the offscreen document and not the page world.
 - Configure for WCAG 2.2 A/AA; report rule id, selector, help text and "how to fix".
 - Group by severity; do not dump raw axe JSON.
+- **Borrow Sa11y's register for the fix copy** — plain words, who is affected, what to
+  change — rather than axe's developer-facing phrasing.
 
 ### 9. Additional screenshot/comment when status = additional rework
 
@@ -265,16 +269,22 @@ Tiered, cheapest first:
 
 ### 14. Colour checker
 
-Two different tools under one name — **which is intended is still open**:
+Two unrelated things share this name, and only one of them is accessibility:
 
-- **Contrast** (default interpretation): compute the effective foreground/background pair by
-  walking ancestors through alpha, then the WCAG ratio. Report AA/AAA pass/fail with the
-  ratio. No dependency.
-- **Palette compliance:** colours outside a configured brand set. Needs a palette configured
-  per canvas or per installation, plus an exact-match/near-match policy.
+- **Contrast** — the WCAG ratio between foreground and background (1.4.3 text, 1.4.11
+  non-text). **axe-core already checks this** as part of tool #8. A standalone contrast
+  checker would duplicate it; it is only worth building for what axe cannot see — hover,
+  focus, active and disabled states, and selection-based spot checks while editing.
+- **Palette compliance** — every colour on the page matching an approved brand or
+  design-system set (e.g. primary `#0052CC`, secondary `#FFAB00`, a fixed neutral ramp).
+  **This is not an accessibility check**; WCAG has no opinion about whether a colour is
+  on-brand. It is a design-consistency check, and it needs a configured palette (per canvas
+  or per installation) plus an exact/near-match policy.
 
-If `axe-core` is approved, axe already covers contrast; a standalone checker is only worth
-building if axe is rejected or if palette compliance is the real requirement.
+Recommendation: **drop the standalone contrast checker** (axe covers it), and build palette
+compliance only if brand drift is a real defect for your reviewers. If the answer is "we
+want both", contrast can be a thin readout over the same colour sampling the palette check
+already performs — the sampling is the work, not the maths.
 
 ### 15. Page syntax / hygiene linter
 
@@ -308,11 +318,10 @@ building if axe is rejected or if palette compliance is the real requirement.
 
 ## Open decisions
 
-1. **`axe-core`** — approve or park accessibility.
-2. **Colour checker** — contrast, palette, or both.
-3. **Default crawl depth** — 1 or 2.
-4. **Harper artifact size** — measure before committing to packaging.
-5. **Capture-context display** — surface viewport/environment on the card and issue panel.
+1. **Colour checker** — palette compliance, a contrast spot-check beyond axe, or drop it.
+2. **Default crawl depth** — 1 or 2.
+3. **Harper artifact size** — measure before committing to packaging.
+4. **Capture-context display** — surface viewport/environment on the card and issue panel.
 
 ## Explicitly not planned
 
