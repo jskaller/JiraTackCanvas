@@ -13,10 +13,10 @@
 | | Value | Source |
 | --- | --- | --- |
 | Tagged commit (pre-deploy snapshot) | `git rev-parse baseline/pre-pivot-2026-10-30` | git |
-| App version (deployed) | **5.99.0** | `forge deploy` output, `forge install list` |
-| Development last deployed | 2026-11-05T21:37Z (scopes unchanged unless stated) | `forge deploy list` |
+| App version (deployed) | **5.100.0** | `forge deploy` output, `forge install list` |
+| Development last deployed | 2026-11-06T13:37Z (scopes unchanged unless stated) | `forge deploy list` |
 | Installation | upgraded to major 5 | `forge install --upgrade` |
-| SDK hash (deployed) | `37801e0b3f88` | served `ETag`, `src/lib/version.js` |
+| SDK hash (deployed) | `0e4f66b0b3c7` | served `ETag`, `src/lib/version.js` |
 | SDK hash (tree) | `86da66a835c1` | `src/lib/version.js` |
 | Bookmarklet bundle (tree) | 362,911 bytes (`dist/bookmarklet/jiratack.js`) | `npm run build` (byte-identical across rebuilds; `SDK_VERSION` is its SHA-256 prefix) |
 | Bookmarklet URL length | ~3,500 chars with a 64-char token | `buildBookmarklet()` |
@@ -27,7 +27,7 @@
 
 ## 2. Deployed vs tree
 
-**Deployed 2026-11-05.** Development runs the current tree as app **5.99.0**, SDK `37801e0b3f88`, four scopes. No `forge install --upgrade` was needed: scopes were unchanged since 5.0.0.
+**Deployed 2026-11-06.** Development runs the current tree as app **5.100.0**, SDK `0e4f66b0b3c7`, four scopes. No `forge install --upgrade` was needed: scopes were unchanged since 5.0.0.
 
 | Change | Commits | Status |
 | --- | --- | --- |
@@ -91,6 +91,7 @@
 | Usage meter (D47): exchangeToken and exchangeLoginCode record one row per distinct identity (user or guest) with a heartbeat; dashboardAggregate returns counts inside a 20-minute window and admins see them under the title. Measurement only, no cap. | working tree (uncommitted) | **Deployed** 2026-11-05 as 5.97.0 |
 | Person-level guest identity (D48): the usage meter keys guests by bindingId so one person counts once, and the invites list gains Revoke guest, which ends every invitation for the same reviewer binding and deletes their typed codes; New link now issues a ?code= URL. | working tree (uncommitted) | **Deployed** 2026-11-05 as 5.98.0 |
 | Guest invitations as one card per reviewer (D48): invites grouped by email, active first, revoked collapsed behind a toggle, person-level pins in the header, and Revoke all invites shown only when more than one invite is live. | working tree (uncommitted) | **Deployed** 2026-11-05 as 5.99.0 |
+| Quiet pin-placement warning: the 'pin is absolute' console.warn now fires once per pin per placement mode instead of on every render (it repeated on each 15-second poll). | working tree (uncommitted) | **Deployed** 2026-11-06 as 5.100.0 |
 
 **Deployed scopes are the four in `manifest.yml`.** Confirmed with `forge version details -e development --non-interactive --json`: `storage:app`, `read:jira-work`, `write:jira-work`, `read:jira-user`. The two `manage:jira-*` scopes were dropped before 5.0.0.
 

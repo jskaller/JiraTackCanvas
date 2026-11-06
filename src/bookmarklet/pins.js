@@ -67,6 +67,11 @@ export function pinPagePoint(pin) {
   return null;
 }
 
+// One line per pin per placement mode, per page. This used to fire on every
+// render — including each 15-second poll — and flooded the console with the
+// same warning while a pin stayed unanchored.
+const warnedPlacements = new Set();
+
 export function renderPins(container, pins, options = {}) {
   const onSelect = options.onSelect;
   const onHover = options.onHover;
@@ -94,9 +99,13 @@ export function renderPins(container, pins, options = {}) {
     // pixels, which do not follow reflow. Say so rather than drawing it as if
     // the position were trustworthy.
     if (placement.mode !== 'selector') {
-      console.warn(
-        `[JiraTack] pin ${pin.key} is ${placement.mode}: selector=${JSON.stringify(pin.selector)} position=${JSON.stringify(pin.pinPosition)}`,
-      );
+      const warnKey = `${pin.key}:${placement.mode}`;
+      if (!warnedPlacements.has(warnKey)) {
+        warnedPlacements.add(warnKey);
+        console.warn(
+          `[JiraTack] pin ${pin.key} is ${placement.mode}: selector=${JSON.stringify(pin.selector)} position=${JSON.stringify(pin.pinPosition)}`,
+        );
+      }
     }
     const el = document.createElement('div');
     el.className = 'jiratack-pin';
